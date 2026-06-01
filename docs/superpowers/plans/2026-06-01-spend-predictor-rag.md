@@ -1395,7 +1395,8 @@ Create `.env.example`:
 ```bash
 # Local vLLM (OpenAI-compatible) endpoint
 VLLM_BASE_URL=http://localhost:8000/v1
-VLLM_MODEL=openai/google/gemma-4-E4B-it
+# CrewAI 1.x uses native providers (no litellm); use the hosted_vllm/ prefix for vLLM
+VLLM_MODEL=hosted_vllm/google/gemma-4-E4B-it
 VLLM_API_KEY=not-needed
 
 # Embeddings for RAG retrieval

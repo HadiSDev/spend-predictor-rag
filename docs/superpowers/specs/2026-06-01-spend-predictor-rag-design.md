@@ -23,7 +23,7 @@ PDF in data/invoices/  →  extract text  →  [extract → verify → categoriz
 |---|---|---|
 | Categorization | RAG / vector retrieval over chart of accounts | Matches repo intent (`-rag`); constrains the agent to relevant accounts |
 | Input format | PDF files | Parsed with `pdfplumber` |
-| LLM | Local vLLM, OpenAI-compatible at `http://localhost:8000/v1`, model `openai/google/gemma-4-E4B-it` | Per project guidelines; configurable via `.env` |
+| LLM | Local vLLM, OpenAI-compatible at `http://localhost:8000/v1`, model `hosted_vllm/google/gemma-4-E4B-it` | Per project guidelines; configurable via `.env`. CrewAI 1.x ships native providers without litellm, so the vLLM endpoint uses the `hosted_vllm/` prefix (the `openai/` prefix rejects non-OpenAI model names) |
 | Embeddings | Local `sentence-transformers` (`all-MiniLM-L6-v2`) | No extra server, CPU-friendly; Gemma is generative, not an embedding model |
 | Vector store | ChromaDB, persisted to disk | Embed the chart once, reuse across runs |
 | Output | CSV ledger (`output/ledger.csv`) | Accounting-friendly, inspectable |
@@ -184,7 +184,7 @@ distinct agent with its own persona, output schema, and tool surface.
 
 Reads `.env`:
 - `VLLM_BASE_URL` (default `http://localhost:8000/v1`)
-- `VLLM_MODEL` (default `openai/google/gemma-4-E4B-it`)
+- `VLLM_MODEL` (default `hosted_vllm/google/gemma-4-E4B-it`)
 - `VLLM_API_KEY` (default dummy, vLLM ignores it)
 - `EMBEDDING_MODEL` (default `all-MiniLM-L6-v2`)
 - `CHART_OF_ACCOUNTS_PATH`, `INVOICES_DIR`, `LEDGER_PATH`, `CHROMA_DIR`
