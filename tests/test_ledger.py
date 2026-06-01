@@ -53,6 +53,23 @@ def test_build_ledger_row_processed():
     assert row["arithmetic_ok"] is True
 
 
+def test_build_ledger_row_errored_has_reason_and_blanks():
+    row = build_ledger_row(
+        source_file="boom.pdf",
+        skipped=False,
+        skip_reason="",
+        extracted=None,
+        verification=None,
+        categorized=None,
+        errored=True,
+        error_reason="verify failed: timeout",
+    )
+    assert row["status"] == "error"
+    assert row["notes"] == "verify failed: timeout"
+    assert row["account_code"] == ""
+    assert row["vendor_name"] == ""
+
+
 def test_build_ledger_row_skipped_has_reason_and_blanks():
     row = build_ledger_row(
         source_file="bad.pdf",

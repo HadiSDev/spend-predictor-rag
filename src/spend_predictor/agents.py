@@ -4,7 +4,6 @@ from __future__ import annotations
 from crewai import Agent
 
 from .config import get_llm
-from .rag.search_tool import ChartOfAccountsSearchTool
 
 
 def make_extractor() -> Agent:
@@ -49,17 +48,16 @@ def make_categorizer() -> Agent:
     return Agent(
         role="Spend Categorization Analyst",
         goal=(
-            "Assign each invoice to the single best-matching account from the corporate "
-            "chart of accounts, using the search tool to find candidates and choosing "
-            "only from the returned options."
+            "Assign each invoice to the single best-matching account, choosing strictly "
+            "from the candidate accounts provided in the prompt and never inventing a code."
         ),
         backstory=(
             "You are a management accountant who codes spend to the chart of accounts. "
-            "You always search for candidate accounts first and pick the closest fit, "
+            "You are given a shortlist of candidate accounts and pick the closest fit, "
             "giving a confidence score and a short rationale."
         ),
         llm=get_llm(),
-        tools=[ChartOfAccountsSearchTool()],
-        max_iter=10,
+        tools=[],
+        max_iter=5,
         verbose=False,
     )

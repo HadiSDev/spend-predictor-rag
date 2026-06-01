@@ -36,6 +36,24 @@ def _read_accounts(csv_path: str) -> list[dict]:
         return list(csv.DictReader(f))
 
 
+def load_accounts(csv_path: str | None = None) -> list[dict]:
+    """Return the chart of accounts as a list of row dicts."""
+    return _read_accounts(csv_path or config.CHART_OF_ACCOUNTS_PATH)
+
+
+def retrieve_accounts(
+    query: str,
+    top_k: int = 5,
+    embed_fn: Callable[[list[str]], list[list[float]]] = _default_embed,
+    chroma_dir: str | None = None,
+) -> list[dict]:
+    """Return the top-K chart-of-accounts rows most relevant to the query,
+    ordered best-first, as metadata dicts."""
+    collection = get_collection(chroma_dir)
+    result = collection.query(query_embeddings=embed_fn([query]), n_results=top_k)
+    return (result.get("metadatas") or [[]])[0]
+
+
 def build_index(
     csv_path: str | None = None,
     chroma_dir: str | None = None,

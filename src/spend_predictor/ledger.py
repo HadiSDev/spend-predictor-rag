@@ -31,6 +31,9 @@ def build_ledger_row(
     extracted: ExtractedInvoice | None,
     verification: VerificationResult | None,
     categorized: CategorizedInvoice | None,
+    categorization_note: str = "",
+    errored: bool = False,
+    error_reason: str = "",
 ) -> dict:
     """Build a ledger row dict from flow results."""
     if skipped:
@@ -40,10 +43,21 @@ def build_ledger_row(
         row["notes"] = skip_reason
         return row
 
+    if errored:
+        row = {col: "" for col in LEDGER_COLUMNS}
+        row["source_file"] = source_file
+        row["status"] = "error"
+        row["notes"] = error_reason
+        return row
+
+    note_parts: list[str] = []
     if verification and verification.discrepancies:
-        notes = "; ".join(verification.discrepancies)
-    else:
-        notes = (verification.notes if verification else "") or ""
+        note_parts.append("; ".join(verification.discrepancies))
+    elif verification and verification.notes:
+        note_parts.append(verification.notes)
+    if categorization_note:
+        note_parts.append(categorization_note)
+    notes = " | ".join(note_parts)
 
     return {
         "source_file": source_file,

@@ -43,6 +43,9 @@ class InvoiceState(BaseModel):
     invoice_text: str = ""
     skipped: bool = False
     skip_reason: str = ""
+    errored: bool = False
+    error_reason: str = ""
     extracted: ExtractedInvoice | None = None
     verification: VerificationResult | None = None
     categorized: CategorizedInvoice | None = None
+    categorization_note: str = ""

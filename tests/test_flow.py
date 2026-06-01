@@ -46,6 +46,15 @@ def _install_fakes(monkeypatch, ledger_path):
     monkeypatch.setattr(flow, "make_extractor", lambda: _FakeAgent(extracted))
     monkeypatch.setattr(flow, "make_verifier", lambda: _FakeAgent(verification))
     monkeypatch.setattr(flow, "make_categorizer", lambda: _FakeAgent(categorized))
+    # Keep grounding offline: fake the chart + retrieval (no chroma, no model).
+    account = {
+        "account_code": "6010",
+        "account_name": "Cloud Hosting & Infrastructure",
+        "category": "IT",
+        "description": "cloud servers and hosting",
+    }
+    monkeypatch.setattr(flow, "retrieve_accounts", lambda query, top_k=5: [account])
+    monkeypatch.setattr(flow, "load_accounts", lambda: [account])
 
 
 def test_flow_writes_processed_row(tmp_path, monkeypatch):
@@ -60,6 +69,44 @@ def test_flow_writes_processed_row(tmp_path, monkeypatch):
     assert rows[0]["status"] == "processed"
     assert rows[0]["source_file"] == "sample.pdf"
     assert rows[0]["account_code"] == "6010"
+
+
+def test_flow_snaps_hallucinated_account_code(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    _install_fakes(monkeypatch, ledger)
+    monkeypatch.setattr(flow, "extract_text", lambda p: "INVOICE Acme Cloud total 100")
+    # categorizer fabricates a code that is not in the chart
+    bogus = CategorizedInvoice(
+        account_code="9999", account_name="Made Up", category="Nope", confidence=0.95, rationale="hallucinated"
+    )
+    monkeypatch.setattr(flow, "make_categorizer", lambda: _FakeAgent(bogus))
+
+    flow.InvoiceFlow().kickoff(inputs={"pdf_path": "/x/sample.pdf"})
+
+    rows = _read(ledger)
+    assert rows[0]["account_code"] == "6010"  # snapped to the top retrieved candidate
+    assert "9999" in rows[0]["notes"] and "6010" in rows[0]["notes"]
+
+
+def test_flow_records_error_row_on_stage_failure(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    _install_fakes(monkeypatch, ledger)
+    monkeypatch.setattr(flow, "extract_text", lambda p: "INVOICE Acme Cloud total 100")
+
+    class _RaisingAgent:
+        def kickoff(self, *args, **kwargs):
+            raise RuntimeError("model timeout")
+
+    monkeypatch.setattr(flow, "make_verifier", lambda: _RaisingAgent())
+
+    flow.InvoiceFlow().kickoff(inputs={"pdf_path": "/x/sample.pdf"})
+
+    rows = _read(ledger)
+    assert len(rows) == 1
+    assert rows[0]["status"] == "error"
+    assert "verify failed" in rows[0]["notes"]
+    assert "model timeout" in rows[0]["notes"]
+    assert rows[0]["account_code"] == ""
 
 
 def test_flow_skips_empty_pdf_and_does_not_call_agents(tmp_path, monkeypatch):

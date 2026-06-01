@@ -14,8 +14,9 @@ from .models import (
     InvoiceState,
     VerificationResult,
 )
+from .grounding import ground_categorization
 from .pdf_loader import extract_text
-from .rag.indexer import build_index
+from .rag.indexer import build_index, load_accounts, retrieve_accounts
 
 
 class InvoiceFlow(Flow[InvoiceState]):
@@ -37,43 +38,68 @@ class InvoiceFlow(Flow[InvoiceState]):
 
     @listen(load_invoice)
     def extract(self):
-        if self.state.skipped:
+        if self.state.skipped or self.state.errored:
             return
-        agent = make_extractor()
-        result = agent.kickoff(
-            "Extract the structured invoice data from the following invoice text. "
-            "Leave any missing field null.\n\n" + self.state.invoice_text,
-            response_format=ExtractedInvoice,
-        )
-        self.state.extracted = result.pydantic
+        try:
+            agent = make_extractor()
+            result = agent.kickoff(
+                "Extract the structured invoice data from the following invoice text. "
+                "Leave any missing field null.\n\n" + self.state.invoice_text,
+                response_format=ExtractedInvoice,
+            )
+            self.state.extracted = result.pydantic
+        except Exception as exc:  # noqa: BLE001 - record and move on
+            self.state.errored = True
+            self.state.error_reason = f"extract failed: {exc}"
 
     @listen(extract)
     def verify(self):
-        if self.state.skipped:
+        if self.state.skipped or self.state.errored:
             return
-        agent = make_verifier()
-        result = agent.kickoff(
-            "Verify the arithmetic of this extracted invoice and list any "
-            "discrepancies.\n\n" + self.state.extracted.model_dump_json(indent=2),
-            response_format=VerificationResult,
-        )
-        self.state.verification = result.pydantic
+        try:
+            agent = make_verifier()
+            result = agent.kickoff(
+                "Verify the arithmetic of this extracted invoice and list any "
+                "discrepancies.\n\n" + self.state.extracted.model_dump_json(indent=2),
+                response_format=VerificationResult,
+            )
+            self.state.verification = result.pydantic
+        except Exception as exc:  # noqa: BLE001 - record and move on
+            self.state.errored = True
+            self.state.error_reason = f"verify failed: {exc}"
 
     @listen(verify)
     def categorize(self):
-        if self.state.skipped:
+        if self.state.skipped or self.state.errored:
             return
-        inv = self.state.extracted
-        descriptions = "; ".join(li.description for li in inv.line_items)
-        query = f"{inv.vendor_name}: {descriptions}"
-        agent = make_categorizer()
-        result = agent.kickoff(
-            "Categorize this invoice to the single best account in the corporate "
-            "chart of accounts. Use the chart_of_accounts_search tool to find "
-            f"candidates for: {query}. Choose only from the returned accounts.",
-            response_format=CategorizedInvoice,
-        )
-        self.state.categorized = result.pydantic
+        try:
+            inv = self.state.extracted
+            descriptions = "; ".join(li.description for li in inv.line_items)
+            query = f"{inv.vendor_name}: {descriptions}"
+            # Deterministic RAG: retrieve candidates in code and let a toolless
+            # agent pick one. This avoids the slow/unreliable agentic tool-call
+            # loop; the chosen code is then validated against the real chart.
+            candidates = retrieve_accounts(query, top_k=5)
+            candidate_lines = "\n".join(
+                f"- {c['account_code']} | {c['account_name']} | {c['category']} | {c['description']}"
+                for c in candidates
+            )
+            agent = make_categorizer()
+            result = agent.kickoff(
+                "Choose the single best account for this invoice, using ONLY one of the "
+                "candidate account codes listed below. Do not invent a code.\n\n"
+                f"Invoice: {query}\n\nCandidate accounts:\n{candidate_lines}",
+                response_format=CategorizedInvoice,
+            )
+            accounts_by_code = {a["account_code"]: a for a in load_accounts()}
+            grounded, note = ground_categorization(
+                result.pydantic, candidates, accounts_by_code
+            )
+            self.state.categorized = grounded
+            self.state.categorization_note = note
+        except Exception as exc:  # noqa: BLE001 - record and move on
+            self.state.errored = True
+            self.state.error_reason = f"categorize failed: {exc}"
 
     @listen(categorize)
     def record_to_ledger(self):
@@ -84,6 +110,9 @@ class InvoiceFlow(Flow[InvoiceState]):
             extracted=self.state.extracted,
             verification=self.state.verification,
             categorized=self.state.categorized,
+            categorization_note=self.state.categorization_note,
+            errored=self.state.errored,
+            error_reason=self.state.error_reason,
         )
         append_row(row, config.LEDGER_PATH)
 
@@ -109,7 +138,10 @@ def run_all() -> None:
         state = invoice_flow.state
         if state.skipped:
             print(f"  skipped: {state.skip_reason}")
+        elif state.errored:
+            print(f"  error: {state.error_reason}")
         elif state.categorized:
             c = state.categorized
-            print(f"  -> {c.account_code} {c.account_name} (confidence {c.confidence})")
+            note = f" [{state.categorization_note}]" if state.categorization_note else ""
+            print(f"  -> {c.account_code} {c.account_name} (confidence {c.confidence}){note}")
     print(f"Done. Ledger: {config.LEDGER_PATH}")
