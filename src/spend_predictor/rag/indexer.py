@@ -10,7 +10,7 @@ from .. import config
 
 COLLECTION_NAME = "chart_of_accounts"
 
-_model = None
+_model: "SentenceTransformer | None" = None
 
 
 def _default_embed(texts: list[str]) -> list[list[float]]:
@@ -23,7 +23,7 @@ def _default_embed(texts: list[str]) -> list[list[float]]:
     return _model.encode(texts, normalize_embeddings=True).tolist()
 
 
-def get_collection(chroma_dir: str | None = None):
+def get_collection(chroma_dir: str | None = None) -> chromadb.Collection:
     """Open (or create) the persisted chart-of-accounts collection."""
     client = chromadb.PersistentClient(path=chroma_dir or config.CHROMA_DIR)
     return client.get_or_create_collection(
@@ -47,6 +47,8 @@ def build_index(
     rows = _read_accounts(csv_path)
     collection = get_collection(chroma_dir)
 
+    # Idempotency is count-based per spec; content changes without a row-count
+    # change require manually clearing chroma_dir to force a rebuild.
     if len(rows) > 0 and collection.count() == len(rows):
         return collection
 
