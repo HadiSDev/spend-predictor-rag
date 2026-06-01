@@ -6,3 +6,9 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+
+# Project-specific generated artifacts and secrets
+.env
+output/
+chroma_db/
+.DS_Store

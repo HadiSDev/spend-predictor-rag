@@ -1,20 +1,51 @@
-# Autonomous Invoice Processing & Spend Categorization Crew
+# Autonomous Invoice Processing & Spend Categorization (CrewAI + RAG)
 
-An intelligent, multi-agent automated financial processing system built on **CrewAI** and managed with **Astral `uv`**. This project replaces rigid, fragile regex-based document parsing with a flexible, highly accurate multi-agent assembly line that reads invoices and automatically codes them to a strict corporate chart of accounts.
+A multi-agent pipeline that reads PDF invoices and codes each to a corporate
+chart of accounts, writing results to a CSV ledger. Built on CrewAI (`Flow` +
+`Agent.kickoff`) with RAG-backed categorization over a persisted ChromaDB index.
 
----
+## Pipeline
 
-## 🏗 System Architecture
+```text
+PDF in data/invoices/  ->  extract text  ->  extract -> verify -> categorize  ->  output/ledger.csv
+```
 
-Instead of relying on a single AI model to extract data, evaluate compliance, and pick a category all at once—which heavily invites hallucinations—this project implements a **deterministic 3-stage financial pipeline**:
+1. **Extract** structured fields from the invoice text.
+2. **Verify** the arithmetic (line items -> subtotal -> total).
+3. **Categorize** to the best chart-of-accounts entry using RAG retrieval.
 
-
-## 🧪 Verification & Testing
-
-To ensure that the multi-agent system extracts data cleanly, verifies calculations accurately, and strictly conforms to your corporate schema, you can run automated verification tests.
-
-### 1. Fast Pipeline Verification (Smoke Test)
-You can instantly verify that the environment, CrewAI workflows, and LLM providers are talking to each other by running the built-in demo extraction task:
+## Setup
 
 ```bash
+uv sync
+cp .env.example .env   # then edit if your vLLM endpoint differs
+```
+
+The LLM is a local vLLM server exposing an OpenAI-compatible API at
+`http://localhost:8000/v1` serving `google/gemma-4-E4B-it` (referenced as
+`hosted_vllm/google/gemma-4-E4B-it`). Embeddings use a local
+`sentence-transformers` model (`all-MiniLM-L6-v2`, downloaded on first run).
+
+## Run
+
+```bash
+# Drop PDF invoices into data/invoices/ (a sample is included), then:
 uv run main.py
+```
+
+Results are appended to `output/ledger.csv`. Skipped (unreadable/empty) invoices
+are recorded with `status=skipped` and a reason.
+
+## Test
+
+```bash
+uv run pytest
+```
+
+Unit tests run offline (no LLM, no model download - embeddings are faked).
+
+## Configuration
+
+All paths and the LLM/embedding settings are configurable via `.env` (see
+`.env.example`). Replace `data/chart_of_accounts.csv` with your real chart; the
+ChromaDB index rebuilds automatically when the row count changes.
