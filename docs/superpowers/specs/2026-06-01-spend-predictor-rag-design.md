@@ -186,10 +186,14 @@ Reads `.env`:
 - `VLLM_BASE_URL` (default `http://localhost:8000/v1`)
 - `VLLM_MODEL` (default `hosted_vllm/google/gemma-4-E4B-it`)
 - `VLLM_API_KEY` (default dummy, vLLM ignores it)
+- `VLLM_MAX_TOKENS` (default `8192`) and `VLLM_TIMEOUT` (default `120`s) — bound
+  each LLM call. Without `max_tokens`, a structured-output request can run toward
+  the model's full context window and hang the pipeline (observed in the live
+  smoke test); the timeout fails a stalled request instead of blocking forever.
 - `EMBEDDING_MODEL` (default `all-MiniLM-L6-v2`)
 - `CHART_OF_ACCOUNTS_PATH`, `INVOICES_DIR`, `LEDGER_PATH`, `CHROMA_DIR`
 
-`get_llm()` returns a CrewAI `LLM(model=..., base_url=..., api_key=...)`.
+`get_llm()` returns a CrewAI `LLM(model=..., base_url=..., api_key=..., max_tokens=..., timeout=...)`.
 
 ### 3.8 Ledger (`ledger.py`)
 

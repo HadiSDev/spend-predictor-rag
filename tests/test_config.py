@@ -19,3 +19,13 @@ def test_get_llm_uses_vllm_settings():
     # VLLM_MODEL uses the hosted_vllm/ prefix required by this version of crewAI
     assert config.VLLM_MODEL == "hosted_vllm/google/gemma-4-E4B-it"
     assert config.VLLM_BASE_URL == "http://localhost:8000/v1"
+
+
+def test_get_llm_bounds_generation_and_timeout():
+    # Without these, a structured-output call can run toward the model's full
+    # context window and hang the pipeline (observed in the live smoke test).
+    llm = config.get_llm()
+    assert llm.max_tokens == config.VLLM_MAX_TOKENS
+    assert float(llm.timeout) == float(config.VLLM_TIMEOUT)
+    assert config.VLLM_MAX_TOKENS == 8192
+    assert config.VLLM_TIMEOUT == 120
