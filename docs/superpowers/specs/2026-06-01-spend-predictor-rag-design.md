@@ -28,7 +28,7 @@ PDF in data/invoices/  →  extract text  →  [extract → verify → categoriz
 | Vector store | ChromaDB, persisted to disk | Embed the chart once, reuse across runs |
 | Output | CSV ledger (`output/ledger.csv`) | Accounting-friendly, inspectable |
 | Chart of accounts | Generated sample CSV | Placeholder the user can replace with the real chart |
-| Framework | CrewAI `Flow` wrapping a sequential `Crew` | Per crewai-skills guidance: scaffold via CLI, Flow as the production foundation |
+| Framework | CrewAI `Flow` with three `Agent.kickoff()` steps | Per crewai-skills guidance: scaffold via CLI, Flow as the foundation, `Agent.kickoff()` (not a Crew) for distinct-agent-per-step linear pipelines |
 | Package mgmt | `uv` via the CrewAI CLI scaffold | `crewai create flow` generates a uv-based `pyproject.toml` |
 
 ## 3. Architecture
@@ -61,38 +61,45 @@ spend-predictor-rag/
     ├── main.py                 # InvoiceFlow + kickoff() entry (loops over PDFs)
     ├── config.py               # env loading + CrewAI LLM factory
     ├── models.py               # Pydantic schemas (§3.4)
+    ├── agents.py               # factory funcs: make_extractor/verifier/categorizer Agents
     ├── pdf_loader.py           # pdfplumber → text
     ├── ledger.py               # CSV append (header-aware)
-    ├── rag/
-    │   ├── indexer.py          # build/load persisted Chroma collection from CSV
-    │   └── search_tool.py      # ChartOfAccountsSearchTool (CrewAI BaseTool)
-    └── crews/
-        └── invoice_crew/
-            ├── config/
-            │   ├── agents.yaml # extractor, verifier, categorizer
-            │   └── tasks.yaml  # extract, verify, categorize
-            └── invoice_crew.py # InvoiceProcessingCrew (@CrewBase)
+    └── rag/
+        ├── indexer.py          # build/load persisted Chroma collection from CSV
+        └── search_tool.py      # ChartOfAccountsSearchTool (CrewAI BaseTool)
 ```
 
-> Note: exact generated paths (e.g. crew directory name) follow whatever
-> `crewai create flow` emits; the above reflects the intended final shape after
-> edits. The crew folder/class names are adjusted to the invoice domain.
+> Note: `crewai create flow` scaffolds an example crew under `crews/`; since we
+> use `Agent.kickoff()` steps instead of a Crew, that generated crew folder is
+> removed and the agents live in `agents.py`. The Flow and entry point replace the
+> generated `main.py`.
 
 ### 3.3 The Flow (`src/spend_predictor/main.py`)
 
-`InvoiceFlow(Flow[InvoiceState])` processes **one** invoice:
+`InvoiceFlow(Flow[InvoiceState])` processes **one** invoice with structured
+state. Each reasoning stage is its own `@listen` step running an
+`Agent.kickoff(..., response_format=Model)`:
 
 - `@start load_invoice` — read `state.pdf_path`, extract text via `pdf_loader`.
   On empty/failed extraction, mark `state.skipped = True` with a reason.
-- `@listen(load_invoice) process_invoice` — if not skipped, run
-  `InvoiceProcessingCrew().crew().kickoff(inputs={"invoice_text": ...})`;
-  store the structured outputs in state.
-- `@listen(process_invoice) record_to_ledger` — append a row to the CSV ledger.
+- `@listen(load_invoice) extract` — if not skipped, run the extractor agent
+  (`response_format=ExtractedInvoice`) over `state.invoice_text`; store
+  `result.pydantic` in `state.extracted`.
+- `@listen(extract) verify` — if not skipped, run the verifier agent
+  (`response_format=VerificationResult`) over `state.extracted`; store in
+  `state.verification`.
+- `@listen(verify) categorize` — if not skipped, run the categorizer agent
+  (has the RAG tool, `response_format=CategorizedInvoice`); store in
+  `state.categorized`.
+- `@listen(categorize) record_to_ledger` — append a row to the CSV ledger.
   Skipped invoices still get a row, with `status=skipped` and the reason recorded
   in the `notes` column (see §3.6).
 
+Each post-load step early-returns when `state.skipped` is set, so a skip
+propagates cleanly to `record_to_ledger`.
+
 `InvoiceState` (Pydantic) fields: `pdf_path`, `invoice_text`, `skipped`,
-`skip_reason`, and the three stage results.
+`skip_reason`, `extracted`, `verification`, `categorized`.
 
 The module-level `kickoff()` entry (invoked by `crewai run`) lists every
 `*.pdf` in `data/invoices/`, ensures the Chroma index exists (build once if
@@ -131,25 +138,28 @@ class CategorizedInvoice(BaseModel):
     rationale: str
 ```
 
-Each crew task sets `output_pydantic` to the matching model so CrewAI enforces
-and retries on schema mismatch.
+Each agent is called with `response_format` set to the matching model, so CrewAI
+enforces and retries on schema mismatch. Structured outputs are read via
+`result.pydantic`.
 
-### 3.5 The Crew (`crews/invoice_crew/`)
+### 3.5 The reasoning agents (`agents.py`)
 
-Sequential `Process.sequential`. In a sequential crew each task auto-receives
-prior task outputs as context.
+Three factory functions, each returning a purpose-built `Agent` (specific
+role / goal / backstory per the design-agent skill). All share the vLLM `LLM`
+from `config.get_llm()`. They are invoked via `Agent.kickoff()` from the Flow
+steps in §3.3 — no Crew layer, since the pipeline is linear and each step is a
+distinct agent with its own persona, output schema, and tool surface.
 
-- **extractor** → `extract_task` (`output_pydantic=ExtractedInvoice`): pull
-  structured fields from the raw invoice text. No tools.
-- **verifier** → `verify_task` (`output_pydantic=VerificationResult`): recompute
-  that line items sum to subtotal and subtotal + tax ≈ total (small float
-  tolerance); list any discrepancies. Flags but never blocks.
-- **categorizer** → `categorize_task` (`output_pydantic=CategorizedInvoice`):
-  call `ChartOfAccountsSearchTool` with a query built from vendor + line-item
-  descriptions, then choose the best account from the returned candidates.
-  The tool is assigned to this agent only.
-
-LLM for all agents comes from `config.get_llm()` (the vLLM `LLM` instance).
+- **make_extractor()** → no tools. Step prompt passes `state.invoice_text`;
+  returns `ExtractedInvoice`. Pulls structured fields from raw invoice text.
+- **make_verifier()** → no tools. Step prompt passes the extracted invoice;
+  returns `VerificationResult`. Recomputes that line items sum to subtotal and
+  subtotal + tax ≈ total (small float tolerance); lists discrepancies. Flags but
+  never blocks.
+- **make_categorizer()** → has `ChartOfAccountsSearchTool`. Step prompt passes a
+  query built from vendor + line-item descriptions; the agent searches the chart
+  of accounts and returns `CategorizedInvoice`, choosing from the retrieved
+  candidates. The RAG tool is assigned to this agent only.
 
 ### 3.6 RAG layer (`rag/`)
 
