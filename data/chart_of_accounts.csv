@@ -1,0 +1,16 @@
+account_code,account_name,description,category
+6010,Cloud Hosting & Infrastructure,cloud servers compute storage hosting and infrastructure services,IT
+6020,Software Subscriptions,saas software licenses and subscription tools,IT
+6030,Telecommunications,internet phone mobile and connectivity services,IT
+6500,Office Supplies,stationery paper printer supplies and small office items,Admin
+6510,Office Equipment,furniture monitors hardware and durable office equipment,Admin
+6600,Professional Services,consulting accounting and outsourced professional work,Services
+6610,Legal Fees,legal counsel attorney and compliance services,Services
+6700,Marketing & Advertising,advertising campaigns marketing and promotional spend,Marketing
+6800,Travel - Airfare,flights and airline tickets for business travel,Travel
+6810,Travel - Lodging,hotels and accommodation for business travel,Travel
+6820,Meals & Entertainment,business meals client entertainment and catering,Travel
+6900,Utilities,electricity water gas and facility utilities,Facilities
+6910,Rent & Lease,office rent and equipment lease payments,Facilities
+7000,Shipping & Freight,courier postage shipping and freight charges,Logistics
+7100,Training & Development,courses conferences training and employee development,HR
