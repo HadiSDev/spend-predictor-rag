@@ -92,6 +92,9 @@ class InvoiceFlow(Flow[InvoiceState]):
                 response_format=CategorizedInvoice,
             )
             accounts_by_code = {a["account_code"]: a for a in load_accounts()}
+            # If candidates is empty (index not built/populated), grounding cannot
+            # snap and a fabricated code may pass through on a processed row; the
+            # note records this. run_all builds the index first, so this is rare.
             grounded, note = ground_categorization(
                 result.pydantic, candidates, accounts_by_code
             )
@@ -134,6 +137,24 @@ def run_all() -> None:
             invoice_flow.kickoff(inputs={"pdf_path": str(pdf)})
         except Exception as exc:  # noqa: BLE001 - keep processing remaining invoices
             print(f"  ERROR: {exc}")
+            # The flow itself crashed before record_to_ledger ran; still write a
+            # row so every invoice is accounted for in the ledger.
+            try:
+                append_row(
+                    build_ledger_row(
+                        source_file=pdf.name,
+                        skipped=False,
+                        skip_reason="",
+                        extracted=None,
+                        verification=None,
+                        categorized=None,
+                        errored=True,
+                        error_reason=f"flow crashed: {exc}",
+                    ),
+                    config.LEDGER_PATH,
+                )
+            except Exception:  # noqa: BLE001 - never let logging break the batch
+                pass
             continue
         state = invoice_flow.state
         if state.skipped:

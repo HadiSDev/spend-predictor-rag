@@ -53,7 +53,7 @@ def build_ledger_row(
     note_parts: list[str] = []
     if verification and verification.discrepancies:
         note_parts.append("; ".join(verification.discrepancies))
-    elif verification and verification.notes:
+    if verification and verification.notes:
         note_parts.append(verification.notes)
     if categorization_note:
         note_parts.append(categorization_note)

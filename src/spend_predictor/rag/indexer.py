@@ -65,9 +65,13 @@ def build_index(
     rows = _read_accounts(csv_path)
     collection = get_collection(chroma_dir)
 
+    # An empty chart has nothing to embed; upserting empty lists would raise.
+    if not rows:
+        return collection
+
     # Idempotency is count-based per spec; content changes without a row-count
     # change require manually clearing chroma_dir to force a rebuild.
-    if len(rows) > 0 and collection.count() == len(rows):
+    if collection.count() == len(rows):
         return collection
 
     ids = [r["account_code"] for r in rows]

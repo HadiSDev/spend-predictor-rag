@@ -58,6 +58,6 @@ def make_categorizer() -> Agent:
         ),
         llm=get_llm(),
         tools=[],
-        max_iter=5,
+        max_iter=5,  # a single pick from an injected shortlist needs few iterations
         verbose=False,
     )

@@ -249,9 +249,13 @@ invoices, `notes` carries any verification discrepancies and/or a grounding note
 Unit tests (fast, no LLM):
 - `pdf_loader` — extracts text from a generated sample PDF fixture; returns empty
   signal for a blank/garbage PDF.
-- `rag` — `build_index` is idempotent; `search_tool` returns the expected
-  account for an obvious query (e.g. "cloud hosting" → an IT/software account).
-- `ledger` — writes header once, appends rows, round-trips values.
+- `rag` — `build_index` is idempotent and skips an empty chart; `retrieve_accounts`
+  returns the expected account first for an obvious query (e.g. "cloud hosting" →
+  the IT account), using a fake embedder so tests stay offline.
+- `grounding` — valid code canonicalized; invalid code snapped to top candidate;
+  empty-candidates flagged.
+- `ledger` — writes header once, appends rows, round-trips values; processed,
+  skipped, and error rows.
 
 Live end-to-end smoke test (manual / requires vLLM):
 - `uv run main.py` against the sample invoice produces a ledger row with a
