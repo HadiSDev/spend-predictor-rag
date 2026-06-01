@@ -1,0 +1,21 @@
+from pathlib import Path
+
+from spend_predictor import config
+
+
+def test_default_paths_resolve_under_project_root():
+    root = config.PROJECT_ROOT
+    assert Path(config.CHART_OF_ACCOUNTS_PATH) == root / "data" / "chart_of_accounts.csv"
+    assert Path(config.INVOICES_DIR) == root / "data" / "invoices"
+    assert Path(config.LEDGER_PATH) == root / "output" / "ledger.csv"
+    assert Path(config.CHROMA_DIR) == root / "chroma_db"
+
+
+def test_get_llm_uses_vllm_settings():
+    llm = config.get_llm()
+    # CrewAI strips the "hosted_vllm/" provider prefix when storing the model name
+    assert llm.model == "google/gemma-4-E4B-it"
+    assert llm.base_url == config.VLLM_BASE_URL
+    # VLLM_MODEL uses the hosted_vllm/ prefix required by this version of crewAI
+    assert config.VLLM_MODEL == "hosted_vllm/google/gemma-4-E4B-it"
+    assert config.VLLM_BASE_URL == "http://localhost:8000/v1"
