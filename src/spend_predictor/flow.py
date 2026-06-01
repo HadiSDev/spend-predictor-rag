@@ -101,11 +101,15 @@ def run_all() -> None:
     for pdf in pdfs:
         print(f"Processing {pdf.name} ...")
         invoice_flow = InvoiceFlow()
-        invoice_flow.kickoff(inputs={"pdf_path": str(pdf)})
+        try:
+            invoice_flow.kickoff(inputs={"pdf_path": str(pdf)})
+        except Exception as exc:  # noqa: BLE001 - keep processing remaining invoices
+            print(f"  ERROR: {exc}")
+            continue
         state = invoice_flow.state
-        if state and state.skipped:
+        if state.skipped:
             print(f"  skipped: {state.skip_reason}")
-        elif state and state.categorized:
+        elif state.categorized:
             c = state.categorized
             print(f"  -> {c.account_code} {c.account_name} (confidence {c.confidence})")
     print(f"Done. Ledger: {config.LEDGER_PATH}")

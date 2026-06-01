@@ -71,6 +71,8 @@ def test_flow_skips_empty_pdf_and_does_not_call_agents(tmp_path, monkeypatch):
         raise AssertionError("agents must not run for skipped invoices")
 
     monkeypatch.setattr(flow, "make_extractor", lambda: _boom())
+    monkeypatch.setattr(flow, "make_verifier", lambda: _boom())
+    monkeypatch.setattr(flow, "make_categorizer", lambda: _boom())
 
     flow.InvoiceFlow().kickoff(inputs={"pdf_path": "/x/blank.pdf"})
 
