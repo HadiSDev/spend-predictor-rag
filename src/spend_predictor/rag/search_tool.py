@@ -1,8 +1,6 @@
 """CrewAI tool that retrieves relevant chart-of-accounts entries via RAG."""
 from __future__ import annotations
 
-from typing import Type
-
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
@@ -21,7 +19,7 @@ class ChartOfAccountsSearchTool(BaseTool):
         "Search the corporate chart of accounts for accounts relevant to a spend "
         "description. Returns candidate accounts as 'code | name | category | description'."
     )
-    args_schema: Type[BaseModel] = ChartSearchInput
+    args_schema: type[BaseModel] = ChartSearchInput
 
     def _run(self, query: str, top_k: int = 5) -> str:
         collection = get_collection()

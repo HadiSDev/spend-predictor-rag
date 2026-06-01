@@ -33,11 +33,14 @@ def test_search_returns_most_relevant_account(tmp_path, monkeypatch):
     assert "Cloud Hosting" in out
 
 
-def test_search_handles_empty_results(tmp_path, monkeypatch):
-    coll = _seed(tmp_path)
-    monkeypatch.setattr(search_tool, "get_collection", lambda: coll)
-    monkeypatch.setattr(search_tool, "embed_texts", fake_embed)
+def test_search_returns_message_when_no_matches(monkeypatch):
+    class _EmptyCollection:
+        def query(self, **kwargs):
+            return {"metadatas": [[]]}
+
+    monkeypatch.setattr(search_tool, "get_collection", lambda: _EmptyCollection())
+    monkeypatch.setattr(search_tool, "embed_texts", lambda texts: [[0.0]])
 
     tool = search_tool.ChartOfAccountsSearchTool()
-    out = tool._run(query="cloud", top_k=5)
-    assert "6010" in out  # at least returns candidates
+    out = tool._run(query="anything", top_k=3)
+    assert out == "No matching accounts found."
