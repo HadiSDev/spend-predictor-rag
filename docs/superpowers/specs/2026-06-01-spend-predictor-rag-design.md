@@ -87,9 +87,9 @@ spend-predictor-rag/
 - `@listen(load_invoice) process_invoice` — if not skipped, run
   `InvoiceProcessingCrew().crew().kickoff(inputs={"invoice_text": ...})`;
   store the structured outputs in state.
-- `@listen(process_invoice) record_to_ledger` — append a row to the CSV ledger
-  (skipped invoices get a row noting the skip reason, or are logged and omitted —
-  see §3.6).
+- `@listen(process_invoice) record_to_ledger` — append a row to the CSV ledger.
+  Skipped invoices still get a row, with `status=skipped` and the reason recorded
+  in the `notes` column (see §3.6).
 
 `InvoiceState` (Pydantic) fields: `pdf_path`, `invoice_text`, `skipped`,
 `skip_reason`, and the three stage results.
@@ -182,15 +182,20 @@ Reads `.env`:
 header if absent. Columns:
 
 ```
-source_file, invoice_date, vendor_name, invoice_number, total, currency,
-account_code, account_name, category, arithmetic_ok, confidence
+source_file, status, invoice_date, vendor_name, invoice_number, total, currency,
+account_code, account_name, category, arithmetic_ok, confidence, notes
 ```
+
+`status` is `processed` or `skipped`. For skipped invoices, all categorization
+fields are blank and `notes` holds the skip reason (e.g. "empty PDF text",
+"PDF parse error: ..."). For processed invoices, `notes` carries any verification
+discrepancies.
 
 ## 4. Error Handling
 
 - **Unreadable / empty PDF** → flow marks `skipped`, logs a warning, continues to
-  the next file. A skipped invoice is logged and omitted from the ledger (no
-  fabricated row).
+  the next file. A `status=skipped` row is written to the ledger with the reason
+  in `notes` (no fabricated categorization values).
 - **vLLM unreachable** → surfaced clearly (connection error) and the run aborts
   with an actionable message (check that vLLM is serving at `VLLM_BASE_URL`).
 - **Structured-output mismatch** → CrewAI retries against the Pydantic schema.
