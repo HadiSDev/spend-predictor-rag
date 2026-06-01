@@ -66,12 +66,12 @@ spend-predictor-rag/
     ├── config.py               # env loading + CrewAI LLM factory
     ├── models.py               # Pydantic schemas (§3.4)
     ├── agents.py               # factory funcs: make_extractor/verifier/categorizer Agents
+    ├── grounding.py            # validate-and-snap categorization guardrail
     ├── pdf_loader.py           # pdfplumber → text
     ├── ledger.py               # CSV append (header-aware)
     └── rag/
         ├── __init__.py
-        ├── indexer.py          # build/load persisted Chroma collection from CSV
-        └── search_tool.py      # ChartOfAccountsSearchTool (CrewAI BaseTool)
+        └── indexer.py          # build/load Chroma index; retrieve_accounts/load_accounts
 ```
 
 > Note: the root `main.py` is a thin entry that calls `run_all()` in
@@ -104,7 +104,8 @@ Each post-load step early-returns when `state.skipped` is set, so a skip
 propagates cleanly to `record_to_ledger`.
 
 `InvoiceState` (Pydantic) fields: `pdf_path`, `invoice_text`, `skipped`,
-`skip_reason`, `extracted`, `verification`, `categorized`.
+`skip_reason`, `errored`, `error_reason`, `extracted`, `verification`,
+`categorized`, `categorization_note`.
 
 `run_all()` (called by the root `main.py`, i.e. `uv run main.py`) lists every
 `*.pdf` in `data/invoices/`, ensures the Chroma index exists (build once if
@@ -161,12 +162,23 @@ distinct agent with its own persona, output schema, and tool surface.
   returns `VerificationResult`. Recomputes that line items sum to subtotal and
   subtotal + tax ≈ total (small float tolerance); lists discrepancies. Flags but
   never blocks.
-- **make_categorizer()** → has `ChartOfAccountsSearchTool`. Step prompt passes a
-  query built from vendor + line-item descriptions; the agent searches the chart
-  of accounts and returns `CategorizedInvoice`, choosing from the retrieved
-  candidates. The RAG tool is assigned to this agent only.
+- **make_categorizer()** → **no tools** (deterministic retrieval, see below).
+  Step prompt passes the invoice query plus the top-K candidate accounts that the
+  flow retrieved in code; the agent returns `CategorizedInvoice`, choosing from
+  the injected candidates. Then the flow's grounding guardrail (§3.6) validates
+  the chosen code.
 
-### 3.6 RAG layer (`rag/`)
+> **Design evolution (from live testing).** The categorizer originally used an
+> agentic `ChartOfAccountsSearchTool` (LLM tool-calling). Live runs against the
+> local vLLM + small Gemma model showed two problems: (1) tool-calling needs the
+> server started with `--enable-auto-tool-choice` and is slow/unstable (a
+> multi-iteration loop per invoice), and (2) the model fabricated account codes
+> even when the tool returned the right ones. We switched to **deterministic
+> retrieval**: the flow fetches candidates in code and the toolless categorizer
+> makes one fast structured pick, validated by a grounding guardrail. The
+> `ChartOfAccountsSearchTool` was removed.
+
+### 3.6 RAG layer (`rag/`) and grounding guardrail
 
 - `indexer.py`:
   - `build_index()` — read `data/chart_of_accounts.csv`, embed each account
@@ -174,11 +186,17 @@ distinct agent with its own persona, output schema, and tool surface.
     upsert into a persisted Chroma collection in `chroma_db/`. Idempotent: if the
     collection already has the expected count, skip rebuild.
   - `get_collection()` — open the persisted collection.
-- `search_tool.py`:
-  - `ChartOfAccountsSearchTool(BaseTool)` — input: a free-text query; embeds it,
-    queries Chroma for top-K (default 5), returns a compact formatted list of
-    candidate accounts (code, name, category, description). Args validated via a
-    Pydantic args schema.
+  - `retrieve_accounts(query, top_k=5)` — embed the query and return the top-K
+    chart-of-accounts rows (metadata dicts), best-first. Used by the categorize
+    step for both the candidate shortlist and the grounding fallback.
+  - `load_accounts()` — return the full chart of accounts as row dicts (for
+    validating that a chosen code is genuine).
+- `grounding.py`:
+  - `ground_categorization(categorized, candidates, accounts_by_code)` — if the
+    model's `account_code` is a real chart account, keep it and canonicalize the
+    name/category from the chart; otherwise snap to the top retrieved candidate
+    and return a note describing the correction. Guarantees every processed row
+    carries a real account code regardless of model behavior.
 
 ### 3.7 Configuration (`config.py`)
 
@@ -205,21 +223,26 @@ source_file, status, invoice_date, vendor_name, invoice_number, total, currency,
 account_code, account_name, category, arithmetic_ok, confidence, notes
 ```
 
-`status` is `processed` or `skipped`. For skipped invoices, all categorization
-fields are blank and `notes` holds the skip reason (e.g. "empty PDF text",
-"PDF parse error: ..."). For processed invoices, `notes` carries any verification
-discrepancies.
+`status` is `processed`, `skipped`, or `error`. For skipped/error invoices, all
+categorization fields are blank and `notes` holds the reason. For processed
+invoices, `notes` carries any verification discrepancies and/or a grounding note
+(when a hallucinated code was snapped to a real account).
 
 ## 4. Error Handling
 
 - **Unreadable / empty PDF** → flow marks `skipped`, logs a warning, continues to
   the next file. A `status=skipped` row is written to the ledger with the reason
   in `notes` (no fabricated categorization values).
-- **vLLM unreachable** → surfaced clearly (connection error) and the run aborts
-  with an actionable message (check that vLLM is serving at `VLLM_BASE_URL`).
-- **Structured-output mismatch** → CrewAI retries against the Pydantic schema.
+- **A reasoning stage fails** (LLM timeout, connection error, unparseable
+  structured output after retries) → the flow records `status=error` with the
+  reason (e.g. "verify failed: Request timed out") and the batch continues to the
+  next invoice. Every invoice therefore produces exactly one ledger row.
+- **Structured-output mismatch** → CrewAI retries against the Pydantic schema;
+  if it still fails, the stage errors as above.
+- **Fabricated account code** → the grounding guardrail snaps to the top
+  retrieved candidate and notes the correction; the row is still written.
 - **Verification discrepancies** → recorded (`arithmetic_ok=False`,
-  `discrepancies` in logs/notes), never fatal; the ledger row is still written.
+  `discrepancies` in `notes`), never fatal; the ledger row is still written.
 
 ## 5. Testing (TDD)
 
