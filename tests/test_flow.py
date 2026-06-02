@@ -52,6 +52,7 @@ def _install_fakes(monkeypatch, ledger_path):
     }
     monkeypatch.setattr(flow, "retrieve_accounts", lambda query, top_k=5: [account])
     monkeypatch.setattr(flow, "load_accounts", lambda: [account])
+    monkeypatch.setattr(flow, "get_product_context", lambda line_items, vendor_name: "")
 
 
 def test_flow_writes_processed_row(tmp_path, monkeypatch):
