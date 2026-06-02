@@ -9,6 +9,7 @@ from . import config
 from .agents import make_categorizer, make_extractor, make_verifier
 from .grounding import ground_categorization
 from .ledger import append_row, build_ledger_row
+from .web_context import get_buyer_context, get_product_context
 from .models import (
     AccountChoice,
     ExtractedInvoice,
@@ -69,6 +70,16 @@ class InvoiceFlow(Flow[InvoiceState]):
             self.state.error_reason = f"verify failed: {exc}"
 
     @listen(verify)
+    def research_products(self):
+        if self.state.skipped or self.state.errored:
+            return
+        try:
+            inv = self.state.extracted
+            self.state.product_context = get_product_context(inv.line_items, inv.vendor_name)
+        except Exception:  # noqa: BLE001 - product context is best-effort
+            self.state.product_context = ""
+
+    @listen(research_products)
     def categorize(self):
         if self.state.skipped or self.state.errored:
             return
@@ -132,31 +143,32 @@ def run_all() -> None:
 
     build_index()  # ensure the RAG index exists (no-op if already built)
 
+    try:
+        buyer_context = get_buyer_context()
+    except Exception as exc:  # noqa: BLE001 - degrade to no buyer context
+        print(f"  (buyer context unavailable: {exc})")
+        buyer_context = ""
+
     for pdf in pdfs:
         print(f"Processing {pdf.name} ...")
         invoice_flow = InvoiceFlow()
         try:
-            invoice_flow.kickoff(inputs={"pdf_path": str(pdf)})
+            invoice_flow.kickoff(
+                inputs={"pdf_path": str(pdf), "buyer_context": buyer_context}
+            )
         except Exception as exc:  # noqa: BLE001 - keep processing remaining invoices
             print(f"  ERROR: {exc}")
-            # The flow itself crashed before record_to_ledger ran; still write a
-            # row so every invoice is accounted for in the ledger.
             try:
                 append_row(
                     build_ledger_row(
-                        source_file=pdf.name,
-                        skipped=False,
-                        skip_reason="",
-                        extracted=None,
-                        verification=None,
-                        categorized=None,
-                        errored=True,
-                        error_reason=f"flow crashed: {exc}",
+                        source_file=pdf.name, skipped=False, skip_reason="",
+                        extracted=None, verification=None, categorized=None,
+                        errored=True, error_reason=f"flow crashed: {exc}",
                         buyer_name=config.BUYER_NAME,
                     ),
                     config.LEDGER_PATH,
                 )
-            except Exception:  # noqa: BLE001 - never let logging break the batch
+            except Exception:  # noqa: BLE001
                 pass
             continue
         state = invoice_flow.state

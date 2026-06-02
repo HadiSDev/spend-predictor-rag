@@ -144,3 +144,34 @@ def test_flow_skips_on_pdf_error(tmp_path, monkeypatch):
     rows = _read(ledger)
     assert rows[0]["status"] == "skipped"
     assert "not a pdf" in rows[0]["notes"]
+
+
+def test_flow_uses_buyer_and_product_context(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    _install_fakes(monkeypatch, ledger)
+    monkeypatch.setattr(flow, "extract_text", lambda p: "INVOICE Acme Cloud total 100")
+
+    seen = {}
+
+    def _fake_product_context(line_items, vendor_name):
+        seen["called"] = True
+        return "PRODUCTS: cloud hosting"
+
+    monkeypatch.setattr(flow, "get_product_context", _fake_product_context)
+
+    captured = {}
+
+    class _CapturingAgent:
+        def kickoff(self, prompt, **kwargs):
+            captured["prompt"] = prompt
+            from spend_predictor.models import AccountChoice
+            return type("R", (), {"pydantic": AccountChoice(
+                account_code="6010", account_name="Cloud", level1="Direct", confidence=0.9, rationale="ok")})()
+
+    monkeypatch.setattr(flow, "make_categorizer", lambda: _CapturingAgent())
+
+    flow.InvoiceFlow().kickoff(inputs={"pdf_path": "/x/sample.pdf", "buyer_context": "Acme is a SaaS company."})
+
+    assert seen.get("called") is True
+    assert "Acme is a SaaS company." in captured["prompt"]
+    assert "PRODUCTS: cloud hosting" in captured["prompt"]
