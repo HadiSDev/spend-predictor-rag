@@ -22,6 +22,15 @@ VLLM_MAX_TOKENS = int(os.getenv("VLLM_MAX_TOKENS", "8192"))
 VLLM_TIMEOUT = int(os.getenv("VLLM_TIMEOUT", "120"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
+# Buyer is known beforehand (backend provides name + website); see the
+# hierarchical-categorization spec. Direct/Indirect is judged from this context.
+BUYER_NAME = os.getenv("BUYER_NAME", "")
+BUYER_WEBSITE = os.getenv("BUYER_WEBSITE", "")
+WEB_CONTEXT_CACHE_DIR = os.getenv(
+    "WEB_CONTEXT_CACHE_DIR", str(PROJECT_ROOT / "data" / "web_cache")
+)
+PRODUCT_SEARCH_MAX_RESULTS = int(os.getenv("PRODUCT_SEARCH_MAX_RESULTS", "3"))
+
 CHART_OF_ACCOUNTS_PATH = os.getenv(
     "CHART_OF_ACCOUNTS_PATH", str(PROJECT_ROOT / "data" / "chart_of_accounts.csv")
 )

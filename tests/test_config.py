@@ -29,3 +29,11 @@ def test_get_llm_bounds_generation_and_timeout():
     assert float(llm.timeout) == float(config.VLLM_TIMEOUT)
     assert config.VLLM_MAX_TOKENS == 8192
     assert config.VLLM_TIMEOUT == 120
+
+
+def test_buyer_and_web_context_settings():
+    assert config.BUYER_NAME == ""          # unset by default
+    assert config.BUYER_WEBSITE == ""
+    assert config.PRODUCT_SEARCH_MAX_RESULTS == 3
+    from pathlib import Path
+    assert Path(config.WEB_CONTEXT_CACHE_DIR) == config.PROJECT_ROOT / "data" / "web_cache"
