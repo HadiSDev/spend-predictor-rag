@@ -5,6 +5,7 @@ offline. Failures degrade to empty context (never fatal).
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 from typing import Callable
@@ -17,18 +18,21 @@ def _slug(text: str) -> str:
 
 
 def _cache_path(cache_dir: str, key: str) -> Path:
-    return Path(cache_dir) / f"{_slug(key)}.txt"
+    slug = _slug(key)
+    if len(slug) > 120:
+        slug = slug[:120] + "-" + hashlib.sha256(key.encode()).hexdigest()[:12]
+    return Path(cache_dir) / f"{slug}.txt"
 
 
 def _read_cache(cache_dir: str, key: str) -> str | None:
     path = _cache_path(cache_dir, key)
-    return path.read_text() if path.exists() else None
+    return path.read_text(encoding="utf-8") if path.exists() else None
 
 
 def _write_cache(cache_dir: str, key: str, value: str) -> None:
     path = _cache_path(cache_dir, key)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(value)
+    path.write_text(value, encoding="utf-8")
 
 
 # --- primitives (replaceable in tests) -------------------------------------
@@ -60,7 +64,10 @@ def _summarize_buyer(name: str, text: str) -> str:
         f"In 2-3 sentences, describe the business of '{name}' based on this website "
         f"text: what they make/sell and how they earn revenue.\n\n{text[:6000]}"
     )
-    return config.get_llm().call(messages=[{"role": "user", "content": prompt}]).strip()
+    try:
+        return config.get_llm().call(messages=[{"role": "user", "content": prompt}]).strip()
+    except Exception:  # noqa: BLE001 - degrade to no context
+        return f"No website context available for '{name}'."
 
 
 def _summarize_products(items_with_snippets: list[tuple[str, str]]) -> str:
@@ -69,18 +76,21 @@ def _summarize_products(items_with_snippets: list[tuple[str, str]]) -> str:
         "For each invoice line item below, write one short line stating what the "
         "product/service is (use the snippets; if unclear, say 'unclear').\n\n" + blob
     )
-    return config.get_llm().call(messages=[{"role": "user", "content": prompt}]).strip()
+    try:
+        return config.get_llm().call(messages=[{"role": "user", "content": prompt}]).strip()
+    except Exception:  # noqa: BLE001 - degrade to plain listing
+        return "PRODUCTS:\n" + "\n".join(f"- {d}: {s}" for d, s in items_with_snippets)
 
 
 # --- public API ------------------------------------------------------------
 
 def get_buyer_context(
-    name: str = None,
-    website: str = None,
+    name: str | None = None,
+    website: str | None = None,
     *,
     scrape_fn: Callable[[str], str] = _scrape,
     summarize_fn: Callable[[str, str], str] = _summarize_buyer,
-    cache_dir: str = None,
+    cache_dir: str | None = None,
 ) -> str:
     """Return a short business-context note for the buyer (cached)."""
     name = config.BUYER_NAME if name is None else name
@@ -103,7 +113,7 @@ def get_product_context(
     *,
     search_fn: Callable[[str], list[dict]] = _ddg_search,
     summarize_fn: Callable[[list[tuple[str, str]]], str] = _summarize_products,
-    cache_dir: str = None,
+    cache_dir: str | None = None,
 ) -> str:
     """Web-search each line item (cached per query) and summarize into a note."""
     cache_dir = config.WEB_CONTEXT_CACHE_DIR if cache_dir is None else cache_dir

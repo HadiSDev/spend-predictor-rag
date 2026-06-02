@@ -55,3 +55,18 @@ def test_product_context_empty_items(tmp_path):
         [], "Nimbus", search_fn=lambda q: [], summarize_fn=lambda x: "Z", cache_dir=str(tmp_path)
     )
     assert out == ""
+
+
+def test_buyer_context_name_only_skips_scrape(tmp_path):
+    calls = {"scrape": 0}
+
+    def scrape(url):
+        calls["scrape"] += 1
+        return "should not be called"
+
+    out = web_context.get_buyer_context(
+        name="Acme", website="",
+        scrape_fn=scrape, summarize_fn=lambda n, t: f"{n}:{t!r}", cache_dir=str(tmp_path)
+    )
+    assert calls["scrape"] == 0          # no website → scrape skipped
+    assert out == "Acme:''"              # summarize called with empty text
