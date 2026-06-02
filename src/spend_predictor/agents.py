@@ -48,13 +48,16 @@ def make_categorizer() -> Agent:
     return Agent(
         role="Spend Categorization Analyst",
         goal=(
-            "Assign each invoice to the single best-matching account, choosing strictly "
-            "from the candidate accounts provided in the prompt and never inventing a code."
+            "Choose the single best leaf account for an invoice from the provided "
+            "candidate accounts, and classify the spend as Direct or Indirect based "
+            "on the buyer's business context and the invoice line items. Never invent "
+            "an account code; never classify the hierarchy beyond Direct/Indirect."
         ),
         backstory=(
-            "You are a management accountant who codes spend to the chart of accounts. "
-            "You are given a shortlist of candidate accounts and pick the closest fit, "
-            "giving a confidence score and a short rationale."
+            "You are a management accountant. You are given the buyer's business "
+            "context, what the products are, and a shortlist of candidate accounts. "
+            "You pick the closest account and judge whether the spend is a direct cost "
+            "of the buyer's revenue (Direct) or overhead (Indirect)."
         ),
         llm=get_llm(),
         tools=[],

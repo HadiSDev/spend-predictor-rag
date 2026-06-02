@@ -76,7 +76,8 @@ def build_index(
 
     ids = [r["account_code"] for r in rows]
     documents = [
-        f'{r["account_name"]}: {r["description"]} (category: {r["category"]})' for r in rows
+        f'{r["level2"]} > {r["level3"]} > {r["account_name"]}: {r["description"]}'
+        for r in rows
     ]
     metadatas = [dict(r) for r in rows]
     embeddings = embed_fn(documents)

@@ -1,6 +1,8 @@
 """Pydantic data models for the invoice pipeline and flow state."""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -28,11 +30,25 @@ class VerificationResult(BaseModel):
     notes: str | None = None
 
 
-class CategorizedInvoice(BaseModel):
+class AccountChoice(BaseModel):
+    """Categorizer output: the chosen leaf account + the buyer-derived L1."""
+
     account_code: str
     account_name: str
-    category: str
+    level1: Literal["Direct", "Indirect"]
     confidence: float  # 0..1
+    rationale: str
+
+
+class CategorizedInvoice(BaseModel):
+    """Final, hierarchy-enriched categorization (L2/L3/leaf from the chart)."""
+
+    account_code: str
+    account_name: str
+    level1: str  # Direct | Indirect (from the model, buyer-derived)
+    level2: str  # from the chart
+    level3: str  # from the chart
+    confidence: float
     rationale: str
 
 
@@ -41,6 +57,8 @@ class InvoiceState(BaseModel):
 
     pdf_path: str = ""
     invoice_text: str = ""
+    buyer_context: str = ""
+    product_context: str = ""
     skipped: bool = False
     skip_reason: str = ""
     errored: bool = False

@@ -26,29 +26,25 @@ def test_append_writes_header_once_then_rows(tmp_path):
 
 def test_build_ledger_row_processed():
     extracted = ExtractedInvoice(
-        vendor_name="Acme Cloud",
-        invoice_number="INV-1",
-        invoice_date="2026-05-01",
-        currency="USD",
-        line_items=[LineItem(description="cloud hosting", amount=100.0)],
-        subtotal=100.0,
-        tax=0.0,
-        total=100.0,
+        vendor_name="Acme Cloud", invoice_number="INV-1", invoice_date="2026-05-01",
+        currency="USD", line_items=[LineItem(description="cloud hosting", amount=100.0)],
+        subtotal=100.0, tax=0.0, total=100.0,
     )
     verification = VerificationResult(arithmetic_ok=True, discrepancies=[], notes=None)
     categorized = CategorizedInvoice(
-        account_code="6010", account_name="Cloud Hosting", category="IT", confidence=0.9, rationale="ok"
+        account_code="6010", account_name="Cloud Hosting & Infrastructure",
+        level1="Direct", level2="Technology", level3="Cloud Infrastructure",
+        confidence=0.9, rationale="ok",
     )
     row = build_ledger_row(
-        source_file="inv.pdf",
-        skipped=False,
-        skip_reason="",
-        extracted=extracted,
-        verification=verification,
-        categorized=categorized,
+        source_file="inv.pdf", skipped=False, skip_reason="",
+        extracted=extracted, verification=verification, categorized=categorized,
+        buyer_name="Acme Analytics",
     )
     assert row["status"] == "processed"
-    assert row["vendor_name"] == "Acme Cloud"
+    assert row["buyer_name"] == "Acme Analytics"
+    assert row["level1"] == "Direct"
+    assert row["level2"] == "Technology"
     assert row["account_code"] == "6010"
     assert row["arithmetic_ok"] is True
 

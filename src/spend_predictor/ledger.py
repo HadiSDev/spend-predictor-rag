@@ -11,12 +11,15 @@ LEDGER_COLUMNS = [
     "status",
     "invoice_date",
     "vendor_name",
+    "buyer_name",
     "invoice_number",
     "total",
     "currency",
+    "level1",
+    "level2",
+    "level3",
     "account_code",
     "account_name",
-    "category",
     "arithmetic_ok",
     "confidence",
     "notes",
@@ -34,6 +37,7 @@ def build_ledger_row(
     categorization_note: str = "",
     errored: bool = False,
     error_reason: str = "",
+    buyer_name: str = "",
 ) -> dict:
     """Build a ledger row dict from flow results."""
     if skipped:
@@ -41,6 +45,7 @@ def build_ledger_row(
         row["source_file"] = source_file
         row["status"] = "skipped"
         row["notes"] = skip_reason
+        row["buyer_name"] = buyer_name
         return row
 
     if errored:
@@ -48,6 +53,7 @@ def build_ledger_row(
         row["source_file"] = source_file
         row["status"] = "error"
         row["notes"] = error_reason
+        row["buyer_name"] = buyer_name
         return row
 
     note_parts: list[str] = []
@@ -64,12 +70,15 @@ def build_ledger_row(
         "status": "processed",
         "invoice_date": (extracted.invoice_date if extracted else "") or "",
         "vendor_name": extracted.vendor_name if extracted else "",
+        "buyer_name": buyer_name,
         "invoice_number": (extracted.invoice_number if extracted else "") or "",
         "total": extracted.total if extracted else "",
         "currency": (extracted.currency if extracted else "") or "",
+        "level1": categorized.level1 if categorized else "",
+        "level2": categorized.level2 if categorized else "",
+        "level3": categorized.level3 if categorized else "",
         "account_code": categorized.account_code if categorized else "",
         "account_name": categorized.account_name if categorized else "",
-        "category": categorized.category if categorized else "",
         "arithmetic_ok": verification.arithmetic_ok if verification else "",
         "confidence": categorized.confidence if categorized else "",
         "notes": notes,

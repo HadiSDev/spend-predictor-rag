@@ -9,6 +9,7 @@ from . import config
 from .agents import make_categorizer, make_extractor, make_verifier
 from .ledger import append_row, build_ledger_row
 from .models import (
+    AccountChoice,
     CategorizedInvoice,
     ExtractedInvoice,
     InvoiceState,
@@ -76,25 +77,26 @@ class InvoiceFlow(Flow[InvoiceState]):
             inv = self.state.extracted
             descriptions = "; ".join(li.description for li in inv.line_items)
             query = f"{inv.vendor_name}: {descriptions}"
-            # Deterministic RAG: retrieve candidates in code and let a toolless
-            # agent pick one. This avoids the slow/unreliable agentic tool-call
-            # loop; the chosen code is then validated against the real chart.
             candidates = retrieve_accounts(query, top_k=5)
             candidate_lines = "\n".join(
-                f"- {c['account_code']} | {c['account_name']} | {c['category']} | {c['description']}"
+                f"- {c['account_code']} | {c['level2']} > {c['level3']} > {c['account_name']} | {c['description']}"
                 for c in candidates
+            )
+            line_items = "\n".join(
+                f"- {li.description} (qty={li.quantity}, amount={li.amount})"
+                for li in inv.line_items
             )
             agent = make_categorizer()
             result = agent.kickoff(
-                "Choose the single best account for this invoice, using ONLY one of the "
-                "candidate account codes listed below. Do not invent a code.\n\n"
-                f"Invoice: {query}\n\nCandidate accounts:\n{candidate_lines}",
-                response_format=CategorizedInvoice,
+                "Categorize this invoice. Choose ONE candidate account code and judge "
+                "Direct vs Indirect from the buyer context and line items.\n\n"
+                f"Buyer context:\n{self.state.buyer_context or '(none)'}\n\n"
+                f"Product context:\n{self.state.product_context or '(none)'}\n\n"
+                f"Invoice line items:\n{line_items}\n\n"
+                f"Candidate accounts:\n{candidate_lines}",
+                response_format=AccountChoice,
             )
             accounts_by_code = {a["account_code"]: a for a in load_accounts()}
-            # If candidates is empty (index not built/populated), grounding cannot
-            # snap and a fabricated code may pass through on a processed row; the
-            # note records this. run_all builds the index first, so this is rare.
             grounded, note = ground_categorization(
                 result.pydantic, candidates, accounts_by_code
             )
@@ -116,6 +118,7 @@ class InvoiceFlow(Flow[InvoiceState]):
             categorization_note=self.state.categorization_note,
             errored=self.state.errored,
             error_reason=self.state.error_reason,
+            buyer_name=config.BUYER_NAME,
         )
         append_row(row, config.LEDGER_PATH)
 
@@ -150,6 +153,7 @@ def run_all() -> None:
                         categorized=None,
                         errored=True,
                         error_reason=f"flow crashed: {exc}",
+                        buyer_name=config.BUYER_NAME,
                     ),
                     config.LEDGER_PATH,
                 )

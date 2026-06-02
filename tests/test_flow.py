@@ -2,6 +2,7 @@ import csv
 
 from spend_predictor import config, flow
 from spend_predictor.models import (
+    AccountChoice,
     CategorizedInvoice,
     ExtractedInvoice,
     LineItem,
@@ -40,18 +41,15 @@ def _install_fakes(monkeypatch, ledger_path):
         total=100.0,
     )
     verification = VerificationResult(arithmetic_ok=True, discrepancies=[], notes=None)
-    categorized = CategorizedInvoice(
-        account_code="6010", account_name="Cloud Hosting", category="IT", confidence=0.9, rationale="ok"
+    choice = AccountChoice(
+        account_code="6010", account_name="Cloud Hosting", level1="Direct", confidence=0.9, rationale="ok"
     )
     monkeypatch.setattr(flow, "make_extractor", lambda: _FakeAgent(extracted))
     monkeypatch.setattr(flow, "make_verifier", lambda: _FakeAgent(verification))
-    monkeypatch.setattr(flow, "make_categorizer", lambda: _FakeAgent(categorized))
-    # Keep grounding offline: fake the chart + retrieval (no chroma, no model).
+    monkeypatch.setattr(flow, "make_categorizer", lambda: _FakeAgent(choice))
     account = {
-        "account_code": "6010",
-        "account_name": "Cloud Hosting & Infrastructure",
-        "category": "IT",
-        "description": "cloud servers and hosting",
+        "account_code": "6010", "account_name": "Cloud Hosting & Infrastructure",
+        "level2": "Technology", "level3": "Cloud Infrastructure", "description": "cloud servers and hosting",
     }
     monkeypatch.setattr(flow, "retrieve_accounts", lambda query, top_k=5: [account])
     monkeypatch.setattr(flow, "load_accounts", lambda: [account])
@@ -69,6 +67,9 @@ def test_flow_writes_processed_row(tmp_path, monkeypatch):
     assert rows[0]["status"] == "processed"
     assert rows[0]["source_file"] == "sample.pdf"
     assert rows[0]["account_code"] == "6010"
+    assert rows[0]["level1"] == "Direct"
+    assert rows[0]["level2"] == "Technology"
+    assert rows[0]["account_name"] == "Cloud Hosting & Infrastructure"
 
 
 def test_flow_snaps_hallucinated_account_code(tmp_path, monkeypatch):
@@ -76,8 +77,8 @@ def test_flow_snaps_hallucinated_account_code(tmp_path, monkeypatch):
     _install_fakes(monkeypatch, ledger)
     monkeypatch.setattr(flow, "extract_text", lambda p: "INVOICE Acme Cloud total 100")
     # categorizer fabricates a code that is not in the chart
-    bogus = CategorizedInvoice(
-        account_code="9999", account_name="Made Up", category="Nope", confidence=0.95, rationale="hallucinated"
+    bogus = AccountChoice(
+        account_code="9999", account_name="Made Up", level1="Indirect", confidence=0.95, rationale="hallucinated"
     )
     monkeypatch.setattr(flow, "make_categorizer", lambda: _FakeAgent(bogus))
 

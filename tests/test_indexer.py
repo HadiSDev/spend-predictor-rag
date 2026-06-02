@@ -11,12 +11,12 @@ def fake_embed(texts):
 
 def _write_coa(path):
     rows = [
-        {"account_code": "6010", "account_name": "Cloud Hosting", "description": "cloud servers and hosting", "category": "IT"},
-        {"account_code": "6500", "account_name": "Office Supplies", "description": "office stationery", "category": "Admin"},
-        {"account_code": "7000", "account_name": "Travel", "description": "travel and flights", "category": "Ops"},
+        {"account_code": "6010", "account_name": "Cloud Hosting", "level2": "Technology", "level3": "Cloud Infrastructure", "description": "cloud servers and hosting"},
+        {"account_code": "6500", "account_name": "Office Supplies", "level2": "Facilities & Office", "level3": "Office Supplies", "description": "office stationery"},
+        {"account_code": "7000", "account_name": "Travel", "level2": "Travel & Entertainment", "level3": "Airfare", "description": "travel and flights"},
     ]
     with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["account_code", "account_name", "description", "category"])
+        w = csv.DictWriter(f, fieldnames=["account_code", "account_name", "level2", "level3", "description"])
         w.writeheader()
         w.writerows(rows)
 
@@ -39,12 +39,14 @@ def test_retrieve_accounts_returns_most_relevant_first(tmp_path):
     )
     assert results[0]["account_code"] == "6010"
     assert len(results) == 2
+    assert results[0]["level2"] == "Technology"
+    assert results[0]["level3"] == "Cloud Infrastructure"
 
 
 def test_build_index_skips_empty_chart(tmp_path):
     coa = tmp_path / "empty.csv"
     with open(coa, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["account_code", "account_name", "description", "category"])
+        w = csv.DictWriter(f, fieldnames=["account_code", "account_name", "level2", "level3", "description"])
         w.writeheader()
     coll = indexer.build_index(csv_path=str(coa), chroma_dir=str(tmp_path / "db"), embed_fn=fake_embed)
     assert coll.count() == 0  # no crash on empty chart

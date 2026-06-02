@@ -1,4 +1,8 @@
+import pytest
+from pydantic import ValidationError
+
 from spend_predictor.models import (
+    AccountChoice,
     CategorizedInvoice,
     ExtractedInvoice,
     InvoiceState,
@@ -10,35 +14,34 @@ from spend_predictor.models import (
 def test_extracted_invoice_roundtrip():
     inv = ExtractedInvoice(
         vendor_name="Acme Cloud",
-        invoice_number="INV-1",
-        invoice_date="2026-05-01",
-        currency="USD",
-        line_items=[LineItem(description="cloud hosting", quantity=1, unit_price=100.0, amount=100.0)],
-        subtotal=100.0,
-        tax=0.0,
+        line_items=[LineItem(description="cloud hosting", amount=100.0)],
         total=100.0,
     )
     assert inv.line_items[0].amount == 100.0
-    assert inv.total == 100.0
-
-
-def test_optional_fields_default_to_none():
-    inv = ExtractedInvoice(vendor_name="X", line_items=[], total=0.0)
     assert inv.invoice_number is None
-    assert inv.subtotal is None
 
 
-def test_invoice_state_constructs_with_defaults():
-    state = InvoiceState()
-    assert state.pdf_path == ""
-    assert state.skipped is False
-    assert state.extracted is None
+def test_account_choice_rejects_bad_level1():
+    AccountChoice(account_code="6010", account_name="Cloud", level1="Direct", confidence=0.9, rationale="r")
+    with pytest.raises(ValidationError):
+        AccountChoice(account_code="6010", account_name="Cloud", level1="Maybe", confidence=0.9, rationale="r")
 
 
-def test_verification_and_categorization_models():
-    v = VerificationResult(arithmetic_ok=False, discrepancies=["total mismatch"], notes=None)
+def test_categorized_invoice_has_hierarchy():
     c = CategorizedInvoice(
-        account_code="6010", account_name="Cloud Hosting", category="IT", confidence=0.9, rationale="ok"
+        account_code="6010", account_name="Cloud Hosting & Infrastructure",
+        level1="Direct", level2="Technology", level3="Cloud Infrastructure",
+        confidence=0.9, rationale="r",
     )
-    assert v.discrepancies == ["total mismatch"]
-    assert c.account_code == "6010"
+    assert (c.level1, c.level2, c.level3) == ("Direct", "Technology", "Cloud Infrastructure")
+
+
+def test_invoice_state_defaults():
+    s = InvoiceState()
+    assert s.buyer_context == "" and s.product_context == ""
+    assert s.skipped is False and s.errored is False and s.categorized is None
+
+
+def test_verification_model():
+    v = VerificationResult(arithmetic_ok=False, discrepancies=["x"], notes=None)
+    assert v.discrepancies == ["x"]

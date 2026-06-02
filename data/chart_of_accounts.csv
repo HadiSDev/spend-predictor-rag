@@ -1,16 +1,19 @@
-account_code,account_name,description,category
-6010,Cloud Hosting & Infrastructure,cloud servers compute storage hosting and infrastructure services,IT
-6020,Software Subscriptions,saas software licenses and subscription tools,IT
-6030,Telecommunications,internet phone mobile and connectivity services,IT
-6500,Office Supplies,stationery paper printer supplies and small office items,Admin
-6510,Office Equipment,furniture monitors hardware and durable office equipment,Admin
-6600,Professional Services,consulting accounting and outsourced professional work,Services
-6610,Legal Fees,legal counsel attorney and compliance services,Services
-6700,Marketing & Advertising,advertising campaigns marketing and promotional spend,Marketing
-6800,Travel - Airfare,flights and airline tickets for business travel,Travel
-6810,Travel - Lodging,hotels and accommodation for business travel,Travel
-6820,Meals & Entertainment,business meals client entertainment and catering,Travel
-6900,Utilities,electricity water gas and facility utilities,Facilities
-6910,Rent & Lease,office rent and equipment lease payments,Facilities
-7000,Shipping & Freight,courier postage shipping and freight charges,Logistics
-7100,Training & Development,courses conferences training and employee development,HR
+account_code,account_name,level2,level3,description
+6010,Cloud Hosting & Infrastructure,Technology,Cloud Infrastructure,cloud servers compute storage hosting infrastructure
+6015,Third-Party APIs & Data,Technology,APIs & Data,third-party api usage data feeds model inference
+6020,Software Subscriptions,Technology,SaaS & Licenses,saas software licenses subscription tools
+6030,Telecommunications,Technology,Connectivity,internet phone mobile connectivity services
+6500,Office Supplies,Facilities & Office,Office Supplies,stationery paper printer supplies small office items
+6510,Office Equipment,Facilities & Office,Equipment,furniture monitors hardware durable office equipment
+6600,Professional Services,Professional Services,Consulting,consulting outsourced professional work
+6610,Legal Fees,Professional Services,Legal,legal counsel attorney compliance services
+6620,Accounting & Audit,Professional Services,Accounting,accounting bookkeeping audit tax services
+6700,Marketing & Advertising,Sales & Marketing,Advertising,advertising campaigns promotion marketing
+6800,Travel - Airfare,Travel & Entertainment,Airfare,flights airline tickets business travel
+6810,Travel - Lodging,Travel & Entertainment,Lodging,hotels accommodation business travel
+6820,Meals & Entertainment,Travel & Entertainment,Meals,business meals client entertainment catering
+6900,Utilities,Facilities & Office,Utilities,electricity water gas facility utilities
+6910,Rent & Lease,Facilities & Office,Rent & Lease,office rent equipment lease payments
+7000,Shipping & Freight,Logistics,Shipping,courier postage freight delivery
+7050,Contractor - Delivery,People,Contract Labor,contractors freelancers billable project delivery
+7100,Training & Development,People,Training,courses conferences training employee development
