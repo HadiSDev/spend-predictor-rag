@@ -272,3 +272,10 @@ committed under `data/invoices/`.
 - Multi-currency normalization / FX.
 - A database backend or web UI.
 - Authentication, multi-tenant, or batch scheduling.
+
+---
+
+> **Superseded in part:** categorization is now hierarchical and buyer-aware. See
+> `2026-06-02-hierarchical-categorization-design.md` (chart drops the flat
+> `category`; L1 Direct/Indirect is derived from buyer context; ledger gains
+> `buyer_name` and `level1/2/3`).

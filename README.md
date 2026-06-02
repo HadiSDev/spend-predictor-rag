@@ -7,12 +7,13 @@ chart of accounts, writing results to a CSV ledger. Built on CrewAI (`Flow` +
 ## Pipeline
 
 ```text
-PDF in data/invoices/  ->  extract text  ->  extract -> verify -> categorize  ->  output/ledger.csv
+PDF -> extract -> verify -> research products -> categorize (leaf + Direct/Indirect) -> output/ledger.csv
 ```
 
 1. **Extract** structured fields from the invoice text.
 2. **Verify** the arithmetic (line items -> subtotal -> total).
-3. **Categorize** to the best chart-of-accounts entry using RAG retrieval.
+3. **Categorize** picks the leaf account (L2/L3/leaf from the chart of accounts)
+   and classifies Direct/Indirect from buyer and product context using RAG retrieval.
 
 ## Setup
 
@@ -46,6 +47,10 @@ Unit tests run offline (no LLM, no model download - embeddings are faked).
 
 ## Configuration
 
-All paths and the LLM/embedding settings are configurable via `.env` (see
-`.env.example`). Replace `data/chart_of_accounts.csv` with your real chart; the
-ChromaDB index rebuilds automatically when the row count changes.
+Set the buyer in `.env` (`BUYER_NAME`, `BUYER_WEBSITE`) — the buyer's website is
+scraped once per run to judge Direct/Indirect. Line items are web-searched
+(DuckDuckGo, no key) to clarify products. The chart of accounts
+(`data/chart_of_accounts.csv`) provides `level2`/`level3` and the leaf account;
+Direct/Indirect is derived per invoice from the buyer context, not stored in the
+chart. Replace the sample chart with your real one (same columns); the ChromaDB
+index rebuilds when the row count changes.

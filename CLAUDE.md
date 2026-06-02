@@ -2,10 +2,13 @@
 
 ## Project
 
-Autonomous invoice processing & spend categorization. A CrewAI `Flow` runs three
-`Agent.kickoff()` stages (extract -> verify -> categorize) per PDF invoice;
-categorization is RAG-backed over a ChromaDB index of the chart of accounts.
-Results are written to `output/ledger.csv`.
+Autonomous invoice processing & spend categorization. A CrewAI `Flow` runs five
+`Agent.kickoff()` stages (extract -> verify -> research_products -> categorize ->
+ledger) per PDF invoice. Categorization is hierarchical and buyer-aware: L1
+Direct/Indirect is derived from buyer context (buyer name + website scraped once
+per run); L2/L3/leaf accounts come from a RAG-backed ChromaDB index of the chart
+of accounts. Line items are web-searched (DuckDuckGo, no key) for product context
+before categorization. Results are written to `output/ledger.csv`.
 
 ## Environment
 
@@ -23,7 +26,7 @@ Results are written to `output/ledger.csv`.
 
 ## Layout
 
-- `src/spend_predictor/` - package (config, models, pdf_loader, ledger, agents,
-  flow, rag/)
+- `src/spend_predictor/` — package (config, models, pdf_loader, ledger, agents,
+  grounding, web_context, flow, rag/)
 - `data/` - chart of accounts + input invoices
 - `output/ledger.csv` - generated results
