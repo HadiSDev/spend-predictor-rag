@@ -3,7 +3,6 @@ import csv
 from spend_predictor import config, flow
 from spend_predictor.models import (
     AccountChoice,
-    CategorizedInvoice,
     ExtractedInvoice,
     LineItem,
     VerificationResult,

@@ -59,11 +59,13 @@ def test_build_ledger_row_errored_has_reason_and_blanks():
         categorized=None,
         errored=True,
         error_reason="verify failed: timeout",
+        buyer_name="Acme Analytics",
     )
     assert row["status"] == "error"
     assert row["notes"] == "verify failed: timeout"
     assert row["account_code"] == ""
     assert row["vendor_name"] == ""
+    assert row["buyer_name"] == "Acme Analytics"
 
 
 def test_build_ledger_row_skipped_has_reason_and_blanks():
@@ -74,8 +76,10 @@ def test_build_ledger_row_skipped_has_reason_and_blanks():
         extracted=None,
         verification=None,
         categorized=None,
+        buyer_name="Acme Analytics",
     )
     assert row["status"] == "skipped"
     assert row["notes"] == "empty PDF text"
     assert row["account_code"] == ""
     assert row["vendor_name"] == ""
+    assert row["buyer_name"] == "Acme Analytics"

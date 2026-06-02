@@ -7,15 +7,14 @@ from crewai.flow.flow import Flow, listen, start
 
 from . import config
 from .agents import make_categorizer, make_extractor, make_verifier
+from .grounding import ground_categorization
 from .ledger import append_row, build_ledger_row
 from .models import (
     AccountChoice,
-    CategorizedInvoice,
     ExtractedInvoice,
     InvoiceState,
     VerificationResult,
 )
-from .grounding import ground_categorization
 from .pdf_loader import extract_text
 from .rag.indexer import build_index, load_accounts, retrieve_accounts
 
