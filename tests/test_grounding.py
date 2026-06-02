@@ -32,5 +32,6 @@ def test_invalid_code_snaps_and_keeps_l1():
 def test_invalid_code_no_candidates_blank_levels():
     grounded, note = ground_categorization(_choice("9999"), [], {})
     assert grounded.account_code == "9999"
+    assert grounded.account_name == ""
     assert grounded.level2 == "" and grounded.level3 == ""
     assert "no candidates" in note

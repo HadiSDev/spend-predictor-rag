@@ -18,10 +18,9 @@ def _slug(text: str) -> str:
 
 
 def _cache_path(cache_dir: str, key: str) -> Path:
-    slug = _slug(key)
-    if len(slug) > 120:
-        slug = slug[:120] + "-" + hashlib.sha256(key.encode()).hexdigest()[:12]
-    return Path(cache_dir) / f"{slug}.txt"
+    slug = _slug(key)[:120]
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+    return Path(cache_dir) / f"{slug}-{digest}.txt"
 
 
 def _read_cache(cache_dir: str, key: str) -> str | None:
@@ -98,7 +97,7 @@ def get_buyer_context(
     cache_dir = config.WEB_CONTEXT_CACHE_DIR if cache_dir is None else cache_dir
     if not name and not website:
         return ""
-    key = f"buyer-{name or website}"
+    key = f"buyer-{name}|{website}"
     cached = _read_cache(cache_dir, key)
     if cached is not None:
         return cached

@@ -40,7 +40,7 @@ def ground_categorization(
 
     fallback = CategorizedInvoice(
         account_code=code,
-        account_name=choice.account_name,
+        account_name="",
         level1=choice.level1,
         level2="",
         level3="",

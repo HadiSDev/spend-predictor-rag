@@ -32,8 +32,11 @@ def test_get_llm_bounds_generation_and_timeout():
 
 
 def test_buyer_and_web_context_settings():
-    assert config.BUYER_NAME == ""          # unset by default
-    assert config.BUYER_WEBSITE == ""
-    assert config.PRODUCT_SEARCH_MAX_RESULTS == 3
+    import os
     from pathlib import Path
-    assert Path(config.WEB_CONTEXT_CACHE_DIR) == config.PROJECT_ROOT / "data" / "web_cache"
+    assert config.BUYER_NAME == os.getenv("BUYER_NAME", "")
+    assert config.BUYER_WEBSITE == os.getenv("BUYER_WEBSITE", "")
+    assert config.PRODUCT_SEARCH_MAX_RESULTS == int(os.getenv("PRODUCT_SEARCH_MAX_RESULTS", "3"))
+    assert Path(config.WEB_CONTEXT_CACHE_DIR) == Path(
+        os.getenv("WEB_CONTEXT_CACHE_DIR", str(config.PROJECT_ROOT / "data" / "web_cache"))
+    )
