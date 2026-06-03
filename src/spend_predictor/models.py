@@ -59,6 +59,7 @@ class InvoiceState(BaseModel):
     invoice_text: str = ""
     buyer_context: str = ""
     product_context: str = ""
+    accounts: list[dict] = Field(default_factory=list)  # chart, loaded once per batch
     skipped: bool = False
     skip_reason: str = ""
     errored: bool = False

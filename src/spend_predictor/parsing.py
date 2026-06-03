@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 import types
+from functools import lru_cache
 from typing import Literal, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, ValidationError
@@ -50,8 +51,12 @@ def _skeleton(model: type[BaseModel]) -> dict:
     return {name: _example_for(f.annotation) for name, f in model.model_fields.items()}
 
 
+@lru_cache(maxsize=None)
 def json_format_hint(model: type[BaseModel]) -> str:
-    """Instruction to append to a prompt so the model returns parseable JSON."""
+    """Instruction to append to a prompt so the model returns parseable JSON.
+
+    Cached: the hint is a pure function of the (static) model class.
+    """
     example = json.dumps(_skeleton(model))
     return (
         "Return ONLY a single JSON object with EXACTLY this shape and these keys "

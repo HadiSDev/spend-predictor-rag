@@ -22,6 +22,17 @@ from .pdf_loader import extract_text
 from .rag.indexer import build_index, load_accounts, retrieve_accounts
 
 
+def _kickoff_json(make_agent, prompt: str, model):
+    """Run a toolless agent on ``prompt`` and parse its reply into ``model``.
+
+    Centralizes the no-guided-decoding strategy: append a JSON-format hint, then
+    parse the free-form ``.raw`` text (see :mod:`spend_predictor.parsing`).
+    """
+    agent = make_agent()
+    result = agent.kickoff(prompt + "\n\n" + json_format_hint(model))
+    return parse_model(result.raw, model)
+
+
 class InvoiceFlow(Flow[InvoiceState]):
     """Process a single invoice: load -> extract -> verify -> categorize -> ledger."""
 
@@ -44,13 +55,12 @@ class InvoiceFlow(Flow[InvoiceState]):
         if self.state.skipped or self.state.errored:
             return
         try:
-            agent = make_extractor()
-            result = agent.kickoff(
+            self.state.extracted = _kickoff_json(
+                make_extractor,
                 "Extract the structured invoice data from the following invoice text. "
-                "Leave any missing field null.\n\n" + self.state.invoice_text
-                + "\n\n" + json_format_hint(ExtractedInvoice),
+                "Leave any missing field null.\n\n" + self.state.invoice_text,
+                ExtractedInvoice,
             )
-            self.state.extracted = parse_model(result.raw, ExtractedInvoice)
         except Exception as exc:  # noqa: BLE001 - record and move on
             self.state.errored = True
             self.state.error_reason = f"extract failed: {exc}"
@@ -60,13 +70,12 @@ class InvoiceFlow(Flow[InvoiceState]):
         if self.state.skipped or self.state.errored:
             return
         try:
-            agent = make_verifier()
-            result = agent.kickoff(
+            self.state.verification = _kickoff_json(
+                make_verifier,
                 "Verify the arithmetic of this extracted invoice and list any "
-                "discrepancies.\n\n" + self.state.extracted.model_dump_json(indent=2)
-                + "\n\n" + json_format_hint(VerificationResult),
+                "discrepancies.\n\n" + self.state.extracted.model_dump_json(indent=2),
+                VerificationResult,
             )
-            self.state.verification = parse_model(result.raw, VerificationResult)
         except Exception as exc:  # noqa: BLE001 - record and move on
             self.state.errored = True
             self.state.error_reason = f"verify failed: {exc}"
@@ -98,18 +107,20 @@ class InvoiceFlow(Flow[InvoiceState]):
                 f"- {li.description} (qty={li.quantity}, amount={li.amount})"
                 for li in inv.line_items
             )
-            agent = make_categorizer()
-            result = agent.kickoff(
+            choice = _kickoff_json(
+                make_categorizer,
                 "Categorize this invoice. Choose ONE candidate account code and judge "
                 "Direct vs Indirect from the buyer context and line items.\n\n"
                 f"Buyer context:\n{self.state.buyer_context or '(none)'}\n\n"
                 f"Product context:\n{self.state.product_context or '(none)'}\n\n"
                 f"Invoice line items:\n{line_items}\n\n"
-                f"Candidate accounts:\n{candidate_lines}\n\n"
-                + json_format_hint(AccountChoice),
+                f"Candidate accounts:\n{candidate_lines}",
+                AccountChoice,
             )
-            choice = parse_model(result.raw, AccountChoice)
-            accounts_by_code = {a["account_code"]: a for a in load_accounts()}
+            # The chart is loaded once per batch (run_all) and passed via state;
+            # fall back to a direct read for standalone/single-invoice use.
+            accounts = self.state.accounts or load_accounts()
+            accounts_by_code = {a["account_code"]: a for a in accounts}
             grounded, note = ground_categorization(
                 choice, candidates, accounts_by_code
             )
@@ -136,16 +147,21 @@ class InvoiceFlow(Flow[InvoiceState]):
         append_row(row, config.LEDGER_PATH)
 
 
-def _process_invoice(pdf: Path, buyer_context: str) -> str:
+def _process_invoice(pdf: Path, buyer_context: str, accounts: list[dict]) -> str:
     """Run one invoice through the flow and return a one-line summary.
 
     Each flow writes its own ledger row (the write is serialized in
     ``append_row``), so this is safe to call concurrently across invoices.
+    ``accounts`` is the chart, loaded once by ``run_all`` and shared read-only.
     """
     invoice_flow = InvoiceFlow()
     try:
         invoice_flow.kickoff(
-            inputs={"pdf_path": str(pdf), "buyer_context": buyer_context}
+            inputs={
+                "pdf_path": str(pdf),
+                "buyer_context": buyer_context,
+                "accounts": accounts,
+            }
         )
     except Exception as exc:  # noqa: BLE001 - keep processing remaining invoices
         try:
@@ -183,6 +199,7 @@ def run_all() -> None:
         return
 
     build_index()  # ensure the RAG index exists (no-op if already built)
+    accounts = load_accounts()  # load the chart once for the whole batch
 
     try:
         buyer_context = get_buyer_context()
@@ -194,11 +211,11 @@ def run_all() -> None:
     print(f"Processing {len(pdfs)} invoice(s) with concurrency {workers} ...")
     if workers == 1:
         for pdf in pdfs:
-            print(f"  {_process_invoice(pdf, buyer_context)}")
+            print(f"  {_process_invoice(pdf, buyer_context, accounts)}")
     else:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             for summary in executor.map(
-                lambda pdf: _process_invoice(pdf, buyer_context), pdfs
+                lambda pdf: _process_invoice(pdf, buyer_context, accounts), pdfs
             ):
                 print(f"  {summary}")
     print(f"Done. Ledger: {config.LEDGER_PATH}")

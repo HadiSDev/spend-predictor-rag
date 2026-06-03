@@ -150,6 +150,29 @@ def test_flow_skips_on_pdf_error(tmp_path, monkeypatch):
     assert "not a pdf" in rows[0]["notes"]
 
 
+def test_categorize_uses_accounts_from_state_without_reloading(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    _install_fakes(monkeypatch, ledger)
+    monkeypatch.setattr(flow, "extract_text", lambda p: "INVOICE Acme Cloud total 100")
+
+    def _boom_load():
+        raise AssertionError("load_accounts must not run when accounts are in state")
+
+    monkeypatch.setattr(flow, "load_accounts", _boom_load)
+    account = {
+        "account_code": "6010", "account_name": "Cloud Hosting & Infrastructure",
+        "level2": "Technology", "level3": "Cloud Infrastructure", "description": "x",
+    }
+
+    flow.InvoiceFlow().kickoff(
+        inputs={"pdf_path": "/x/sample.pdf", "accounts": [account]}
+    )
+
+    rows = _read(ledger)
+    assert rows[0]["status"] == "processed"
+    assert rows[0]["account_code"] == "6010"
+
+
 def test_run_all_processes_every_pdf_concurrently(tmp_path, monkeypatch):
     invoices = tmp_path / "invoices"
     invoices.mkdir()
@@ -160,13 +183,15 @@ def test_run_all_processes_every_pdf_concurrently(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "INVOICES_DIR", str(invoices))
     monkeypatch.setattr(config, "INVOICE_CONCURRENCY", 4)
     monkeypatch.setattr(flow, "build_index", lambda: None)
+    monkeypatch.setattr(flow, "load_accounts", lambda: [{"account_code": "6010"}])
     monkeypatch.setattr(flow, "get_buyer_context", lambda: "Acme buyer context")
 
     seen = []
     lock = threading.Lock()
 
-    def _fake_process(pdf, buyer_context):
+    def _fake_process(pdf, buyer_context, accounts):
         assert buyer_context == "Acme buyer context"
+        assert accounts == [{"account_code": "6010"}]  # loaded once, shared
         with lock:
             seen.append(pdf.name)
         return f"{pdf.name}: done"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import threading
 from typing import Callable
 
 import chromadb
@@ -11,6 +12,12 @@ from .. import config
 COLLECTION_NAME = "chart_of_accounts"
 
 _model: "SentenceTransformer | None" = None
+
+# Cache the collection handle per directory: opening the persistent client and
+# resolving the collection on every per-invoice retrieval is wasted work, and the
+# batch runs retrievals concurrently. Guarded so concurrent first-opens are safe.
+_collections: dict[str, chromadb.Collection] = {}
+_collections_lock = threading.Lock()
 
 
 def _default_embed(texts: list[str]) -> list[list[float]]:
@@ -24,11 +31,18 @@ def _default_embed(texts: list[str]) -> list[list[float]]:
 
 
 def get_collection(chroma_dir: str | None = None) -> chromadb.Collection:
-    """Open (or create) the persisted chart-of-accounts collection."""
-    client = chromadb.PersistentClient(path=chroma_dir or config.CHROMA_DIR)
-    return client.get_or_create_collection(
-        COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
-    )
+    """Open (or create) the persisted chart-of-accounts collection, reusing the
+    handle for a given directory across calls (and threads)."""
+    path = chroma_dir or config.CHROMA_DIR
+    with _collections_lock:
+        collection = _collections.get(path)
+        if collection is None:
+            client = chromadb.PersistentClient(path=path)
+            collection = client.get_or_create_collection(
+                COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
+            )
+            _collections[path] = collection
+        return collection
 
 
 def _read_accounts(csv_path: str) -> list[dict]:
