@@ -15,27 +15,68 @@ PDF -> extract -> verify -> research products -> categorize (leaf + Direct/Indir
 3. **Categorize** picks the leaf account (L2/L3/leaf from the chart of accounts)
    and classifies Direct/Indirect from buyer and product context using RAG retrieval.
 
+## Prerequisites
+
+- [Astral `uv`](https://docs.astral.sh/uv/) and **Python 3.12** (uv installs it).
+- A **local vLLM server** running and serving the model on an OpenAI-compatible
+  API at `http://localhost:8000/v1` (model `google/gemma-4-E4B-it`, referenced by
+  CrewAI as `hosted_vllm/google/gemma-4-E4B-it`). Confirm it's up with
+  `curl -s http://localhost:8000/v1/models`.
+- **Internet access** at run time — the buyer's website is scraped and each line
+  item is web-searched (both degrade gracefully if offline).
+- Embeddings use a local `sentence-transformers` model (`all-MiniLM-L6-v2`,
+  downloaded automatically on first run).
+
 ## Setup
 
 ```bash
+# 1. Install dependencies (creates the .venv on Python 3.12)
 uv sync
-cp .env.example .env   # then edit if your vLLM endpoint differs
-```
 
-The LLM is a local vLLM server exposing an OpenAI-compatible API at
-`http://localhost:8000/v1` serving `google/gemma-4-E4B-it` (referenced as
-`hosted_vllm/google/gemma-4-E4B-it`). Embeddings use a local
-`sentence-transformers` model (`all-MiniLM-L6-v2`, downloaded on first run).
+# 2. Create your env file and set the BUYER (this drives Direct/Indirect)
+cp .env.example .env
+#    then edit .env and set at least:
+#      BUYER_NAME=Your Company, Inc.
+#      BUYER_WEBSITE=https://yourcompany.example
+#    (VLLM_* defaults already point at http://localhost:8000/v1)
+```
 
 ## Run
 
 ```bash
-# Drop PDF invoices into data/invoices/ (a sample is included), then:
+# 1. Drop PDF invoices into data/invoices/ (a sample is included).
+
+# 2. Make sure your vLLM server is running (see Prerequisites).
+
+# 3. Run the pipeline:
 uv run main.py
+
+# 4. Inspect the results:
+cat output/ledger.csv
 ```
 
-Results are appended to `output/ledger.csv`. Skipped (unreadable/empty) invoices
-are recorded with `status=skipped` and a reason.
+Each invoice produces exactly one ledger row. Columns include `buyer_name`,
+`level1` (Direct/Indirect), `level2`, `level3`, `account_code`, `account_name`,
+`total`, `arithmetic_ok`, `confidence`, and `notes`. Status is `processed`,
+`skipped` (unreadable/empty PDF), or `error` (a stage failed, e.g. an LLM
+timeout) — skipped/error rows record the reason in `notes` and the batch
+continues.
+
+> **First run is slower:** it scrapes the buyer site and searches each line item;
+> both are cached under `data/web_cache/` (gitignored), so re-runs are faster.
+
+### Changing the chart of accounts
+
+`data/chart_of_accounts.csv` provides `level2`/`level3` and the leaf account
+(`account_code`, `account_name`). Direct/Indirect (`level1`) is **not** stored
+here — it's judged per invoice from the buyer context. Replace the sample with
+your real chart (same columns). The ChromaDB index rebuilds automatically when
+the **row count** changes; if you edit rows without changing the count, force a
+rebuild:
+
+```bash
+rm -rf chroma_db
+```
 
 ## Test
 
@@ -43,14 +84,5 @@ are recorded with `status=skipped` and a reason.
 uv run pytest
 ```
 
-Unit tests run offline (no LLM, no model download - embeddings are faked).
-
-## Configuration
-
-Set the buyer in `.env` (`BUYER_NAME`, `BUYER_WEBSITE`) — the buyer's website is
-scraped once per run to judge Direct/Indirect. Line items are web-searched
-(DuckDuckGo, no key) to clarify products. The chart of accounts
-(`data/chart_of_accounts.csv`) provides `level2`/`level3` and the leaf account;
-Direct/Indirect is derived per invoice from the buyer context, not stored in the
-chart. Replace the sample chart with your real one (same columns); the ChromaDB
-index rebuilds when the row count changes.
+Unit tests run fully offline (no LLM, no network, no model download — web lookups
+and embeddings are faked via dependency injection).
