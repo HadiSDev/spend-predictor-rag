@@ -10,6 +10,7 @@ from . import config
 from .agents import make_categorizer, make_extractor, make_verifier
 from .grounding import ground_categorization
 from .ledger import append_row, build_ledger_row
+from .parsing import json_format_hint, parse_model
 from .web_context import get_buyer_context, get_product_context
 from .models import (
     AccountChoice,
@@ -46,10 +47,10 @@ class InvoiceFlow(Flow[InvoiceState]):
             agent = make_extractor()
             result = agent.kickoff(
                 "Extract the structured invoice data from the following invoice text. "
-                "Leave any missing field null.\n\n" + self.state.invoice_text,
-                response_format=ExtractedInvoice,
+                "Leave any missing field null.\n\n" + self.state.invoice_text
+                + "\n\n" + json_format_hint(ExtractedInvoice),
             )
-            self.state.extracted = result.pydantic
+            self.state.extracted = parse_model(result.raw, ExtractedInvoice)
         except Exception as exc:  # noqa: BLE001 - record and move on
             self.state.errored = True
             self.state.error_reason = f"extract failed: {exc}"
@@ -62,10 +63,10 @@ class InvoiceFlow(Flow[InvoiceState]):
             agent = make_verifier()
             result = agent.kickoff(
                 "Verify the arithmetic of this extracted invoice and list any "
-                "discrepancies.\n\n" + self.state.extracted.model_dump_json(indent=2),
-                response_format=VerificationResult,
+                "discrepancies.\n\n" + self.state.extracted.model_dump_json(indent=2)
+                + "\n\n" + json_format_hint(VerificationResult),
             )
-            self.state.verification = result.pydantic
+            self.state.verification = parse_model(result.raw, VerificationResult)
         except Exception as exc:  # noqa: BLE001 - record and move on
             self.state.errored = True
             self.state.error_reason = f"verify failed: {exc}"
@@ -104,12 +105,13 @@ class InvoiceFlow(Flow[InvoiceState]):
                 f"Buyer context:\n{self.state.buyer_context or '(none)'}\n\n"
                 f"Product context:\n{self.state.product_context or '(none)'}\n\n"
                 f"Invoice line items:\n{line_items}\n\n"
-                f"Candidate accounts:\n{candidate_lines}",
-                response_format=AccountChoice,
+                f"Candidate accounts:\n{candidate_lines}\n\n"
+                + json_format_hint(AccountChoice),
             )
+            choice = parse_model(result.raw, AccountChoice)
             accounts_by_code = {a["account_code"]: a for a in load_accounts()}
             grounded, note = ground_categorization(
-                result.pydantic, candidates, accounts_by_code
+                choice, candidates, accounts_by_code
             )
             self.state.categorized = grounded
             self.state.categorization_note = note

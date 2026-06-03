@@ -11,16 +11,18 @@ from spend_predictor.models import (
 
 
 class _FakeResult:
-    def __init__(self, pydantic):
-        self.pydantic = pydantic
+    """Mirrors LiteAgentOutput: the model now reads `.raw` (free-form text)."""
+
+    def __init__(self, model):
+        self.raw = model.model_dump_json()
 
 
 class _FakeAgent:
-    def __init__(self, pydantic):
-        self._pydantic = pydantic
+    def __init__(self, model):
+        self._model = model
 
     def kickoff(self, *args, **kwargs):
-        return _FakeResult(self._pydantic)
+        return _FakeResult(self._model)
 
 
 def _read(path):
@@ -195,8 +197,10 @@ def test_flow_uses_buyer_and_product_context(tmp_path, monkeypatch):
         def kickoff(self, prompt, **kwargs):
             captured["prompt"] = prompt
             from spend_predictor.models import AccountChoice
-            return type("R", (), {"pydantic": AccountChoice(
-                account_code="6010", account_name="Cloud", level1="Direct", confidence=0.9, rationale="ok")})()
+            raw = AccountChoice(
+                account_code="6010", account_name="Cloud", level1="Direct",
+                confidence=0.9, rationale="ok").model_dump_json()
+            return type("R", (), {"raw": raw})()
 
     monkeypatch.setattr(flow, "make_categorizer", lambda: _CapturingAgent())
 
