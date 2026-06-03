@@ -1,4 +1,5 @@
 import csv
+from concurrent.futures import ThreadPoolExecutor
 
 from spend_predictor.ledger import LEDGER_COLUMNS, append_row, build_ledger_row
 from spend_predictor.models import (
@@ -21,6 +22,24 @@ def test_append_writes_header_once_then_rows(tmp_path):
     rows = _read(ledger)
     assert [r["source_file"] for r in rows] == ["a.pdf", "b.pdf"]
     # header written exactly once
+    assert ledger.read_text().count(",".join(LEDGER_COLUMNS)) == 1
+
+
+def test_concurrent_appends_write_header_once_and_keep_all_rows(tmp_path):
+    # Concurrent invoice flows append to the same ledger; the lock must keep the
+    # header to a single line and every row intact (no interleaving/loss).
+    ledger = tmp_path / "ledger.csv"
+    n = 50
+
+    def _write(i):
+        append_row({"source_file": f"inv-{i:03d}.pdf", "status": "processed"}, ledger)
+
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        list(executor.map(_write, range(n)))
+
+    rows = _read(ledger)
+    assert len(rows) == n
+    assert sorted(r["source_file"] for r in rows) == [f"inv-{i:03d}.pdf" for i in range(n)]
     assert ledger.read_text().count(",".join(LEDGER_COLUMNS)) == 1
 
 

@@ -40,3 +40,8 @@ def test_buyer_and_web_context_settings():
     assert Path(config.WEB_CONTEXT_CACHE_DIR) == Path(
         os.getenv("WEB_CONTEXT_CACHE_DIR", str(config.PROJECT_ROOT / "data" / "web_cache"))
     )
+
+
+def test_invoice_concurrency_setting():
+    import os
+    assert config.INVOICE_CONCURRENCY == int(os.getenv("INVOICE_CONCURRENCY", "4"))

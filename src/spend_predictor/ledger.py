@@ -2,9 +2,14 @@
 from __future__ import annotations
 
 import csv
+import threading
 from pathlib import Path
 
 from .models import CategorizedInvoice, ExtractedInvoice, VerificationResult
+
+# Serializes ledger writes so concurrent invoice flows can't interleave rows or
+# both write the header. The header decision must also happen under the lock.
+_write_lock = threading.Lock()
 
 LEDGER_COLUMNS = [
     "source_file",
@@ -89,9 +94,10 @@ def append_row(row: dict, path: str | Path) -> None:
     """Append a row to the ledger CSV, writing the header if the file is new."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    file_exists = path.exists()
-    with path.open("a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=LEDGER_COLUMNS)
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow({col: row.get(col, "") for col in LEDGER_COLUMNS})
+    with _write_lock:
+        file_exists = path.exists()
+        with path.open("a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=LEDGER_COLUMNS)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow({col: row.get(col, "") for col in LEDGER_COLUMNS})

@@ -1,6 +1,7 @@
 """The invoice-processing Flow and the run-all entry point."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from crewai.flow.flow import Flow, listen, start
@@ -133,6 +134,44 @@ class InvoiceFlow(Flow[InvoiceState]):
         append_row(row, config.LEDGER_PATH)
 
 
+def _process_invoice(pdf: Path, buyer_context: str) -> str:
+    """Run one invoice through the flow and return a one-line summary.
+
+    Each flow writes its own ledger row (the write is serialized in
+    ``append_row``), so this is safe to call concurrently across invoices.
+    """
+    invoice_flow = InvoiceFlow()
+    try:
+        invoice_flow.kickoff(
+            inputs={"pdf_path": str(pdf), "buyer_context": buyer_context}
+        )
+    except Exception as exc:  # noqa: BLE001 - keep processing remaining invoices
+        try:
+            append_row(
+                build_ledger_row(
+                    source_file=pdf.name, skipped=False, skip_reason="",
+                    extracted=None, verification=None, categorized=None,
+                    errored=True, error_reason=f"flow crashed: {exc}",
+                    buyer_name=config.BUYER_NAME,
+                ),
+                config.LEDGER_PATH,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return f"{pdf.name}: ERROR {exc}"
+
+    state = invoice_flow.state
+    if state.skipped:
+        return f"{pdf.name}: skipped ({state.skip_reason})"
+    if state.errored:
+        return f"{pdf.name}: error ({state.error_reason})"
+    if state.categorized:
+        c = state.categorized
+        note = f" [{state.categorization_note}]" if state.categorization_note else ""
+        return f"{pdf.name}: {c.account_code} {c.account_name} (confidence {c.confidence}){note}"
+    return f"{pdf.name}: done"
+
+
 def run_all() -> None:
     """Process every PDF in the invoices directory into the ledger."""
     invoices_dir = Path(config.INVOICES_DIR)
@@ -149,35 +188,15 @@ def run_all() -> None:
         print(f"  (buyer context unavailable: {exc})")
         buyer_context = ""
 
-    for pdf in pdfs:
-        print(f"Processing {pdf.name} ...")
-        invoice_flow = InvoiceFlow()
-        try:
-            invoice_flow.kickoff(
-                inputs={"pdf_path": str(pdf), "buyer_context": buyer_context}
-            )
-        except Exception as exc:  # noqa: BLE001 - keep processing remaining invoices
-            print(f"  ERROR: {exc}")
-            try:
-                append_row(
-                    build_ledger_row(
-                        source_file=pdf.name, skipped=False, skip_reason="",
-                        extracted=None, verification=None, categorized=None,
-                        errored=True, error_reason=f"flow crashed: {exc}",
-                        buyer_name=config.BUYER_NAME,
-                    ),
-                    config.LEDGER_PATH,
-                )
-            except Exception:  # noqa: BLE001
-                pass
-            continue
-        state = invoice_flow.state
-        if state.skipped:
-            print(f"  skipped: {state.skip_reason}")
-        elif state.errored:
-            print(f"  error: {state.error_reason}")
-        elif state.categorized:
-            c = state.categorized
-            note = f" [{state.categorization_note}]" if state.categorization_note else ""
-            print(f"  -> {c.account_code} {c.account_name} (confidence {c.confidence}){note}")
+    workers = max(1, min(config.INVOICE_CONCURRENCY, len(pdfs)))
+    print(f"Processing {len(pdfs)} invoice(s) with concurrency {workers} ...")
+    if workers == 1:
+        for pdf in pdfs:
+            print(f"  {_process_invoice(pdf, buyer_context)}")
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            for summary in executor.map(
+                lambda pdf: _process_invoice(pdf, buyer_context), pdfs
+            ):
+                print(f"  {summary}")
     print(f"Done. Ledger: {config.LEDGER_PATH}")

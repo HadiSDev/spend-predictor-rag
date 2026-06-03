@@ -65,6 +65,11 @@ continues.
 > **First run is slower:** it scrapes the buyer site and searches each line item;
 > both are cached under `data/web_cache/` (gitignored), so re-runs are faster.
 
+Invoices are independent and processed **concurrently** — set `INVOICE_CONCURRENCY`
+in `.env` (default `4`) to match what your vLLM server handles; `1` forces strictly
+sequential processing (deterministic ledger order). The shared index build and
+buyer-website scrape happen once, before the batch.
+
 ### Changing the chart of accounts
 
 `data/chart_of_accounts.csv` provides `level2`/`level3` and the leaf account

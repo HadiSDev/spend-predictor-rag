@@ -38,6 +38,11 @@ INVOICES_DIR = os.getenv("INVOICES_DIR", str(PROJECT_ROOT / "data" / "invoices")
 LEDGER_PATH = os.getenv("LEDGER_PATH", str(PROJECT_ROOT / "output" / "ledger.csv"))
 CHROMA_DIR = os.getenv("CHROMA_DIR", str(PROJECT_ROOT / "chroma_db"))
 
+# Invoices are independent, so the batch runs them concurrently (the work is
+# I/O-bound: HTTP to vLLM + web scrape/search). Tune to what your vLLM server
+# handles; 1 means strictly sequential (deterministic ledger order).
+INVOICE_CONCURRENCY = int(os.getenv("INVOICE_CONCURRENCY", "4"))
+
 
 def get_llm() -> LLM:
     """Return a CrewAI LLM pointed at the local vLLM OpenAI-compatible endpoint."""

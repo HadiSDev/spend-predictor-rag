@@ -1,4 +1,5 @@
 import csv
+import threading
 
 from spend_predictor import config, flow
 from spend_predictor.models import (
@@ -145,6 +146,34 @@ def test_flow_skips_on_pdf_error(tmp_path, monkeypatch):
     rows = _read(ledger)
     assert rows[0]["status"] == "skipped"
     assert "not a pdf" in rows[0]["notes"]
+
+
+def test_run_all_processes_every_pdf_concurrently(tmp_path, monkeypatch):
+    invoices = tmp_path / "invoices"
+    invoices.mkdir()
+    names = [f"inv-{i}.pdf" for i in range(5)]
+    for name in names:
+        (invoices / name).write_bytes(b"%PDF-1.4 fake")
+
+    monkeypatch.setattr(config, "INVOICES_DIR", str(invoices))
+    monkeypatch.setattr(config, "INVOICE_CONCURRENCY", 4)
+    monkeypatch.setattr(flow, "build_index", lambda: None)
+    monkeypatch.setattr(flow, "get_buyer_context", lambda: "Acme buyer context")
+
+    seen = []
+    lock = threading.Lock()
+
+    def _fake_process(pdf, buyer_context):
+        assert buyer_context == "Acme buyer context"
+        with lock:
+            seen.append(pdf.name)
+        return f"{pdf.name}: done"
+
+    monkeypatch.setattr(flow, "_process_invoice", _fake_process)
+
+    flow.run_all()
+
+    assert sorted(seen) == sorted(names)
 
 
 def test_flow_uses_buyer_and_product_context(tmp_path, monkeypatch):
