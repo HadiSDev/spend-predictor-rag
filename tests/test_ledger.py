@@ -45,7 +45,9 @@ def test_concurrent_appends_write_header_once_and_keep_all_rows(tmp_path):
 
 def test_build_ledger_row_processed():
     extracted = ExtractedInvoice(
-        vendor_name="Acme Cloud", invoice_number="INV-1", invoice_date="2026-05-01",
+        vendor_name="Acme Cloud", supplier_country_code="US", supplier_vat_number="US12-345",
+        buyer_country_code="DK", buyer_vat_number="DK99887766",
+        invoice_number="INV-1", invoice_date="2026-05-01",
         currency="USD", line_items=[LineItem(description="cloud hosting", amount=100.0)],
         subtotal=100.0, tax=0.0, total=100.0,
     )
@@ -62,6 +64,10 @@ def test_build_ledger_row_processed():
     )
     assert row["status"] == "processed"
     assert row["buyer_name"] == "Acme Analytics"
+    assert row["supplier_country_code"] == "US"
+    assert row["supplier_vat_number"] == "US12-345"
+    assert row["buyer_country_code"] == "DK"
+    assert row["buyer_vat_number"] == "DK99887766"
     assert row["level1"] == "Direct"
     assert row["level2"] == "Technology"
     assert row["account_code"] == "6010"

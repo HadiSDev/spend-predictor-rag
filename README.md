@@ -55,9 +55,10 @@ uv run main.py
 cat output/ledger.csv
 ```
 
-Each invoice produces exactly one ledger row. Columns include `buyer_name`,
-`level1` (Direct/Indirect), `level2`, `level3`, `account_code`, `account_name`,
-`total`, `arithmetic_ok`, `confidence`, and `notes`. Status is `processed`,
+Each invoice produces exactly one ledger row. Columns include `vendor_name`,
+`supplier_country_code`, `supplier_vat_number`, `buyer_name`, `buyer_country_code`,
+`buyer_vat_number`, `level1` (Direct/Indirect), `level2`, `level3`, `account_code`,
+`account_name`, `total`, `arithmetic_ok`, `confidence`, and `notes`. Status is `processed`,
 `skipped` (unreadable/empty PDF), or `error` (a stage failed, e.g. an LLM
 timeout) — skipped/error rows record the reason in `notes` and the batch
 continues.

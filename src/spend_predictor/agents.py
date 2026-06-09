@@ -11,7 +11,9 @@ def make_extractor() -> Agent:
         role="Invoice Data Extraction Specialist",
         goal=(
             "Read raw invoice text and extract every structured field accurately: "
-            "vendor, invoice number, date, currency, line items, subtotal, tax, and total."
+            "vendor, supplier and buyer country codes and VAT numbers, invoice number, "
+            "date, currency, line items (with unit type, quantity, and per-line VAT "
+            "code and rate), subtotal, tax, and total."
         ),
         backstory=(
             "You are a meticulous accounts-payable clerk who has transcribed tens of "

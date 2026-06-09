@@ -19,6 +19,43 @@ def test_extracted_invoice_roundtrip():
     )
     assert inv.line_items[0].amount == 100.0
     assert inv.invoice_number is None
+    # new fields default to None / unset
+    assert inv.supplier_country_code is None and inv.buyer_vat_number is None
+    assert inv.line_items[0].unit_type is None and inv.line_items[0].vat_rate is None
+
+
+def test_extracted_invoice_captures_tax_and_unit_fields():
+    inv = ExtractedInvoice(
+        vendor_name="ACME GmbH",
+        supplier_country_code="DE",
+        supplier_vat_number="DE123456789",
+        buyer_country_code="DK",
+        buyer_vat_number="DK99887766",
+        currency="EUR",
+        line_items=[
+            LineItem(
+                description="Consulting", quantity=10, unit_type="hours",
+                unit_price=120.0, amount=1200.0, vat_code="S", vat_rate=25.0,
+            )
+        ],
+        subtotal=1200.0, tax=300.0, total=1500.0,
+    )
+    assert inv.supplier_country_code == "DE"
+    assert inv.buyer_vat_number == "DK99887766"
+    li = inv.line_items[0]
+    assert (li.unit_type, li.vat_code, li.vat_rate) == ("hours", "S", 25.0)
+
+
+@pytest.mark.parametrize(
+    "model",
+    [LineItem, ExtractedInvoice, VerificationResult, AccountChoice, CategorizedInvoice, InvoiceState],
+)
+def test_every_field_has_a_description(model):
+    missing = [
+        name for name, field in model.model_fields.items()
+        if not (field.description and field.description.strip())
+    ]
+    assert missing == [], f"{model.__name__} fields missing Field(description=...): {missing}"
 
 
 def test_account_choice_rejects_bad_level1():
