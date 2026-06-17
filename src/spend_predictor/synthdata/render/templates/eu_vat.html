@@ -130,7 +130,7 @@
         <td>{{ li.vat_code }}</td>
         <td>{{ li.vat_rate }}</td>
         <td class="num">{{ li.amount }}</td>
-        <td class="num">{{ inv.tax }}</td>
+        <td class="num">{{ ((li.amount * li.vat_rate / 100) | round(2)) if li.vat_rate else 0 }}</td>
       </tr>{% endfor %}
       </tbody>
     </table>

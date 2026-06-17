@@ -96,12 +96,12 @@
         <div class="card-name">{{ buyer_name }}</div>
         {% if extras is defined and extras.buyer_address %}<div class="card-detail">{{ extras.buyer_address }}</div>{% endif %}
         {% if inv.buyer_vat_number %}<div class="card-detail">VAT {{ inv.buyer_vat_number }}</div>{% endif %}
+        {% if extras is defined and extras.payment_terms %}<div class="card-detail">Terms: {{ extras.payment_terms }}</div>{% endif %}
       </div>
       {% if extras is defined and extras.po_number %}
       <div class="card">
         <div class="card-label">Reference</div>
         <div class="card-name">{{ extras.po_number }}</div>
-        {% if extras.payment_terms %}<div class="card-detail">{{ extras.payment_terms }}</div>{% endif %}
       </div>
       {% endif %}
     </div>
