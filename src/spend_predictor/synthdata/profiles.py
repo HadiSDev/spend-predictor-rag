@@ -36,7 +36,7 @@ PROFILES: list[BuyerProfile] = [
     ),
     BuyerProfile(
         name="Harbor Freight Logistics Inc.", website="https://harborfreight.example",
-        country_code="US", vat_number="12-3456789",
+        country_code="US", vat_number="",
         business_description="A freight and logistics company; its cost of revenue is "
         "shipping, freight and contract delivery labor.",
         direct_level2=frozenset({"Logistics", "People"}),

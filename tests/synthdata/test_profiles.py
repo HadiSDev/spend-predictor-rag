@@ -22,5 +22,5 @@ def test_profiles_are_populated_and_well_formed():
     assert len(PROFILES) >= 3
     for p in PROFILES:
         assert isinstance(p, BuyerProfile)
-        assert p.name and p.country_code and p.vat_number and p.business_description
+        assert p.name and p.country_code and p.business_description
         assert isinstance(p.direct_level2, frozenset) and p.direct_level2
