@@ -2,7 +2,7 @@
 """Per-invoice render style + extra fields, built deterministically from a seeded Faker."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -160,7 +160,7 @@ def build_render_spec(
     # IBAN / bank only for EU regime
     if vat_regime == "EU":
         # pick a supplier country from the EU pool deterministically
-        supplier_cc = faker.random_element(list(_EU_COUNTRY_IBAN_PREFIX.keys()))
+        supplier_cc = faker.random_element(sorted(_EU_COUNTRY_IBAN_PREFIX.keys()))
         bank_name: str | None = faker.random_element(_EU_BANKS)
         iban: str | None = _fake_iban(faker, supplier_cc)
     else:
@@ -172,7 +172,7 @@ def build_render_spec(
         f"PO-{faker.numerify('######')}" if faker.boolean(chance_of_getting_true=60) else None
     )
 
-    # Notes ~40 % of the time
+    # Notes ~80 % of the time (4 out of 5 options are non-None)
     notes_options = [
         "Please quote invoice number with payment.",
         "Late payment subject to 2% monthly interest.",

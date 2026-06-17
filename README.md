@@ -135,9 +135,11 @@ uv sync --group live
 uv run python -m spend_predictor.synthdata.generate --n 100 --seed 7 --out data/synthetic
 ```
 
-**Requires:** the local vLLM server running (the generator asks the model to
-write line-item descriptions). Add `--cryptic` for terse, harder-to-categorize
-descriptions.
+**Requires:** by default, NO LLM or vLLM — the generator produces richly varied
+invoices deterministically. To use LLM-written line-item descriptions, pass
+`--live` (which requires `uv sync --group live` + a running vLLM server). The
+`--cryptic` flag (terse, harder-to-categorize descriptions) only has an effect
+with `--live`.
 
 Each fixture is written to its own directory:
 - `data/synthetic/<id>/invoice.pdf` — the rendered invoice
