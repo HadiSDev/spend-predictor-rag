@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  body {
+    font-family: {{ style.font_stack if style is defined else "'Georgia', serif" }};
+    margin: 48px 60px; color: #2d2d2d; font-size: 13px; line-height: 1.6;
+  }
+  :root { --accent: {{ style.accent if style is defined else "#6b46c1" }}; }
+  /* Personal header */
+  .header { display: flex; align-items: center; gap: 20px; margin-bottom: 32px;
+             padding-bottom: 20px; border-bottom: 2px solid var(--accent); }
+  .monogram-circle { width: 60px; height: 60px; border-radius: 50%;
+                     background: var(--accent); color: #fff;
+                     display: flex; align-items: center; justify-content: center;
+                     font-size: 1.4em; font-weight: 700; letter-spacing: 2px;
+                     flex-shrink: 0; }
+  .header-info { flex: 1; }
+  .vendor-name { font-size: 1.5em; font-weight: 700; color: var(--accent); }
+  .vendor-sub { font-size: 0.82em; color: #888; margin-top: 2px; }
+  .invoice-badge { text-align: right; }
+  .inv-title { font-size: 1em; font-weight: 700; letter-spacing: 3px;
+                text-transform: uppercase; color: #aaa; }
+  .inv-number { font-size: 1.3em; font-weight: 700; color: var(--accent); margin-top: 2px; }
+  .inv-date { font-size: 0.85em; color: #888; margin-top: 2px; }
+  /* Bill to */
+  .bill-section { margin-bottom: 28px; }
+  .section-label { font-size: 0.65em; text-transform: uppercase; letter-spacing: 2px;
+                   color: var(--accent); font-weight: 700; margin-bottom: 6px; }
+  .client-name { font-weight: 700; font-size: 1.05em; }
+  .client-detail { font-size: 0.85em; color: #777; }
+  /* Hours/rate emphasis table */
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  thead th { color: var(--accent); border-bottom: 2px solid var(--accent);
+              padding: 8px 0; text-align: left; font-size: 0.8em;
+              text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+  thead th.num { text-align: right; }
+  td { padding: 10px 0; border-bottom: 1px dotted #ddd; font-size: 0.92em; color: #333; }
+  td.num { text-align: right; }
+  .qty-rate { font-size: 0.85em; color: #888; }
+  .amount-col { font-weight: 600; color: var(--accent); }
+  /* Totals */
+  .totals { margin-top: 16px; display: flex; justify-content: flex-end; }
+  .totals-inner { min-width: 240px; }
+  .t-row { display: flex; justify-content: space-between; padding: 5px 0;
+            font-size: 0.9em; color: #666; border-bottom: 1px solid #eee; }
+  .t-row.grand { color: var(--accent); font-weight: 700; font-size: 1.1em;
+                  border-bottom: none; border-top: 2px solid var(--accent);
+                  margin-top: 4px; padding-top: 8px; }
+  /* Payment section */
+  .payment-section { margin-top: 28px; background: #faf8ff; border: 1px solid #e9e3ff;
+                      border-radius: 6px; padding: 16px 20px; font-size: 0.88em; }
+  .payment-title { font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+  .payment-row { display: flex; gap: 8px; margin-bottom: 4px; }
+  .payment-label { min-width: 80px; color: #888; }
+  /* Notes */
+  .notes-section { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee;
+                   font-size: 0.85em; color: #777; font-style: italic; }
+  .notes-greeting { font-style: normal; font-weight: 600; color: #2d2d2d; margin-bottom: 6px; }
+</style></head><body>
+
+  <!-- Personal header with monogram -->
+  <div class="header">
+    {% if style is defined and style.show_logo %}
+    <div class="monogram-circle">{{ style.monogram }}</div>
+    {% endif %}
+    <div class="header-info">
+      <div class="vendor-name">{{ inv.vendor_name }}</div>
+      {% if extras is defined and extras.vendor_address %}
+      <div class="vendor-sub">{{ extras.vendor_address }}</div>
+      {% endif %}
+      {% if inv.supplier_vat_number %}
+      <div class="vendor-sub">VAT {{ inv.supplier_vat_number }}</div>
+      {% endif %}
+    </div>
+    <div class="invoice-badge">
+      <div class="inv-title">Invoice</div>
+      <div class="inv-number">{{ inv.invoice_number }}</div>
+      <div class="inv-date">{{ inv.invoice_date }}</div>
+      {% if extras is defined and extras.due_date %}
+      <div class="inv-date">Due: {{ extras.due_date }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Bill to client -->
+  <div class="bill-section">
+    <div class="section-label">Billed To</div>
+    <div class="client-name">{{ buyer_name }}</div>
+    {% if inv.buyer_vat_number %}<div class="client-detail">VAT: {{ inv.buyer_vat_number }}</div>{% endif %}
+    {% if extras is defined and extras.buyer_address %}
+    <div class="client-detail">{{ extras.buyer_address }}</div>
+    {% endif %}
+    {% if extras is defined and extras.po_number %}
+    <div class="client-detail">Reference: {{ extras.po_number }}</div>
+    {% endif %}
+  </div>
+
+  <!-- Services table with hours/rate emphasis -->
+  <table>
+    <thead><tr>
+      <th>Service / Description</th>
+      <th class="num">Qty</th>
+      <th class="num">Unit</th>
+      <th class="num">Rate</th>
+      <th class="num">Amount</th>
+    </tr></thead>
+    <tbody>
+    {% for li in inv.line_items %}<tr>
+      <td>{{ li.description }}</td>
+      <td class="num">{{ li.quantity }}</td>
+      <td class="num">{{ li.unit_type }}</td>
+      <td class="num">{{ li.unit_price }}</td>
+      <td class="num amount-col">{{ li.amount }}</td>
+    </tr>{% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Totals -->
+  <div class="totals">
+    <div class="totals-inner">
+      <div class="t-row"><span>Subtotal</span><span>{{ inv.subtotal }} {{ inv.currency }}</span></div>
+      <div class="t-row"><span>Tax</span><span>{{ inv.tax }} {{ inv.currency }}</span></div>
+      <div class="t-row grand"><span>Total Due</span><span>{{ inv.total }} {{ inv.currency }}</span></div>
+    </div>
+  </div>
+
+  <!-- Bank / IBAN for payment -->
+  {% if extras is defined and (extras.bank_name or extras.iban) %}
+  <div class="payment-section">
+    <div class="payment-title">Payment Information</div>
+    {% if extras.bank_name %}
+    <div class="payment-row"><span class="payment-label">Bank:</span><span>{{ extras.bank_name }}</span></div>
+    {% endif %}
+    {% if extras.iban %}
+    <div class="payment-row"><span class="payment-label">IBAN:</span><span>{{ extras.iban }}</span></div>
+    {% endif %}
+    <div class="payment-row"><span class="payment-label">Reference:</span><span>{{ inv.invoice_number }}</span></div>
+    {% if extras.payment_terms %}
+    <div class="payment-row"><span class="payment-label">Terms:</span><span>{{ extras.payment_terms }}</span></div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Friendly notes footer -->
+  {% if extras is defined and extras.notes %}
+  <div class="notes-section">
+    <div class="notes-greeting">A note from {{ inv.vendor_name }}:</div>
+    {{ extras.notes }}
+  </div>
+  {% else %}
+  <div class="notes-section">
+    Thank you for the opportunity to work together. Please don't hesitate to reach out with any questions.
+  </div>
+  {% endif %}
+
+</body></html>

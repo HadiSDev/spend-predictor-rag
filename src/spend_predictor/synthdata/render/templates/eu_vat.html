@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  body {
+    font-family: {{ style.font_stack if style is defined else "'Arial', sans-serif" }};
+    margin: 40px 48px; color: #1a1a1a; font-size: 13px; line-height: 1.5;
+  }
+  :root { --accent: {{ style.accent if style is defined else "#276749" }}; }
+  h1 { color: var(--accent); font-size: 1.6em; letter-spacing: 2px; margin: 0 0 4px 0; }
+  .subtitle { font-size: 0.8em; color: #777; letter-spacing: 1px; text-transform: uppercase; }
+  .top-row { display: flex; justify-content: space-between; margin-bottom: 24px; }
+  .party-block { font-size: 0.9em; line-height: 1.8; }
+  .party-label { font-size: 0.65em; text-transform: uppercase; letter-spacing: 2px;
+                 color: var(--accent); font-weight: 700; border-bottom: 1px solid var(--accent);
+                 display: inline-block; margin-bottom: 6px; padding-bottom: 2px; }
+  .party-name { font-weight: 700; font-size: 1.05em; }
+  .vat-badge { display: inline-block; background: #f0fff4; border: 1px solid var(--accent);
+               color: var(--accent); font-size: 0.75em; font-weight: 600;
+               padding: 2px 8px; border-radius: 3px; margin-top: 4px; }
+  .meta-box { border: 1px solid #cde; background: #f7fff9;
+              padding: 12px 16px; font-size: 0.88em; line-height: 1.9; }
+  .meta-box .row { display: flex; gap: 8px; }
+  .meta-label { color: #666; min-width: 110px; }
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  thead th { background: var(--accent); color: #fff; padding: 9px 10px; text-align: left;
+              font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.8px; }
+  thead th.num { text-align: right; }
+  td { padding: 8px 10px; border-bottom: 1px solid #e4ede4; font-size: 0.88em; }
+  td.num { text-align: right; }
+  /* VAT breakdown section */
+  .vat-section { margin-top: 20px; }
+  .vat-section-title { font-size: 0.7em; text-transform: uppercase; letter-spacing: 2px;
+                       color: var(--accent); font-weight: 700; margin-bottom: 8px; }
+  .vat-breakdown { border-collapse: collapse; font-size: 0.85em; }
+  .vat-breakdown th { background: #e8f5e9; color: #2d6a4f; padding: 6px 12px;
+                      text-align: left; border-bottom: 2px solid var(--accent); }
+  .vat-breakdown td { padding: 6px 12px; border-bottom: 1px solid #d4e6d4; }
+  .vat-breakdown td.num { text-align: right; }
+  /* Totals */
+  .totals-block { margin-top: 16px; }
+  .totals-row { display: flex; justify-content: flex-end; padding: 4px 0; }
+  .tot-lbl { min-width: 130px; text-align: right; padding-right: 20px; color: #555; font-size: 0.9em; }
+  .tot-val { min-width: 90px; text-align: right; font-size: 0.9em; }
+  .tot-grand { font-weight: 700; font-size: 1.1em; color: var(--accent);
+               border-top: 2px solid var(--accent); margin-top: 4px; padding-top: 6px; }
+  /* Bank / IBAN block */
+  .bank-block { margin-top: 24px; border: 1px solid #cde; background: #f7fff9;
+                padding: 12px 16px; font-size: 0.85em; line-height: 1.8; }
+  .bank-title { font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+  /* Reverse charge notice */
+  .rc-notice { margin-top: 16px; border-left: 3px solid var(--accent);
+               padding: 8px 14px; background: #f0fff4; font-size: 0.82em; color: #2d6a4f; }
+  .notes { margin-top: 16px; font-style: italic; color: #666; font-size: 0.85em; }
+</style></head><body>
+
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
+    <div>
+      {% if style is defined and style.show_logo %}
+      <div style="display:inline-block;background:var(--accent);color:#fff;font-size:1.3em;
+                  font-weight:bold;padding:6px 14px;border-radius:4px;letter-spacing:3px;margin-bottom:10px">
+        {{ style.monogram }}
+      </div><br>
+      {% endif %}
+      <h1>TAX INVOICE</h1>
+      <div class="subtitle">VAT Invoice — {{ inv.currency }}</div>
+    </div>
+    <div class="meta-box">
+      <div class="row"><span class="meta-label">Invoice No:</span><strong>{{ inv.invoice_number }}</strong></div>
+      <div class="row"><span class="meta-label">Invoice Date:</span>{{ inv.invoice_date }}</div>
+      {% if extras is defined and extras.due_date %}
+      <div class="row"><span class="meta-label">Due Date:</span>{{ extras.due_date }}</div>
+      {% endif %}
+      {% if extras is defined and extras.po_number %}
+      <div class="row"><span class="meta-label">PO Number:</span>{{ extras.po_number }}</div>
+      {% endif %}
+      {% if extras is defined and extras.payment_terms %}
+      <div class="row"><span class="meta-label">Terms:</span>{{ extras.payment_terms }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="top-row">
+    <div class="party-block">
+      <div class="party-label">Supplier</div>
+      <div class="party-name">{{ inv.vendor_name }}</div>
+      {% if extras is defined and extras.vendor_address %}{{ extras.vendor_address }}<br>{% endif %}
+      {% if inv.supplier_country_code %}{{ inv.supplier_country_code }}<br>{% endif %}
+      {% if inv.supplier_vat_number %}
+      <div class="vat-badge">VAT {{ inv.supplier_vat_number }}</div>
+      {% endif %}
+    </div>
+    <div class="party-block" style="text-align:right">
+      <div class="party-label">Customer</div>
+      <div class="party-name">{{ buyer_name }}</div>
+      {% if extras is defined and extras.buyer_address %}{{ extras.buyer_address }}<br>{% endif %}
+      {% if inv.buyer_country_code %}{{ inv.buyer_country_code }}<br>{% endif %}
+      {% if inv.buyer_vat_number %}
+      <div class="vat-badge">VAT {{ inv.buyer_vat_number }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Line items -->
+  <table>
+    <thead><tr>
+      <th>Description</th><th>Qty</th><th>Unit</th>
+      <th class="num">Unit Price</th><th>VAT Code</th><th>VAT %</th><th class="num">Amount</th>
+    </tr></thead>
+    <tbody>
+    {% for li in inv.line_items %}<tr>
+      <td>{{ li.description }}</td>
+      <td>{{ li.quantity }}</td>
+      <td>{{ li.unit_type }}</td>
+      <td class="num">{{ li.unit_price }}</td>
+      <td>{{ li.vat_code }}</td>
+      <td>{{ li.vat_rate }}</td>
+      <td class="num">{{ li.amount }}</td>
+    </tr>{% endfor %}
+    </tbody>
+  </table>
+
+  <!-- VAT breakdown by rate -->
+  <div class="vat-section">
+    <div class="vat-section-title">VAT Summary</div>
+    <table class="vat-breakdown">
+      <thead><tr>
+        <th>VAT Code</th><th>VAT Rate</th><th class="num">Net Amount</th><th class="num">VAT Amount</th>
+      </tr></thead>
+      <tbody>
+      {% for li in inv.line_items %}<tr>
+        <td>{{ li.vat_code }}</td>
+        <td>{{ li.vat_rate }}</td>
+        <td class="num">{{ li.amount }}</td>
+        <td class="num">{{ inv.tax }}</td>
+      </tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Totals -->
+  <div class="totals-block">
+    <div class="totals-row">
+      <span class="tot-lbl">Net Amount</span>
+      <span class="tot-val">{{ inv.subtotal }} {{ inv.currency }}</span>
+    </div>
+    <div class="totals-row">
+      <span class="tot-lbl">VAT</span>
+      <span class="tot-val">{{ inv.tax }} {{ inv.currency }}</span>
+    </div>
+    <div class="totals-row tot-grand">
+      <span class="tot-lbl">Total Due</span>
+      <span class="tot-val">{{ inv.total }} {{ inv.currency }}</span>
+    </div>
+  </div>
+
+  <!-- IBAN / Bank -->
+  {% if extras is defined and (extras.bank_name or extras.iban) %}
+  <div class="bank-block">
+    <div class="bank-title">Bank Transfer Details</div>
+    {% if extras.bank_name %}Bank: {{ extras.bank_name }}<br>{% endif %}
+    {% if extras.iban %}IBAN: {{ extras.iban }}<br>{% endif %}
+    Reference: {{ inv.invoice_number }}
+  </div>
+  {% endif %}
+
+  <!-- Reverse charge notice when buyer has a VAT number -->
+  {% if inv.buyer_vat_number %}
+  <div class="rc-notice">
+    <strong>Reverse Charge:</strong> VAT to be accounted for by the recipient pursuant to Article 196 of the EU VAT Directive 2006/112/EC.
+  </div>
+  {% endif %}
+
+  {% if extras is defined and extras.notes %}
+  <div class="notes">{{ extras.notes }}</div>
+  {% endif %}
+
+</body></html>

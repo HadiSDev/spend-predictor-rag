@@ -120,3 +120,52 @@ def test_render_with_spec_classic_template(tmp_path):
         text = "\n".join((p.extract_text() or "") for p in pdf.pages)
     assert "Nimbus Cloud Services Inc." in text
     assert "1200" in text
+
+
+@pytest.mark.parametrize("template", list_templates())
+def test_all_templates_render_key_text(tmp_path, template):
+    """Every discovered template must produce a PDF containing vendor name,
+    invoice number, total amount, and buyer name — guarantees any future
+    drop-in template file is covered automatically."""
+    Faker.seed(42)
+    fake = Faker()
+    fake.seed_instance(42)
+
+    inv = ExtractedInvoice(
+        vendor_name="Nimbus Cloud Services Inc.",
+        invoice_number="INV-2026-0042",
+        invoice_date="2026-05-15",
+        currency="USD",
+        line_items=[LineItem(
+            description="Managed Kubernetes hosting",
+            quantity=1,
+            unit_type="months",
+            unit_price=1200.0,
+            amount=1200.0,
+        )],
+        subtotal=1200.0,
+        tax=0.0,
+        total=1200.0,
+    )
+    buyer = "Acme Buyer Ltd"
+
+    spec = build_render_spec(
+        fake,
+        vendor_name=inv.vendor_name,
+        buyer_name=buyer,
+        invoice_date=inv.invoice_date,
+        vat_regime="EU",
+        available_templates=list_templates(),
+    )
+    spec.template_name = template
+
+    out = render_invoice_pdf(inv, tmp_path / f"{template}.pdf", buyer_name=buyer, render_spec=spec)
+    assert out.exists() and out.stat().st_size > 0
+
+    with pdfplumber.open(out) as pdf:
+        text = "\n".join((p.extract_text() or "") for p in pdf.pages)
+
+    assert "Nimbus Cloud Services Inc." in text, f"[{template}] vendor_name missing"
+    assert "INV-2026-0042" in text, f"[{template}] invoice_number missing"
+    assert "1200" in text, f"[{template}] total amount missing"
+    assert "Acme Buyer Ltd" in text, f"[{template}] buyer_name missing"

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  body {
+    font-family: {{ style.font_stack if style is defined else "'Courier New', Courier, monospace" }};
+    margin: 40px auto; max-width: 520px; color: #1a1a1a; font-size: 13px; line-height: 1.5;
+  }
+  :root { --accent: {{ style.accent if style is defined else "#2c7a7b" }}; }
+  /* Receipt card */
+  .receipt-card { border: 1px solid #d0d0d0; border-radius: 8px; overflow: hidden; }
+  /* Receipt header */
+  .receipt-header { background: var(--accent); color: #fff; padding: 20px 24px; text-align: center; }
+  .receipt-logo { font-size: 1.1em; font-weight: 700; letter-spacing: 3px; opacity: 0.9;
+                   margin-bottom: 8px; }
+  .receipt-title { font-size: 1.5em; font-weight: 300; letter-spacing: 5px;
+                    text-transform: uppercase; }
+  .receipt-subtitle { font-size: 0.75em; opacity: 0.7; margin-top: 4px;
+                       letter-spacing: 2px; text-transform: uppercase; }
+  /* Meta strip */
+  .meta-strip { background: #f5f5f5; padding: 12px 24px; border-bottom: 1px solid #e0e0e0;
+                 font-size: 0.82em; display: flex; justify-content: space-between; }
+  .meta-item { text-align: center; }
+  .meta-label { color: #999; font-size: 0.75em; text-transform: uppercase;
+                 letter-spacing: 1px; display: block; margin-bottom: 2px; }
+  .meta-value { font-weight: 600; color: #333; font-family: 'Courier New', monospace; }
+  /* Account info */
+  .account-section { padding: 16px 24px; border-bottom: 1px solid #eee; font-size: 0.88em; }
+  .account-row { display: flex; justify-content: space-between; padding: 3px 0; color: #555; }
+  .account-key { color: #999; }
+  /* Line items — compact list */
+  .items-section { padding: 16px 24px; }
+  .items-title { font-size: 0.65em; text-transform: uppercase; letter-spacing: 2px;
+                  color: #aaa; margin-bottom: 10px; }
+  .item-row { display: flex; justify-content: space-between; align-items: baseline;
+               padding: 8px 0; border-bottom: 1px dotted #eee; }
+  .item-desc { font-size: 0.9em; color: #333; flex: 1; }
+  .item-qty { font-size: 0.78em; color: #aaa; margin: 0 12px;
+               font-family: 'Courier New', monospace; }
+  .item-amount { font-family: 'Courier New', monospace; font-weight: 600; color: #333;
+                  min-width: 70px; text-align: right; }
+  /* Total card */
+  .total-card { margin: 16px 24px; background: var(--accent); color: #fff;
+                 border-radius: 6px; padding: 16px 20px; }
+  .total-rows { margin-bottom: 12px; }
+  .total-row { display: flex; justify-content: space-between; font-size: 0.85em;
+                opacity: 0.8; margin-bottom: 4px; font-family: 'Courier New', monospace; }
+  .total-grand-label { font-size: 0.7em; text-transform: uppercase; letter-spacing: 3px;
+                        opacity: 0.7; display: block; margin-bottom: 4px; }
+  .total-grand-value { font-size: 1.8em; font-weight: 300; letter-spacing: 2px;
+                        font-family: 'Courier New', monospace; }
+  /* Footer */
+  .receipt-footer { padding: 14px 24px; font-size: 0.78em; color: #aaa;
+                     text-align: center; border-top: 1px solid #eee; }
+  .notes-section { padding: 12px 24px; font-size: 0.82em; color: #777;
+                    font-style: italic; border-top: 1px solid #eee; }
+</style></head><body>
+
+  <div class="receipt-card">
+
+    <!-- Header -->
+    <div class="receipt-header">
+      {% if style is defined and style.show_logo %}
+      <div class="receipt-logo">{{ style.monogram }}</div>
+      {% endif %}
+      <div class="receipt-title">Receipt</div>
+      <div class="receipt-subtitle">Payment Confirmed</div>
+    </div>
+
+    <!-- Meta strip -->
+    <div class="meta-strip">
+      <div class="meta-item">
+        <span class="meta-label">Invoice</span>
+        <span class="meta-value">{{ inv.invoice_number }}</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Date</span>
+        <span class="meta-value">{{ inv.invoice_date }}</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Currency</span>
+        <span class="meta-value">{{ inv.currency }}</span>
+      </div>
+      {% if extras is defined and extras.due_date %}
+      <div class="meta-item">
+        <span class="meta-label">Due</span>
+        <span class="meta-value">{{ extras.due_date }}</span>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Account / billing info -->
+    <div class="account-section">
+      <div class="account-row">
+        <span class="account-key">From</span>
+        <span>{{ inv.vendor_name }}</span>
+      </div>
+      <div class="account-row">
+        <span class="account-key">Billed to</span>
+        <span><strong>{{ buyer_name }}</strong></span>
+      </div>
+      {% if inv.buyer_vat_number %}
+      <div class="account-row">
+        <span class="account-key">Customer VAT</span>
+        <span>{{ inv.buyer_vat_number }}</span>
+      </div>
+      {% endif %}
+      {% if extras is defined and extras.po_number %}
+      <div class="account-row">
+        <span class="account-key">PO #</span>
+        <span>{{ extras.po_number }}</span>
+      </div>
+      {% endif %}
+      {% if extras is defined and extras.payment_terms %}
+      <div class="account-row">
+        <span class="account-key">Terms</span>
+        <span>{{ extras.payment_terms }}</span>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Compact line list -->
+    <div class="items-section">
+      <div class="items-title">Charges</div>
+      {% for li in inv.line_items %}
+      <div class="item-row">
+        <span class="item-desc">{{ li.description }}</span>
+        <span class="item-qty">{{ li.quantity }} {{ li.unit_type }} @ {{ li.unit_price }}</span>
+        <span class="item-amount">{{ li.amount }}</span>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Card-style total -->
+    <div class="total-card">
+      <div class="total-rows">
+        <div class="total-row"><span>Subtotal</span><span>{{ inv.subtotal }}</span></div>
+        <div class="total-row"><span>Tax</span><span>{{ inv.tax }}</span></div>
+      </div>
+      <span class="total-grand-label">Total Charged</span>
+      <div class="total-grand-value">{{ inv.total }} {{ inv.currency }}</div>
+    </div>
+
+    {% if extras is defined and extras.notes %}
+    <div class="notes-section">{{ extras.notes }}</div>
+    {% endif %}
+
+    <div class="receipt-footer">
+      {{ inv.vendor_name }} · {{ inv.invoice_number }}
+      {% if inv.supplier_vat_number %} · VAT {{ inv.supplier_vat_number }}{% endif %}
+    </div>
+
+  </div>
+
+</body></html>

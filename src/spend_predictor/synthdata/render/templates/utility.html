@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  body {
+    font-family: {{ style.font_stack if style is defined else "'Arial', Helvetica, sans-serif" }};
+    margin: 0; padding: 0; color: #1a1a1a; font-size: 12px;
+  }
+  :root { --accent: {{ style.accent if style is defined else "#1a365d" }}; }
+  /* Utility header bar */
+  .util-header { background: var(--accent); color: #fff; padding: 16px 32px;
+                  display: flex; justify-content: space-between; align-items: center; }
+  .util-company { font-size: 1.3em; font-weight: 700; letter-spacing: 1px; }
+  .util-company-sub { font-size: 0.75em; opacity: 0.7; margin-top: 2px; }
+  .util-doc-type { font-size: 1.6em; font-weight: 300; letter-spacing: 4px;
+                    text-transform: uppercase; opacity: 0.9; }
+  /* Account summary band */
+  .account-band { background: #f0f4f8; border-bottom: 2px solid var(--accent);
+                   padding: 12px 32px; display: flex; gap: 40px; }
+  .account-field { }
+  .account-field-label { font-size: 0.65em; text-transform: uppercase; letter-spacing: 1.5px;
+                          color: #888; font-weight: 600; display: block; margin-bottom: 2px; }
+  .account-field-value { font-weight: 700; color: #1a1a1a; font-size: 0.95em; }
+  /* Body */
+  .body-wrap { padding: 24px 32px; }
+  /* Customer + service address */
+  .addr-row { display: flex; gap: 32px; margin-bottom: 24px; }
+  .addr-section { flex: 1; }
+  .addr-section-label { font-size: 0.65em; text-transform: uppercase; letter-spacing: 1.5px;
+                         color: var(--accent); font-weight: 700; border-bottom: 1px solid var(--accent);
+                         display: inline-block; padding-bottom: 2px; margin-bottom: 8px; }
+  .addr-name { font-weight: 700; font-size: 1em; margin-bottom: 3px; }
+  .addr-detail { font-size: 0.85em; color: #666; line-height: 1.6; }
+  /* Billing period framing */
+  .billing-period { background: #fff8dc; border: 1px solid #f0c040; border-radius: 4px;
+                     padding: 8px 16px; margin-bottom: 20px; font-size: 0.88em; display: flex; gap: 24px; }
+  .bp-item { }
+  .bp-label { color: #888; font-size: 0.75em; text-transform: uppercase; letter-spacing: 1px; }
+  .bp-value { font-weight: 600; color: #5a4000; }
+  /* Charges table */
+  table.charges { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+  .charges thead th { background: #2d3748; color: #fff; padding: 8px 12px;
+                        font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.8px; text-align: left; }
+  .charges thead th.num { text-align: right; }
+  .charges tbody td { padding: 9px 12px; border-bottom: 1px solid #eee; }
+  .charges tbody td.num { text-align: right; }
+  .charges tbody tr:last-child td { border-bottom: 2px solid #2d3748; }
+  /* Amount due box */
+  .amount-due-outer { display: flex; justify-content: flex-end; margin: 16px 0; }
+  .amount-due-box { border: 3px solid var(--accent); border-radius: 6px;
+                     padding: 16px 24px; min-width: 220px; text-align: center; }
+  .adu-label { font-size: 0.75em; text-transform: uppercase; letter-spacing: 2px;
+                color: var(--accent); font-weight: 700; }
+  .adu-subtotals { font-size: 0.82em; color: #777; margin: 8px 0 4px; }
+  .adu-total { font-size: 2em; font-weight: 800; color: var(--accent); }
+  .adu-currency { font-size: 0.8em; color: var(--accent); font-weight: 400; }
+  /* Remittance stub — dashed cut line */
+  .cutline { border: none; border-top: 1px dashed #aaa; margin: 28px 0 16px;
+              position: relative; }
+  .cutline-label { position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+                    background: #fff; padding: 0 8px; font-size: 0.7em; color: #aaa;
+                    letter-spacing: 2px; text-transform: uppercase; }
+  .stub { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+  .stub-info { font-size: 0.82em; color: #555; line-height: 1.8; }
+  .stub-amount-box { border: 2px solid #2d3748; padding: 10px 20px; text-align: center;
+                      border-radius: 4px; min-width: 140px; }
+  .stub-amount-label { font-size: 0.65em; text-transform: uppercase; letter-spacing: 1px; color: #888; }
+  .stub-amount-value { font-size: 1.3em; font-weight: 700; color: #1a1a1a; margin-top: 4px; }
+  .notes { margin-top: 16px; font-size: 0.8em; color: #777; font-style: italic; }
+</style></head><body>
+
+  <!-- Utility header -->
+  <div class="util-header">
+    <div>
+      {% if style is defined and style.show_logo %}
+      <div style="display:inline-block;background:rgba(255,255,255,0.15);border:2px solid rgba(255,255,255,0.4);
+                  font-size:1.2em;font-weight:800;padding:4px 12px;letter-spacing:3px;
+                  border-radius:3px;margin-bottom:8px">{{ style.monogram }}</div><br>
+      {% endif %}
+      <div class="util-company">{{ inv.vendor_name }}</div>
+      {% if extras is defined and extras.vendor_address %}
+      <div class="util-company-sub">{{ extras.vendor_address }}</div>
+      {% endif %}
+    </div>
+    <div class="util-doc-type">Statement</div>
+  </div>
+
+  <!-- Account summary band -->
+  <div class="account-band">
+    <div class="account-field">
+      <span class="account-field-label">Account Number</span>
+      <span class="account-field-value">{{ inv.invoice_number }}</span>
+    </div>
+    <div class="account-field">
+      <span class="account-field-label">Customer VAT / ID</span>
+      <span class="account-field-value">{{ inv.buyer_vat_number or "N/A" }}</span>
+    </div>
+    <div class="account-field">
+      <span class="account-field-label">Statement Date</span>
+      <span class="account-field-value">{{ inv.invoice_date }}</span>
+    </div>
+    {% if extras is defined and extras.due_date %}
+    <div class="account-field">
+      <span class="account-field-label">Payment Due</span>
+      <span class="account-field-value">{{ extras.due_date }}</span>
+    </div>
+    {% endif %}
+    <div class="account-field">
+      <span class="account-field-label">Currency</span>
+      <span class="account-field-value">{{ inv.currency }}</span>
+    </div>
+  </div>
+
+  <div class="body-wrap">
+
+    <!-- Customer / service address -->
+    <div class="addr-row">
+      <div class="addr-section">
+        <div class="addr-section-label">Service Provider</div>
+        <div class="addr-name">{{ inv.vendor_name }}</div>
+        {% if inv.supplier_vat_number %}
+        <div class="addr-detail">VAT: {{ inv.supplier_vat_number }}</div>
+        {% endif %}
+        {% if inv.supplier_country_code %}
+        <div class="addr-detail">{{ inv.supplier_country_code }}</div>
+        {% endif %}
+      </div>
+      <div class="addr-section">
+        <div class="addr-section-label">Customer Account</div>
+        <div class="addr-name">{{ buyer_name }}</div>
+        {% if extras is defined and extras.buyer_address %}
+        <div class="addr-detail">{{ extras.buyer_address }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Billing period framing -->
+    <div class="billing-period">
+      <div class="bp-item">
+        <div class="bp-label">Billing Period</div>
+        <div class="bp-value">{{ inv.invoice_date }}</div>
+      </div>
+      {% if extras is defined and extras.due_date %}
+      <div class="bp-item">
+        <div class="bp-label">Payment Due</div>
+        <div class="bp-value">{{ extras.due_date }}</div>
+      </div>
+      {% endif %}
+      {% if extras is defined and extras.payment_terms %}
+      <div class="bp-item">
+        <div class="bp-label">Terms</div>
+        <div class="bp-value">{{ extras.payment_terms }}</div>
+      </div>
+      {% endif %}
+      {% if extras is defined and extras.po_number %}
+      <div class="bp-item">
+        <div class="bp-label">PO Ref</div>
+        <div class="bp-value">{{ extras.po_number }}</div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Charges table -->
+    <table class="charges">
+      <thead><tr>
+        <th>Description</th><th>Qty</th><th>Unit</th>
+        <th class="num">Unit Price</th><th>VAT</th><th class="num">Charge</th>
+      </tr></thead>
+      <tbody>
+      {% for li in inv.line_items %}<tr>
+        <td>{{ li.description }}</td>
+        <td>{{ li.quantity }}</td>
+        <td>{{ li.unit_type }}</td>
+        <td class="num">{{ li.unit_price }}</td>
+        <td>{{ li.vat_rate }}</td>
+        <td class="num">{{ li.amount }}</td>
+      </tr>{% endfor %}
+      </tbody>
+    </table>
+
+    <!-- Amount due box -->
+    <div class="amount-due-outer">
+      <div class="amount-due-box">
+        <div class="adu-label">Amount Due</div>
+        <div class="adu-subtotals">Net {{ inv.subtotal }} + Tax {{ inv.tax }}</div>
+        <div class="adu-total">{{ inv.total }}</div>
+        <div class="adu-currency">{{ inv.currency }}</div>
+      </div>
+    </div>
+
+    {% if extras is defined and (extras.bank_name or extras.iban) %}
+    <div style="font-size:0.85em;color:#555;margin-top:12px">
+      <strong>Payment:</strong>
+      {% if extras.bank_name %}{{ extras.bank_name }}{% endif %}
+      {% if extras.iban %} · IBAN {{ extras.iban }}{% endif %}
+    </div>
+    {% endif %}
+
+    {% if extras is defined and extras.notes %}
+    <div class="notes">{{ extras.notes }}</div>
+    {% endif %}
+
+    <!-- Remittance stub -->
+    <div class="cutline"><span class="cutline-label">Detach and return with payment</span></div>
+    <div class="stub">
+      <div class="stub-info">
+        <strong>{{ inv.vendor_name }}</strong><br>
+        Account: {{ inv.invoice_number }}<br>
+        Customer: {{ buyer_name }}<br>
+        Due: {{ extras.due_date if extras is defined and extras.due_date else inv.invoice_date }}
+      </div>
+      <div class="stub-amount-box">
+        <div class="stub-amount-label">Amount Enclosed</div>
+        <div class="stub-amount-value">{{ inv.total }} {{ inv.currency }}</div>
+      </div>
+    </div>
+
+  </div>
+
+</body></html>
