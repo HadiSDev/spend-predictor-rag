@@ -2624,7 +2624,6 @@ name = "spend-predictor-rag"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "bespokelabs-curator" },
     { name = "chromadb" },
     { name = "crewai" },
     { name = "crewai-tools" },
@@ -2642,10 +2641,12 @@ dev = [
     { name = "pytest" },
     { name = "reportlab" },
 ]
+live = [
+    { name = "bespokelabs-curator" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "bespokelabs-curator", specifier = ">=0.1.9.post1" },
     { name = "chromadb", specifier = ">=0.5.0" },
     { name = "crewai", specifier = ">=1.14.6" },
     { name = "crewai-tools", specifier = ">=1.14.6" },
@@ -2663,6 +2664,7 @@ dev = [
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "reportlab", specifier = ">=4.0.0" },
 ]
+live = [{ name = "bespokelabs-curator", specifier = ">=0.1.9.post1" }]
 
 [[package]]
 name = "sse-starlette"

@@ -39,3 +39,16 @@ def test_enrich_falls_back_when_count_mismatch():
     # falls back to a deterministic per-line placeholder, never crashes
     assert len(inv.line_items) == len(plan.lines)
     assert all(li.description for li in inv.line_items)
+
+
+def test_enrich_falls_back_on_unparseable_output():
+    plan = sample_plans(1, seed=9, accounts=_ACCOUNTS)[0]
+
+    def junk_generate(prompt: str) -> str:
+        return "this is not json at all"
+
+    inv = enrich_descriptions(plan, generate_fn=junk_generate)
+    assert len(inv.line_items) == len(plan.lines)
+    assert all(li.description for li in inv.line_items)
+    # fallback uses the account name as a deterministic placeholder
+    assert plan.account["account_name"] in inv.line_items[0].description

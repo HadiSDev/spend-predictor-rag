@@ -43,7 +43,12 @@ def _build_prompt(plan: InvoicePlan, cryptic: bool) -> str:
 
 def _default_generate(prompt: str) -> str:  # pragma: no cover - live path
     """Generate via Bespoke Curator over the local vLLM (free-text, no guided decoding)."""
-    from bespokelabs import curator
+    try:
+        from bespokelabs import curator
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError(
+            "Live generation needs the 'live' dependency group: run `uv sync --group live`."
+        ) from exc
 
     from .. import config
 
