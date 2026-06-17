@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  body { font-family: 'Helvetica', sans-serif; color: #1a1a1a; margin: 40px; }
+  h1 { color: #2b6cb0; letter-spacing: 2px; }
+  .row { display: flex; justify-content: space-between; }
+  table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+  th { background: #2b6cb0; color: #fff; text-align: left; padding: 8px; }
+  td { border-bottom: 1px solid #e2e8f0; padding: 8px; }
+  .totals { margin-top: 16px; width: 40%; margin-left: auto; }
+</style></head><body>
+  <h1>INVOICE</h1>
+  <div class="row">
+    <div>
+      <strong>{{ inv.vendor_name }}</strong><br>
+      {% if inv.supplier_country_code %}Country: {{ inv.supplier_country_code }}<br>{% endif %}
+      {% if inv.supplier_vat_number %}VAT: {{ inv.supplier_vat_number }}{% endif %}
+    </div>
+    <div>
+      Invoice #: {{ inv.invoice_number }}<br>
+      Date: {{ inv.invoice_date }}<br>
+      Currency: {{ inv.currency }}
+    </div>
+  </div>
+  <div style="margin-top:16px">Bill to: <strong>{{ buyer_name }}</strong>
+    {% if inv.buyer_vat_number %} — VAT {{ inv.buyer_vat_number }}{% endif %}</div>
+  <table><thead><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Unit Price</th>
+    <th>VAT</th><th>Amount</th></tr></thead><tbody>
+    {% for li in inv.line_items %}<tr>
+      <td>{{ li.description }}</td><td>{{ li.quantity }}</td><td>{{ li.unit_type }}</td>
+      <td>{{ li.unit_price }}</td><td>{{ li.vat_rate }}</td><td>{{ li.amount }}</td>
+    </tr>{% endfor %}
+  </tbody></table>
+  <table class="totals">
+    <tr><td>Subtotal</td><td>{{ inv.subtotal }}</td></tr>
+    <tr><td>Tax</td><td>{{ inv.tax }}</td></tr>
+    <tr><td><strong>Total</strong></td><td><strong>{{ inv.total }} {{ inv.currency }}</strong></td></tr>
+  </table>
+</body></html>

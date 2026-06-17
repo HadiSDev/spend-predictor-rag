@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  body { font-family: 'Times New Roman', serif; margin: 50px; }
+  .head { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  td, th { border: 1px solid #000; padding: 6px; text-align: left; }
+  .totals td { border: none; }
+</style></head><body>
+  <div class="head"><h2>{{ inv.vendor_name }}</h2>
+    {% if inv.supplier_vat_number %}VAT {{ inv.supplier_vat_number }} · {% endif %}
+    {{ inv.supplier_country_code or "" }}</div>
+  <p>Invoice {{ inv.invoice_number }} &nbsp; Date {{ inv.invoice_date }}<br>
+     Bill to: {{ buyer_name }}{% if inv.buyer_vat_number %} (VAT {{ inv.buyer_vat_number }}){% endif %}</p>
+  <table><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Price</th><th>Amount</th></tr>
+    {% for li in inv.line_items %}<tr>
+      <td>{{ li.description }}</td><td>{{ li.quantity }} {{ li.unit_type }}</td>
+      <td>{{ li.unit_type }}</td><td>{{ li.unit_price }}</td><td>{{ li.amount }}</td>
+    </tr>{% endfor %}</table>
+  <table class="totals" style="margin-top:14px">
+    <tr><td>Subtotal:</td><td>{{ inv.subtotal }}</td></tr>
+    <tr><td>Tax:</td><td>{{ inv.tax }}</td></tr>
+    <tr><td>Total:</td><td>{{ inv.total }} {{ inv.currency }}</td></tr>
+  </table>
+</body></html>
