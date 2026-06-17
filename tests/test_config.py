@@ -12,13 +12,14 @@ def test_default_paths_resolve_under_project_root():
 
 
 def test_get_llm_uses_vllm_settings():
+    import os
     llm = config.get_llm()
     # CrewAI strips the "hosted_vllm/" provider prefix when storing the model name
     assert llm.model == "google/gemma-4-E4B-it"
     assert llm.base_url == config.VLLM_BASE_URL
     # VLLM_MODEL uses the hosted_vllm/ prefix required by this version of crewAI
     assert config.VLLM_MODEL == "hosted_vllm/google/gemma-4-E4B-it"
-    assert config.VLLM_BASE_URL == "http://localhost:8000/v1"
+    assert config.VLLM_BASE_URL == os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
 
 
 def test_get_llm_bounds_generation_and_timeout():
