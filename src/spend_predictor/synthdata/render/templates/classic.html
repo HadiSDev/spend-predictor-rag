@@ -13,7 +13,7 @@
      Bill to: {{ buyer_name }}{% if inv.buyer_vat_number %} (VAT {{ inv.buyer_vat_number }}){% endif %}</p>
   <table><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Price</th><th>Amount</th></tr>
     {% for li in inv.line_items %}<tr>
-      <td>{{ li.description }}</td><td>{{ li.quantity }} {{ li.unit_type }}</td>
+      <td>{{ li.description }}</td><td>{{ li.quantity }}</td>
       <td>{{ li.unit_type }}</td><td>{{ li.unit_price }}</td><td>{{ li.amount }}</td>
     </tr>{% endfor %}</table>
   <table class="totals" style="margin-top:14px">

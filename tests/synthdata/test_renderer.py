@@ -29,3 +29,7 @@ def test_classic_template_also_renders(tmp_path):
     out = render_invoice_pdf(_invoice(), tmp_path / "c.pdf", buyer_name="Acme",
                              template_name="classic")
     assert out.exists() and out.stat().st_size > 0
+    with pdfplumber.open(out) as pdf:
+        text = "\n".join((p.extract_text() or "") for p in pdf.pages)
+    assert "Nimbus Cloud Services Inc." in text
+    assert "1200" in text
