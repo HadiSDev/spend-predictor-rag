@@ -102,14 +102,18 @@ are chosen programmatically from the chart of accounts and buyer profiles
 (Direct/Indirect is derived from the buyer's business), so every fixture's labels
 are ground-truth by construction.
 
+**By default, the generator produces richly varied data with no LLM required:**
+industry-flavored vendor names, per-account realistic line-item catalogs, 9 distinct
+invoice templates (modern, classic, minimal, corporate, eu_vat, us_net30, freelancer,
+saas_receipt, utility) chosen at random, plus per-invoice randomized accent color,
+font, logo/monogram, and realistic extra fields (addresses, PO number, payment terms,
+due date, bank/IBAN, notes). The `--live` flag (which requires `uv sync --group live`
++ a running vLLM) is optional — it only swaps in LLM-written line-item descriptions
+for extra realism; all other variation and quality work without it. Templates are
+auto-discovered from `src/spend_predictor/synthdata/render/templates/*.html`, so you
+can drop in your own `.html` template and it joins the rotation automatically.
+
 ### Installation
-
-Live generation uses the local model to write realistic line-item descriptions
-via Bespoke Curator, which lives in an optional `live` dependency group:
-
-```bash
-uv sync --group live
-```
 
 Scoring and the unit tests do NOT need the `live` group. PDF rendering uses
 WeasyPrint (a regular project dependency); it needs system libraries that are
@@ -117,6 +121,12 @@ usually already present on desktop Linux, but on a bare system install them with
 
 ```bash
 sudo apt-get install -y libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev libcairo2
+```
+
+To use LLM-generated line-item descriptions, install the optional dependency group:
+
+```bash
+uv sync --group live
 ```
 
 ### Generate synthetic invoices
