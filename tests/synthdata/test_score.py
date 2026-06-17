@@ -60,3 +60,19 @@ def test_score_fixtures_aggregates(tmp_path):
     assert report["count"] == 1
     assert report["category_accuracy"]["account_code"] == 1.0
     assert report["field_anls"]["vendor_name"] == 1.0
+
+
+def test_score_fixtures_exception_is_zero(tmp_path):
+    labels = _labels()
+    fdir = tmp_path / "00000"
+    fdir.mkdir()
+    (fdir / "labels.json").write_text(json.dumps(labels))
+    (fdir / "invoice.pdf").write_bytes(b"%PDF-1.4 fake")
+
+    def broken_pipeline(pdf_path, buyer_context):
+        raise RuntimeError("LLM timeout")
+
+    report = score_fixtures(tmp_path, run_pipeline=broken_pipeline)
+    assert report["count"] == 1
+    assert report["field_anls"]["vendor_name"] == 0.0
+    assert report["category_accuracy"]["account_code"] == 0.0
