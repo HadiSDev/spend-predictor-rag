@@ -92,3 +92,56 @@ uv run pytest
 
 Unit tests run fully offline (no LLM, no network, no model download — web lookups
 and embeddings are faked via dependency injection).
+
+## Synthetic data & benchmarking
+
+The `spend_predictor.synthdata` subpackage generates synthetic invoices from a hierarchical
+product taxonomy and benchmarks categorization accuracy using the ANLS metric.
+
+### Installation (optional)
+
+Live generation (writing synthetic PDFs) requires the optional `live` dependency group:
+
+```bash
+uv sync --group live
+```
+
+This installs the `wkhtmltopdf` wrapper (`weasyprint-curses`) and curator. Scoring
+and unit tests do not require it.
+
+On systems without WeasyPrint's system libraries, install them first:
+
+```bash
+sudo apt-get install -y libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev libcairo2
+```
+
+(These are often already present on desktop Linux.)
+
+### Generate synthetic invoices
+
+```bash
+uv run python -m spend_predictor.synthdata.generate --n 100 --seed 7 --out data/synthetic
+```
+
+**Requires:** local vLLM server running (for line-item descriptions).
+
+This creates:
+- `data/synthetic/invoices/` — rendered PDF invoices (one per fixture)
+- `data/synthetic/manifest.jsonl` — ground-truth labels and line-item descriptions
+- `data/synthetic/fixtures.jsonl` — invoice plan fixtures
+
+### Score extraction & categorization accuracy
+
+```bash
+uv run python -m spend_predictor.synthdata.score --fixtures data/synthetic
+```
+
+**Requires:** the full pipeline (extract → verify → categorize) running; vLLM server not needed.
+
+Runs extraction and categorization against all fixtures in `data/synthetic/` and
+reports ANLS accuracy for leaf codes, L2, and L1 (Direct/Indirect).
+
+### Output
+
+The `data/synthetic/` directory is gitignored and is safe for temporary benchmarking data.
+It is regenerated each run and not committed.
