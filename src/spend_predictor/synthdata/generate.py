@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import logging
+import shutil
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from ..rag.indexer import load_accounts
 from .bundle import append_manifest, category_from_account, write_labels
@@ -44,7 +48,8 @@ def generate_dataset(
             })
             written += 1
         except Exception as exc:  # noqa: BLE001 - skip the item, keep the batch going
-            print(f"  skip {fixture_id}: {exc}")
+            logger.warning("skip %s: %s", fixture_id, exc)
+            shutil.rmtree(fdir, ignore_errors=True)
     print(f"Wrote {written}/{n} fixtures to {out_dir}")
     return written
 

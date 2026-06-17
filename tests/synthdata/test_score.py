@@ -1,7 +1,7 @@
 import json
 
 from spend_predictor.models import CategorizedInvoice, ExtractedInvoice, LineItem
-from spend_predictor.synthdata.score import anls_field, score_fixture, score_fixtures
+from spend_predictor.synthdata.score import anls_field, score_fixture, score_fixtures, _num_eq
 
 
 def test_anls_field_rewards_near_matches():
@@ -46,7 +46,6 @@ def test_score_fixtures_aggregates(tmp_path):
     fdir.mkdir()
     (fdir / "labels.json").write_text(json.dumps(labels))
     (fdir / "invoice.pdf").write_bytes(b"%PDF-1.4 fake")
-    (tmp_path / "manifest.jsonl").write_text(json.dumps({"id": "00000"}) + "\n")
 
     def fake_pipeline(pdf_path, buyer_context):
         extracted = ExtractedInvoice(**labels["invoice"])
@@ -76,3 +75,41 @@ def test_score_fixtures_exception_is_zero(tmp_path):
     assert report["count"] == 1
     assert report["field_anls"]["vendor_name"] == 0.0
     assert report["category_accuracy"]["account_code"] == 0.0
+
+
+def test_score_fixture_numeric_and_line_items_perfect():
+    labels = _labels()
+    extracted = ExtractedInvoice(**labels["invoice"])
+    res = score_fixture(labels, extracted, None)
+    assert res["numeric"]["total"] is True
+    assert res["line_items"]["count_match"] is True
+    assert res["line_items"]["desc_anls"] == 1.0
+    assert res["line_items"]["amount_acc"] == 1.0
+
+
+def test_score_fixture_numeric_mismatch():
+    labels = _labels()
+    # labels total = 100.0; predict 999.0
+    extracted = ExtractedInvoice(**{**labels["invoice"], "total": 999.0})
+    res = score_fixture(labels, extracted, None)
+    assert res["numeric"]["total"] is False
+
+
+def test_score_fixtures_reports_numeric_and_line_item_aggregates(tmp_path):
+    labels = _labels()
+    fdir = tmp_path / "00000"
+    fdir.mkdir()
+    (fdir / "labels.json").write_text(json.dumps(labels))
+    (fdir / "invoice.pdf").write_bytes(b"%PDF-1.4 fake")
+
+    def perfect_pipeline(pdf_path, buyer_context):
+        extracted = ExtractedInvoice(**labels["invoice"])
+        categorized = CategorizedInvoice(
+            account_code="6010", account_name="Cloud Hosting & Infrastructure",
+            level1="Direct", level2="Technology", level3="Cloud Infrastructure",
+            confidence=0.9, rationale="r")
+        return extracted, categorized
+
+    report = score_fixtures(tmp_path, run_pipeline=perfect_pipeline)
+    assert report["numeric_accuracy"]["total"] == 1.0
+    assert report["line_item"]["count_match"] == 1.0
