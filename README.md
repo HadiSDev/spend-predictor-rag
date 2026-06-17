@@ -95,27 +95,29 @@ and embeddings are faked via dependency injection).
 
 ## Synthetic data & benchmarking
 
-The `spend_predictor.synthdata` subpackage generates synthetic invoices from a hierarchical
-product taxonomy and benchmarks categorization accuracy using the ANLS metric.
+The `spend_predictor.synthdata` subpackage generates labeled synthetic invoice
+fixtures (PDF + structured fields + ERP journal entries + category labels) and
+benchmarks the extraction/categorization pipeline against them using ANLS. Labels
+are chosen programmatically from the chart of accounts and buyer profiles
+(Direct/Indirect is derived from the buyer's business), so every fixture's labels
+are ground-truth by construction.
 
-### Installation (optional)
+### Installation
 
-Live generation (writing synthetic PDFs) requires the optional `live` dependency group:
+Live generation uses the local model to write realistic line-item descriptions
+via Bespoke Curator, which lives in an optional `live` dependency group:
 
 ```bash
 uv sync --group live
 ```
 
-This installs the `wkhtmltopdf` wrapper (`weasyprint-curses`) and curator. Scoring
-and unit tests do not require it.
-
-On systems without WeasyPrint's system libraries, install them first:
+Scoring and the unit tests do NOT need the `live` group. PDF rendering uses
+WeasyPrint (a regular project dependency); it needs system libraries that are
+usually already present on desktop Linux, but on a bare system install them with:
 
 ```bash
 sudo apt-get install -y libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev libcairo2
 ```
-
-(These are often already present on desktop Linux.)
 
 ### Generate synthetic invoices
 
@@ -123,12 +125,16 @@ sudo apt-get install -y libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 l
 uv run python -m spend_predictor.synthdata.generate --n 100 --seed 7 --out data/synthetic
 ```
 
-**Requires:** local vLLM server running (for line-item descriptions).
+**Requires:** the local vLLM server running (the generator asks the model to
+write line-item descriptions). Add `--cryptic` for terse, harder-to-categorize
+descriptions.
 
-This creates:
-- `data/synthetic/invoices/` — rendered PDF invoices (one per fixture)
-- `data/synthetic/manifest.jsonl` — ground-truth labels and line-item descriptions
-- `data/synthetic/fixtures.jsonl` — invoice plan fixtures
+Each fixture is written to its own directory:
+- `data/synthetic/<id>/invoice.pdf` — the rendered invoice
+- `data/synthetic/<id>/labels.json` — ground-truth: the extracted fields, the
+  category (`account_code`, `level1`/`level2`/`level3`), the buyer, and the
+  double-entry journal
+- `data/synthetic/manifest.jsonl` — an index of all generated fixtures
 
 ### Score extraction & categorization accuracy
 
@@ -136,12 +142,13 @@ This creates:
 uv run python -m spend_predictor.synthdata.score --fixtures data/synthetic
 ```
 
-**Requires:** the full pipeline (extract → verify → categorize) running; vLLM server not needed.
-
-Runs extraction and categorization against all fixtures in `data/synthetic/` and
-reports ANLS accuracy for leaf codes, L2, and L1 (Direct/Indirect).
+**Requires:** the local vLLM server running — scoring runs the real
+extract → categorize pipeline (which calls the model) over each fixture PDF and
+compares the result to `labels.json`. It reports per-field ANLS for extraction
+plus exact-match accuracy for the leaf account code and the Direct/Indirect (L1),
+L2, and L3 labels.
 
 ### Output
 
-The `data/synthetic/` directory is gitignored and is safe for temporary benchmarking data.
-It is regenerated each run and not committed.
+The `data/synthetic/` directory is gitignored — it is regenerated per run and not
+committed.
