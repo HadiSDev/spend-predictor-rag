@@ -17,6 +17,7 @@ dependencies = [
     "faker>=40.23.0",
     "weasyprint>=69.0",
     "jinja2>=3.1.6",
+    "anls",
 ]
 
 [dependency-groups]
@@ -39,3 +40,6 @@ packages = ["src/spend_predictor"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+anls = { git = "https://github.com/shunk031/ANLS" }
