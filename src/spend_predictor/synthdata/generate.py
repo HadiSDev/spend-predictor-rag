@@ -35,7 +35,7 @@ def generate_dataset(
             invoice = enrich_fn(plan, cryptic=cryptic)
             fdir.mkdir(parents=True, exist_ok=True)
             render_fn(invoice, fdir / "invoice.pdf", buyer_name=plan.buyer.name,
-                      template_name=("classic" if i % 2 else "modern"))
+                      render_spec=plan.render)
             category = category_from_account(plan.account, plan.level1)
             journal = build_journal(invoice, plan.account["account_code"],
                                     plan.account["account_name"])

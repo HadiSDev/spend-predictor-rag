@@ -9,6 +9,8 @@ from faker import Faker
 from ..rag.indexer import load_accounts
 from .catalog import line_descriptions as _line_descriptions, vendor_name as _vendor_name
 from .profiles import PROFILES, BuyerProfile, level1_for
+from .render.renderer import list_templates
+from .style import RenderSpec, build_render_spec
 
 _UNIT_TYPES = ["pcs", "hours", "months", "units", "GB", "licenses"]
 _CURRENCIES = {"EU": ["EUR", "DKK"], "US": ["USD"]}
@@ -44,6 +46,7 @@ class InvoicePlan:
     tax: float
     total: float
     level1: str
+    render: RenderSpec | None = None
 
 
 def _sample_one(fake: Faker, account: dict, profile: BuyerProfile) -> InvoicePlan:
@@ -73,17 +76,30 @@ def _sample_one(fake: Faker, account: dict, profile: BuyerProfile) -> InvoicePla
     supplier_cc = fake.random_element(["DE", "FR", "NL", "DK"]) if regime == "EU" else "US"
     supplier_vat = f"{supplier_cc}{fake.numerify('#########')}" if regime == "EU" else ""
 
+    vname = _vendor_name(account, fake)
+    invoice_date = fake.date(pattern="%Y-%m-%d")
+
+    render = build_render_spec(
+        fake,
+        vendor_name=vname,
+        buyer_name=profile.name,
+        invoice_date=invoice_date,
+        vat_regime=regime,
+        available_templates=list_templates(),
+    )
+
     return InvoicePlan(
         buyer=profile, account=account, vat_regime=regime, currency=currency,
-        vendor_name=_vendor_name(account, fake),
+        vendor_name=vname,
         invoice_number=fake.numerify("INV-####-####"),
-        invoice_date=fake.date(pattern="%Y-%m-%d"),
+        invoice_date=invoice_date,
         supplier_country_code=supplier_cc,
         supplier_vat_number=supplier_vat or None,
         buyer_country_code=profile.country_code or None,
         buyer_vat_number=(profile.vat_number or None) if regime == "EU" else None,
         lines=lines, subtotal=subtotal, tax=tax, total=total,
         level1=level1_for(profile, account["level2"]),
+        render=render,
     )
 
 

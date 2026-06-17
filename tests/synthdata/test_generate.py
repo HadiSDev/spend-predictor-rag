@@ -18,7 +18,7 @@ def test_generate_writes_bundles_and_manifest(tmp_path, monkeypatch):
         return enrich_descriptions(plan, generate_fn=lambda p: '{"descriptions": ' +
                                    json.dumps([f"item {i}" for i in range(len(plan.lines))]) + '}')
 
-    def fake_render(invoice, out_path, *, buyer_name, template_name="modern"):
+    def fake_render(invoice, out_path, *, buyer_name, render_spec=None, template_name="modern"):
         from pathlib import Path
         Path(out_path).write_bytes(b"%PDF-1.4 fake")
         return Path(out_path)
@@ -42,7 +42,7 @@ def test_generate_skips_failed_items_without_aborting(tmp_path, monkeypatch):
 
     calls = {"n": 0}
 
-    def flaky_render(invoice, out_path, *, buyer_name, template_name="modern"):
+    def flaky_render(invoice, out_path, *, buyer_name, render_spec=None, template_name="modern"):
         from pathlib import Path
         calls["n"] += 1
         if calls["n"] == 2:

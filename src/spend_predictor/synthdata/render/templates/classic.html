@@ -1,24 +1,71 @@
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
-  body { font-family: 'Times New Roman', serif; margin: 50px; }
-  .head { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; }
+  body {
+    font-family: {{ style.font_stack if style is defined else "'Times New Roman', serif" }};
+    margin: 50px;
+  }
+  :root { --accent: {{ style.accent if style is defined else "#000000" }}; }
+  .head { text-align: center; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  .head h2 { color: var(--accent); margin: 4px 0; }
+  .logo-badge { display: inline-block; border: 2px solid var(--accent); color: var(--accent);
+                padding: 4px 12px; font-size: 1.3em; font-weight: bold;
+                letter-spacing: 4px; margin-bottom: 6px; }
   table { width: 100%; border-collapse: collapse; margin-top: 20px; }
   td, th { border: 1px solid #000; padding: 6px; text-align: left; }
   .totals td { border: none; }
+  .meta-row { display: flex; justify-content: space-between; margin-top: 14px; font-size: 0.95em; }
+  .payment-box { margin-top: 14px; border: 1px solid #ccc; padding: 8px; font-size: 0.9em; }
+  .notes { margin-top: 12px; font-style: italic; color: #555; font-size: 0.9em; }
 </style></head><body>
-  <div class="head"><h2>{{ inv.vendor_name }}</h2>
+
+  <div class="head">
+    {% if style is defined and style.show_logo %}
+    <div class="logo-badge">{{ style.monogram }}</div><br>
+    {% endif %}
+    <h2>{{ inv.vendor_name }}</h2>
+    {% if extras is defined and extras.vendor_address %}<small>{{ extras.vendor_address }}</small><br>{% endif %}
     {% if inv.supplier_vat_number %}VAT {{ inv.supplier_vat_number }} · {% endif %}
-    {{ inv.supplier_country_code or "" }}</div>
-  <p>Invoice {{ inv.invoice_number }} &nbsp; Date {{ inv.invoice_date }}<br>
-     Bill to: {{ buyer_name }}{% if inv.buyer_vat_number %} (VAT {{ inv.buyer_vat_number }}){% endif %}</p>
-  <table><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Price</th><th>Amount</th></tr>
+    {{ inv.supplier_country_code or "" }}
+  </div>
+
+  <div class="meta-row">
+    <div>
+      Invoice {{ inv.invoice_number }}<br>
+      Date: {{ inv.invoice_date }}<br>
+      {% if extras is defined and extras.due_date %}Due: {{ extras.due_date }}<br>{% endif %}
+      {% if extras is defined and extras.payment_terms %}Terms: {{ extras.payment_terms }}<br>{% endif %}
+      {% if extras is defined and extras.po_number %}PO: {{ extras.po_number }}<br>{% endif %}
+    </div>
+    <div>
+      Bill to: <strong>{{ buyer_name }}</strong>{% if inv.buyer_vat_number %} (VAT {{ inv.buyer_vat_number }}){% endif %}<br>
+      {% if extras is defined and extras.buyer_address %}<small>{{ extras.buyer_address }}</small>{% endif %}
+    </div>
+  </div>
+
+  <table>
+    <tr><th>Description</th><th>Qty</th><th>Unit</th><th>Price</th><th>Amount</th></tr>
     {% for li in inv.line_items %}<tr>
       <td>{{ li.description }}</td><td>{{ li.quantity }}</td>
       <td>{{ li.unit_type }}</td><td>{{ li.unit_price }}</td><td>{{ li.amount }}</td>
-    </tr>{% endfor %}</table>
+    </tr>{% endfor %}
+  </table>
+
   <table class="totals" style="margin-top:14px">
     <tr><td>Subtotal:</td><td>{{ inv.subtotal }}</td></tr>
     <tr><td>Tax:</td><td>{{ inv.tax }}</td></tr>
-    <tr><td>Total:</td><td>{{ inv.total }} {{ inv.currency }}</td></tr>
+    <tr><td><strong>Total:</strong></td><td><strong>{{ inv.total }} {{ inv.currency }}</strong></td></tr>
   </table>
+
+  {% if extras is defined and (extras.bank_name or extras.iban) %}
+  <div class="payment-box">
+    <strong>Payment Information</strong><br>
+    {% if extras.bank_name %}Bank: {{ extras.bank_name }}<br>{% endif %}
+    {% if extras.iban %}IBAN: {{ extras.iban }}<br>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if extras is defined and extras.notes %}
+  <div class="notes">{{ extras.notes }}</div>
+  {% endif %}
+
 </body></html>
