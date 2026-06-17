@@ -62,19 +62,30 @@ def _default_generate(prompt: str) -> str:  # pragma: no cover - live path
 
 def enrich_descriptions(
     plan: InvoicePlan, *,
-    generate_fn: Callable[[str], str] = _default_generate,
+    generate_fn: Callable[[str], str] | None = None,
     cryptic: bool = False,
 ) -> ExtractedInvoice:
-    """Return an ExtractedInvoice from the plan, with LLM-written descriptions."""
-    try:
-        parsed = parse_model(generate_fn(_build_prompt(plan, cryptic)), _Descriptions)
-        descriptions = parsed.descriptions
-        if len(descriptions) != len(plan.lines):
-            raise ValueError("description count mismatch")
-    except Exception:  # noqa: BLE001 - description text is best-effort, never fatal
-        descriptions = [
-            f"{plan.account['account_name']} item {i + 1}" for i in range(len(plan.lines))
-        ]
+    """Return an ExtractedInvoice from the plan.
+
+    When ``generate_fn`` is None (the default), descriptions are taken directly
+    from the plan's catalog-populated ``line.description`` values — no LLM call.
+
+    When a ``generate_fn`` is provided, it is called to generate descriptions via
+    the LLM.  On any failure or count mismatch the catalog descriptions are used
+    as the fallback (never bare placeholder strings).
+    """
+    catalog_descriptions = [l.description for l in plan.lines]
+
+    if generate_fn is None:
+        descriptions = catalog_descriptions
+    else:
+        try:
+            parsed = parse_model(generate_fn(_build_prompt(plan, cryptic)), _Descriptions)
+            descriptions = parsed.descriptions
+            if len(descriptions) != len(plan.lines):
+                raise ValueError("description count mismatch")
+        except Exception:  # noqa: BLE001 - description text is best-effort, never fatal
+            descriptions = catalog_descriptions
 
     line_items = [
         LineItem(

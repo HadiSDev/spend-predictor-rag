@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from faker import Faker
 
 from ..rag.indexer import load_accounts
+from .catalog import line_descriptions as _line_descriptions, vendor_name as _vendor_name
 from .profiles import PROFILES, BuyerProfile, level1_for
 
 _UNIT_TYPES = ["pcs", "hours", "months", "units", "GB", "licenses"]
@@ -22,6 +23,7 @@ class LinePlan:
     amount: float
     vat_code: str | None
     vat_rate: float | None
+    description: str = ""
 
 
 @dataclass
@@ -50,8 +52,9 @@ def _sample_one(fake: Faker, account: dict, profile: BuyerProfile) -> InvoicePla
     vat_rate = fake.random_element(_EU_VAT_RATES) if regime == "EU" else 0.0
 
     n_lines = fake.random_int(1, 4)
+    descriptions = _line_descriptions(account["account_code"], n_lines, fake)
     lines: list[LinePlan] = []
-    for _ in range(n_lines):
+    for i in range(n_lines):
         qty = float(fake.random_int(1, 20))
         unit_price = round(fake.random_int(500, 200000) / 100.0, 2)
         amount = round(qty * unit_price, 2)
@@ -60,6 +63,7 @@ def _sample_one(fake: Faker, account: dict, profile: BuyerProfile) -> InvoicePla
             unit_price=unit_price, amount=amount,
             vat_code=("S" if regime == "EU" else None),
             vat_rate=(vat_rate if regime == "EU" else None),
+            description=descriptions[i],
         ))
 
     subtotal = round(sum(l.amount for l in lines), 2)
@@ -71,7 +75,7 @@ def _sample_one(fake: Faker, account: dict, profile: BuyerProfile) -> InvoicePla
 
     return InvoicePlan(
         buyer=profile, account=account, vat_regime=regime, currency=currency,
-        vendor_name=fake.company(),
+        vendor_name=_vendor_name(account, fake),
         invoice_number=fake.numerify("INV-####-####"),
         invoice_date=fake.date(pattern="%Y-%m-%d"),
         supplier_country_code=supplier_cc,

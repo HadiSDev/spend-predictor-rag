@@ -36,9 +36,12 @@ def test_enrich_falls_back_when_count_mismatch():
         return '{"descriptions": ["only one"]}'  # wrong count
 
     inv = enrich_descriptions(plan, generate_fn=bad_generate)
-    # falls back to a deterministic per-line placeholder, never crashes
+    # falls back to catalog descriptions from the plan, never crashes
     assert len(inv.line_items) == len(plan.lines)
     assert all(li.description for li in inv.line_items)
+    # fallback uses catalog descriptions (from plan.lines[i].description)
+    expected = [l.description for l in plan.lines]
+    assert [li.description for li in inv.line_items] == expected
 
 
 def test_enrich_falls_back_on_unparseable_output():
@@ -50,5 +53,36 @@ def test_enrich_falls_back_on_unparseable_output():
     inv = enrich_descriptions(plan, generate_fn=junk_generate)
     assert len(inv.line_items) == len(plan.lines)
     assert all(li.description for li in inv.line_items)
-    # fallback uses the account name as a deterministic placeholder
-    assert plan.account["account_name"] in inv.line_items[0].description
+    # fallback uses the catalog descriptions, not "account_name item N"
+    expected = [l.description for l in plan.lines]
+    assert [li.description for li in inv.line_items] == expected
+
+
+def test_enrich_default_no_llm_uses_catalog_descriptions():
+    """With generate_fn=None (default), descriptions come from plan.lines[i].description."""
+    plan = sample_plans(1, seed=42, accounts=_ACCOUNTS)[0]
+
+    # Verify plan has catalog descriptions already populated
+    assert all(l.description for l in plan.lines)
+
+    inv = enrich_descriptions(plan)  # generate_fn defaults to None
+
+    assert isinstance(inv, ExtractedInvoice)
+    assert len(inv.line_items) == len(plan.lines)
+    # All descriptions must match the plan's catalog descriptions exactly
+    for i, (li, line) in enumerate(zip(inv.line_items, plan.lines)):
+        assert li.description == line.description, (
+            f"Line {i}: expected '{line.description}', got '{li.description}'"
+        )
+    # Numeric fields preserved
+    assert inv.total == plan.total
+    assert inv.vendor_name == plan.vendor_name
+
+
+def test_enrich_default_descriptions_are_not_bare_placeholder():
+    """Default path must not produce 'account_name item N' strings."""
+    plan = sample_plans(1, seed=7, accounts=_ACCOUNTS)[0]
+    inv = enrich_descriptions(plan)
+    for li in inv.line_items:
+        assert "item 1" not in li.description.lower()
+        assert "item 2" not in li.description.lower()

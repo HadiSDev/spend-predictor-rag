@@ -60,9 +60,22 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", type=Path, default=Path("data/synthetic"))
     ap.add_argument("--cryptic", action="store_true",
-                    help="ask the model for terse/cryptic line-item descriptions")
+                    help="ask the model for terse/cryptic line-item descriptions (only with --live)")
+    ap.add_argument("--live", action="store_true",
+                    help="use the local LLM to write descriptions (requires vLLM + curator)")
     args = ap.parse_args()
-    generate_dataset(args.n, args.seed, args.out, cryptic=args.cryptic)
+
+    if args.live:
+        from .content import _default_generate  # noqa: PLC0415
+
+        def _live_enrich(plan, *, cryptic: bool = False):
+            return enrich_descriptions(plan, cryptic=cryptic, generate_fn=_default_generate)
+
+        enrich_fn = _live_enrich
+    else:
+        enrich_fn = enrich_descriptions  # default: deterministic catalog descriptions
+
+    generate_dataset(args.n, args.seed, args.out, enrich_fn=enrich_fn, cryptic=args.cryptic)
 
 
 if __name__ == "__main__":
