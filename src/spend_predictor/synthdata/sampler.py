@@ -91,8 +91,8 @@ def sample_plans(
     """Return `n` deterministic InvoicePlans for the given seed."""
     accounts = accounts if accounts is not None else load_accounts()
     profiles = profiles if profiles is not None else PROFILES
-    fake = Faker()
     Faker.seed(seed)
+    fake = Faker()
     fake.seed_instance(seed)
     return [
         _sample_one(fake, fake.random_element(accounts), fake.random_element(profiles))
