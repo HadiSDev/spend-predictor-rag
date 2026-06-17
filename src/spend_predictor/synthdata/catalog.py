@@ -457,6 +457,7 @@ _VENDOR_POOLS: dict[str, tuple[list[str], list[str], list[str]]] = {
     ),
 }
 
+
 # Map account codes to vendor clusters
 _ACCOUNT_CLUSTER: dict[str, str] = {
     "6010": "tech", "6015": "tech", "6020": "tech", "6030": "tech",
@@ -476,19 +477,95 @@ def _fill_spec(template: str, account_code: str, fake: "Faker") -> str:
         return template
     fns = _SPEC_FN.get(account_code, [])
     if fns:
-        spec = fake.random_element(fns)(fake)
+        # Build list of safe spec generators to avoid double-decoration
+        # Skip period specs if template already contains '(', skip SKU specs if it contains '['
+        safe_indices = list(range(len(fns)))
+
+        if '(' in template:
+            # Filter out functions that return periods (raw _PERIODS selections)
+            safe_indices = [
+                i for i in safe_indices
+                if not _spec_fn_returns_period(fns[i], account_code, i)
+            ]
+
+        if '[' in template:
+            # Filter out functions that return SKUs
+            safe_indices = [
+                i for i in safe_indices
+                if not _spec_fn_returns_sku(fns[i], account_code, i)
+            ]
+
+        # If no safe options, use all (shouldn't happen in practice)
+        if not safe_indices:
+            safe_indices = list(range(len(fns)))
+
+        safe_fns = [fns[i] for i in safe_indices]
+        spec = fake.random_element(safe_fns)(fake)
     else:
         spec = f"[{fake.lexify('??').upper()}-{fake.numerify('####')}]"
     return template.replace("{spec}", spec)
+
+
+def _spec_fn_returns_period(fn, account_code: str, index: int) -> bool:
+    """Check if a spec generator at a given account/index typically returns a period."""
+    # Hardcode knowledge of which indices return periods for each account
+    period_indices: dict[str, list[int]] = {
+        "6010": [3],  # index 3: lambda f: f.random_element(_PERIODS)
+        "6015": [1],  # index 1
+        "6020": [1],  # index 1
+        "6030": [2],  # index 2
+        "6500": [2],  # index 2
+        "6510": [2],  # index 2
+        "6600": [1],  # index 1
+        "6610": [0],  # index 0
+        "6620": [0],  # index 0
+        "6700": [1],  # index 1
+        "6810": [2],  # index 2
+        "7050": [1],  # index 1
+        "7100": [2],  # index 2
+        "6900": [1],  # index 1
+        "6910": [2],  # index 2
+    }
+    return index in period_indices.get(account_code, [])
+
+
+def _spec_fn_returns_sku(fn, account_code: str, index: int) -> bool:
+    """Check if a spec generator at a given account/index typically returns an SKU."""
+    # Hardcode knowledge of which indices return SKUs for each account
+    sku_indices: dict[str, list[int]] = {
+        "6010": [4],  # index 4: lambda f: _SKUS(f)
+        "6015": [2],  # index 2
+        "6020": [2],  # index 2
+        "6030": [3],  # index 3
+        "6500": [3],  # index 3
+        "6510": [0],  # index 0
+        "6600": [2],  # index 2
+        "6610": [1],  # index 1
+        "6620": [2],  # index 2
+        "6700": [2],  # index 2
+        "6800": [3],  # index 3
+        "6810": [3],  # index 3
+        "6820": [3],  # index 3
+        "6900": [3],  # index 3
+        "6910": [3],  # index 3
+        "7000": [1],  # index 1
+        "7050": [2],  # index 2
+        "7100": [3],  # index 3
+    }
+    return index in sku_indices.get(account_code, [])
 
 
 def _decorate(desc: str, fake: "Faker") -> str:
     """Optionally append a period or SKU decorator for extra variety."""
     roll = fake.random_int(0, 9)
     if roll < 3:
-        desc = f"{desc} {fake.random_element(_PERIODS)}"
+        # Only append period decorator if description doesn't already contain '('
+        if '(' not in desc:
+            desc = f"{desc} {fake.random_element(_PERIODS)}"
     elif roll < 5:
-        desc = f"{desc} [{fake.lexify('??').upper()}-{fake.numerify('####')}]"
+        # Only append SKU decorator if description doesn't already contain '['
+        if '[' not in desc:
+            desc = f"{desc} [{fake.lexify('??').upper()}-{fake.numerify('####')}]"
     return desc
 
 

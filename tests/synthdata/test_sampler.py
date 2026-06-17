@@ -24,6 +24,7 @@ def test_each_plan_reconciles_and_has_single_account():
         assert round(p.subtotal + p.tax, 2) == round(p.total, 2)
         assert p.account in _ACCOUNTS  # exactly one chart account drives the invoice
         assert p.level1 in {"Direct", "Indirect"}
+        assert all(l.description for l in p.lines)
 
 
 def test_vat_regime_controls_vat_and_country_fields():

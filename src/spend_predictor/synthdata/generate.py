@@ -65,6 +65,9 @@ def main() -> None:
                     help="use the local LLM to write descriptions (requires vLLM + curator)")
     args = ap.parse_args()
 
+    if args.cryptic and not args.live:
+        logger.warning("--cryptic only affects the LLM path (--live); it is ignored without --live")
+
     if args.live:
         from .content import _default_generate  # noqa: PLC0415
 
