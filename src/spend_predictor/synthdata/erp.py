@@ -23,7 +23,7 @@ def build_journal(
     """Dr expense (net) + Dr VAT input (tax) ... Cr accounts payable (total)."""
     net = round(invoice.subtotal or 0.0, 2)
     tax = round(invoice.tax or 0.0, 2)
-    total = round(invoice.total, 2)
+    total = round(net + tax, 2)
     entries = [JournalEntry(account_code, account_name, debit=net, credit=0.0)]
     if tax > 0:
         entries.append(JournalEntry(VAT_INPUT_CODE, VAT_INPUT_NAME, debit=tax, credit=0.0))
