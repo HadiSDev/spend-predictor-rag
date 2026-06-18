@@ -112,15 +112,18 @@ human reviews template_drafts/ -> moves keepers into render/templates/ -> auto-d
 
 ## Dependencies
 
-- `ddgs` — DuckDuckGo image search (no key).
-- HTTP download via the client already used by the project's web-context code
-  (no new HTTP dependency if avoidable).
-- Vision via the existing OpenAI-compatible endpoint — **no new model dependency**.
+**No new dependencies.** The tool reuses what the project already has:
 
-These are tooling-only; they belong in a **new optional `templategen` dependency
-group** (`uv sync --group templategen`) — kept separate from both the core
-runtime and the `live` (Curator) group, so the generator and scorer keep their
-current dependency footprint and nobody installs `ddgs` just to score.
+- `ddgs` — already a **core** dependency (used by `web_context.py` for text
+  search); this tool uses its `DDGS().images(...)` method for image search.
+- Image download and the vision POST use the Python **standard library**
+  (`urllib.request`) — no `requests`/`httpx` added.
+- Vision via the existing OpenAI-compatible endpoint (`VLLM_BASE_URL`) — **no new
+  model dependency**.
+
+All network and LLM primitives are the module-level defaults (marked
+`# pragma: no cover`, matching `content.py`'s `_default_generate`); tests inject
+fakes, so the suite stays fully offline.
 
 ## Error handling
 
