@@ -53,3 +53,8 @@ def test_draft_template_returns_none_when_no_html(tmp_path):
     img.write_bytes(b"img")
     html = draft.draft_template(img, generate_fn=lambda p, i: "I cannot do that")
     assert html is None
+
+
+def test_extract_html_bare_strips_trailing_prose():
+    resp = "<!DOCTYPE html><html><body>x</body></html>\n\nHope that helps!"
+    assert draft.extract_html(resp) == "<!DOCTYPE html><html><body>x</body></html>"

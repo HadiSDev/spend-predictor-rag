@@ -52,7 +52,13 @@ def extract_html(response: str) -> str | None:
         return m.group(1).strip()
     m = _BARE_RE.search(response)
     if m:
-        return m.group(1).strip()
+        matched = m.group(1)
+        # If </html> exists in the match, truncate to just after it (inclusive).
+        # Otherwise, keep the entire match (to end of string).
+        close_tag_idx = matched.lower().rfind("</html>")
+        if close_tag_idx != -1:
+            matched = matched[:close_tag_idx + len("</html>")]
+        return matched.strip()
     return None
 
 
