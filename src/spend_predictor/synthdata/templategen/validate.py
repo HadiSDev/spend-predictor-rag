@@ -59,9 +59,9 @@ def contract_check(html: str) -> list[str]:
     return reasons
 
 
-_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_EMAIL_RE = re.compile(r"[\w.+-]+@[a-zA-Z][\w-]*\.[a-zA-Z]{2,}")
 _DIGITS_RE = re.compile(r"\d{4,}")
-_IMG_URL_RE = re.compile(r"""(src\s*=\s*['"]\s*https?:|url\(\s*['"]?\s*https?:|data:image)""",
+_IMG_URL_RE = re.compile(r"""(src\s*=\s*['"]?\s*https?:|url\(\s*['"]?\s*https?:|data:image)""",
                          re.IGNORECASE)
 _STYLE_RE = re.compile(r"<style.*?</style>", re.DOTALL | re.IGNORECASE)
 _JINJA_RE = re.compile(r"{{.*?}}|{%.*?%}", re.DOTALL)

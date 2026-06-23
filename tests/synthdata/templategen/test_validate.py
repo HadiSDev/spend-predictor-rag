@@ -66,3 +66,20 @@ def test_try_render_writes_preview_pdf(tmp_path):
     reason = validate.try_render(GOOD, out_path=out)
     assert reason is None
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_lint_allows_retina_image_filename():
+    # A retina-style filename must NOT be mistaken for an email address.
+    ok = GOOD.replace("{{ buyer_name }}", "logo design@2x file")
+    assert not any("email" in r.lower() for r in validate.lint_no_real_data(ok))
+
+
+def test_lint_still_flags_real_email():
+    bad = GOOD.replace("{{ buyer_name }}", "contact@acme.com")
+    assert any("email" in r.lower() for r in validate.lint_no_real_data(bad))
+
+
+def test_lint_flags_unquoted_external_image_src():
+    bad = GOOD.replace("<body>", "<body><img src=http://logo.example/x.png>")
+    assert any("image" in r.lower() or "url" in r.lower()
+               for r in validate.lint_no_real_data(bad))
