@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -59,6 +60,7 @@ def author_templates(
             html_path = out_dir / f"{name}.html"
             html_path.write_text(html, encoding="utf-8")
             validate.try_render(html, out_path=out_dir / f"{name}.pdf")
+            shutil.copy(ref, out_dir / f"{name}.jpg")
         else:
             rejected_dir.mkdir(parents=True, exist_ok=True)
             html_path = rejected_dir / f"{name}.html"

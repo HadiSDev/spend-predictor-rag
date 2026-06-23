@@ -45,6 +45,7 @@ def test_author_stages_passing_and_rejected_and_writes_report(tmp_path):
     assert failed[0].html_path.parent == tmp_path / "_rejected"
     assert (failed[0].html_path.with_suffix(".reason.txt")).exists()
     assert (tmp_path / "report.md").exists()
+    assert (tmp_path / (passed[0].name + ".jpg")).exists()
 
 
 def test_author_survives_vision_error_on_one_image(tmp_path):

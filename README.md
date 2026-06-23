@@ -164,8 +164,9 @@ uv run python -m spend_predictor.synthdata.templategen --query "eu vat invoice t
 It searches DuckDuckGo images (no key), drafts a Jinja2 template per image via the
 local **vision** LLM (requires your vLLM server to serve the model with vision
 enabled), then validates each draft — it must render cleanly, contain the required
-placeholders, and pass a **no-real-data lint** (no emails, long digit runs, or
-embedded image URLs). Results land in `data/template_drafts/` (gitignored):
+placeholders, and pass a **no-real-data lint** (no emails, contiguous runs of 4+
+digits — so spaced or hyphenated numbers may slip through — or embedded image
+URLs; human review is the real guarantee). Results land in `data/template_drafts/` (gitignored):
 passing drafts as `<name>.html` + `<name>.pdf` preview, failures under
 `_rejected/` with a reason, plus a `report.md`. Review them, then move the good
 `.html` files into `src/spend_predictor/synthdata/render/templates/` — the
