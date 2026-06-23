@@ -148,6 +148,33 @@ Each fixture is written to its own directory:
   double-entry journal
 - `data/synthetic/manifest.jsonl` — an index of all generated fixtures
 
+### Author new templates from web references (optional)
+
+Grow the template library by drafting new templates from real invoice *designs*
+found online. This is an offline developer tool — separate from the generator —
+and is **human-gated**: it stages drafts for you to review, and never writes into
+`render/templates/` itself.
+
+```bash
+uv run python -m spend_predictor.synthdata.templategen --n 5
+# or drive the search yourself:
+uv run python -m spend_predictor.synthdata.templategen --query "eu vat invoice template" --n 8
+```
+
+It searches DuckDuckGo images (no key), drafts a Jinja2 template per image via the
+local **vision** LLM (requires your vLLM server to serve the model with vision
+enabled), then validates each draft — it must render cleanly, contain the required
+placeholders, and pass a **no-real-data lint** (no emails, long digit runs, or
+embedded image URLs). Results land in `data/template_drafts/` (gitignored):
+passing drafts as `<name>.html` + `<name>.pdf` preview, failures under
+`_rejected/` with a reason, plus a `report.md`. Review them, then move the good
+`.html` files into `src/spend_predictor/synthdata/render/templates/` — the
+generator auto-discovers them.
+
+**No real data ever enters a template:** the vision model is instructed to copy
+only layout/styling and use Jinja placeholders for all data; the lint and your
+manual review are the backstops.
+
 ### Score extraction & categorization accuracy
 
 ```bash
