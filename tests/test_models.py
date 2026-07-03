@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from spend_predictor.models import (
+from ai_api.models import (
     AccountChoice,
     CategorizedInvoice,
     ExtractedInvoice,
@@ -58,19 +58,19 @@ def test_every_field_has_a_description(model):
     assert missing == [], f"{model.__name__} fields missing Field(description=...): {missing}"
 
 
-def test_account_choice_rejects_bad_level1():
-    AccountChoice(account_code="6010", account_name="Cloud", level1="Direct", confidence=0.9, rationale="r")
+def test_account_choice_rejects_bad_level_1():
+    AccountChoice(account_code="6010", account_name="Cloud", level_1="Direct", confidence=0.9, rationale="r")
     with pytest.raises(ValidationError):
-        AccountChoice(account_code="6010", account_name="Cloud", level1="Maybe", confidence=0.9, rationale="r")
+        AccountChoice(account_code="6010", account_name="Cloud", level_1="Maybe", confidence=0.9, rationale="r")
 
 
 def test_categorized_invoice_has_hierarchy():
     c = CategorizedInvoice(
         account_code="6010", account_name="Cloud Hosting & Infrastructure",
-        level1="Direct", level2="Technology", level3="Cloud Infrastructure",
+        level_1="Direct", level_2="Technology", level_3="Cloud Infrastructure",
         confidence=0.9, rationale="r",
     )
-    assert (c.level1, c.level2, c.level3) == ("Direct", "Technology", "Cloud Infrastructure")
+    assert (c.level_1, c.level_2, c.level_3) == ("Direct", "Technology", "Cloud Infrastructure")
 
 
 def test_invoice_state_defaults():

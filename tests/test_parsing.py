@@ -1,10 +1,10 @@
 import pytest
 
-from spend_predictor.models import AccountChoice
-from spend_predictor.parsing import json_format_hint, parse_model
+from ai_api.models import AccountChoice
+from ai_api.parsing import json_format_hint, parse_model
 
 _CLEAN = (
-    '{"account_code":"6010","account_name":"Cloud","level1":"Direct",'
+    '{"account_code":"6010","account_name":"Cloud","level_1":"Direct",'
     '"confidence":0.9,"rationale":"ok"}'
 )
 
@@ -12,7 +12,7 @@ _CLEAN = (
 def test_parse_clean_json():
     c = parse_model(_CLEAN, AccountChoice)
     assert c.account_code == "6010"
-    assert c.level1 == "Direct"
+    assert c.level_1 == "Direct"
 
 
 def test_parse_fenced_json():
@@ -28,7 +28,7 @@ def test_parse_json_with_surrounding_prose():
 def test_parse_repairs_malformed_json():
     # single quotes + trailing comma — invalid JSON that json-repair fixes
     text = (
-        "{'account_code': '6010', 'account_name': 'Cloud', 'level1': 'Direct', "
+        "{'account_code': '6010', 'account_name': 'Cloud', 'level_1': 'Direct', "
         "'confidence': 0.9, 'rationale': 'ok',}"
     )
     assert parse_model(text, AccountChoice).account_code == "6010"
@@ -55,7 +55,7 @@ def test_format_hint_is_an_example_not_a_schema():
 
 
 def test_format_hint_nested_model_has_line_items_shape():
-    from spend_predictor.models import ExtractedInvoice
+    from ai_api.models import ExtractedInvoice
 
     hint = json_format_hint(ExtractedInvoice)
     assert "line_items" in hint

@@ -1,11 +1,11 @@
 import json
 
-from spend_predictor.models import ExtractedInvoice
-from spend_predictor.synthdata.content import enrich_descriptions
-from spend_predictor.synthdata.sampler import sample_plans
+from ai_api.models import ExtractedInvoice
+from ai_api.synthdata.content import enrich_descriptions
+from ai_api.synthdata.sampler import sample_plans
 
 _ACCOUNTS = [{"account_code": "6010", "account_name": "Cloud Hosting & Infrastructure",
-              "level2": "Technology", "level3": "Cloud Infrastructure", "description": "cloud servers"}]
+              "level_2": "Technology", "level_3": "Cloud Infrastructure", "description": "cloud servers"}]
 
 
 def test_enrich_fills_descriptions_and_preserves_labels():

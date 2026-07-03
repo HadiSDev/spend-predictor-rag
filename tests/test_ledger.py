@@ -1,8 +1,8 @@
 import csv
 from concurrent.futures import ThreadPoolExecutor
 
-from spend_predictor.ledger import LEDGER_COLUMNS, append_row, build_ledger_row
-from spend_predictor.models import (
+from ai_api.ledger import LEDGER_COLUMNS, append_row, build_ledger_row
+from ai_api.models import (
     CategorizedInvoice,
     ExtractedInvoice,
     LineItem,
@@ -54,7 +54,7 @@ def test_build_ledger_row_processed():
     verification = VerificationResult(arithmetic_ok=True, discrepancies=[], notes=None)
     categorized = CategorizedInvoice(
         account_code="6010", account_name="Cloud Hosting & Infrastructure",
-        level1="Direct", level2="Technology", level3="Cloud Infrastructure",
+        level_1="Direct", level_2="Technology", level_3="Cloud Infrastructure",
         confidence=0.9, rationale="ok",
     )
     row = build_ledger_row(
@@ -68,8 +68,8 @@ def test_build_ledger_row_processed():
     assert row["supplier_vat_number"] == "US12-345"
     assert row["buyer_country_code"] == "DK"
     assert row["buyer_vat_number"] == "DK99887766"
-    assert row["level1"] == "Direct"
-    assert row["level2"] == "Technology"
+    assert row["level_1"] == "Direct"
+    assert row["level_2"] == "Technology"
     assert row["account_code"] == "6010"
     assert row["arithmetic_ok"] is True
 

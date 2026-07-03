@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from spend_predictor.synthdata.templategen import draft
+from ai_api.synthdata.templategen import draft
 
 
 def test_load_exemplar_contains_core_placeholders():

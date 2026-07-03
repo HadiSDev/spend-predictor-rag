@@ -1,7 +1,7 @@
 import json
 
-from spend_predictor.models import CategorizedInvoice, ExtractedInvoice, LineItem
-from spend_predictor.synthdata.score import anls_field, score_fixture, score_fixtures, _num_eq
+from ai_api.models import CategorizedInvoice, ExtractedInvoice, LineItem
+from ai_api.synthdata.score import anls_field, score_fixture, score_fixtures, _num_eq
 
 
 def test_anls_field_rewards_near_matches():
@@ -18,7 +18,7 @@ def _labels() -> dict:
     )
     return {"invoice": inv.model_dump(),
             "category": {"account_code": "6010", "account_name": "Cloud Hosting & Infrastructure",
-                         "level1": "Direct", "level2": "Technology", "level3": "Cloud Infrastructure"}}
+                         "level_1": "Direct", "level_2": "Technology", "level_3": "Cloud Infrastructure"}}
 
 
 def test_score_fixture_perfect_prediction():
@@ -26,12 +26,12 @@ def test_score_fixture_perfect_prediction():
     extracted = ExtractedInvoice(**labels["invoice"])
     categorized = CategorizedInvoice(
         account_code="6010", account_name="Cloud Hosting & Infrastructure",
-        level1="Direct", level2="Technology", level3="Cloud Infrastructure",
+        level_1="Direct", level_2="Technology", level_3="Cloud Infrastructure",
         confidence=0.9, rationale="r")
     res = score_fixture(labels, extracted, categorized)
     assert res["fields"]["vendor_name"] == 1.0
     assert res["category"]["account_code"] is True
-    assert res["category"]["level1"] is True
+    assert res["category"]["level_1"] is True
 
 
 def test_score_fixture_handles_pipeline_failure():
@@ -51,7 +51,7 @@ def test_score_fixtures_aggregates(tmp_path):
         extracted = ExtractedInvoice(**labels["invoice"])
         categorized = CategorizedInvoice(
             account_code="6010", account_name="Cloud Hosting & Infrastructure",
-            level1="Direct", level2="Technology", level3="Cloud Infrastructure",
+            level_1="Direct", level_2="Technology", level_3="Cloud Infrastructure",
             confidence=0.9, rationale="r")
         return extracted, categorized
 
@@ -106,7 +106,7 @@ def test_score_fixtures_reports_numeric_and_line_item_aggregates(tmp_path):
         extracted = ExtractedInvoice(**labels["invoice"])
         categorized = CategorizedInvoice(
             account_code="6010", account_name="Cloud Hosting & Infrastructure",
-            level1="Direct", level2="Technology", level3="Cloud Infrastructure",
+            level_1="Direct", level_2="Technology", level_3="Cloud Infrastructure",
             confidence=0.9, rationale="r")
         return extracted, categorized
 

@@ -2,9 +2,9 @@ import pdfplumber
 import pytest
 from faker import Faker
 
-from spend_predictor.models import ExtractedInvoice, LineItem
-from spend_predictor.synthdata.render.renderer import list_templates, render_invoice_pdf
-from spend_predictor.synthdata.style import build_render_spec
+from ai_api.models import ExtractedInvoice, LineItem
+from ai_api.synthdata.render.renderer import list_templates, render_invoice_pdf
+from ai_api.synthdata.style import build_render_spec
 
 
 def _invoice() -> ExtractedInvoice:

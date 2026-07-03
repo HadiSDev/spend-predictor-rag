@@ -1,5 +1,5 @@
-from spend_predictor import web_context
-from spend_predictor.models import LineItem
+from ai_api import web_context
+from ai_api.models import LineItem
 
 
 def test_buyer_context_cache_miss_then_hit(tmp_path):

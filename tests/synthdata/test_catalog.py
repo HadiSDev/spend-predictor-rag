@@ -2,7 +2,7 @@
 """Tests for the deterministic item catalog."""
 from faker import Faker
 
-from spend_predictor.synthdata.catalog import (
+from ai_api.synthdata.catalog import (
     ITEM_CATALOG,
     line_descriptions,
     vendor_name,
@@ -21,8 +21,8 @@ _ALL_CODES = [
 _SAMPLE_ACCOUNT = {
     "account_code": "6010",
     "account_name": "Cloud Hosting & Infrastructure",
-    "level2": "Technology",
-    "level3": "Cloud Infrastructure",
+    "level_2": "Technology",
+    "level_3": "Cloud Infrastructure",
     "description": "cloud servers",
 }
 

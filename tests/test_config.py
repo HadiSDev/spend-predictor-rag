@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from spend_predictor import config
+from ai_api import config
 
 
 def test_default_paths_resolve_under_project_root():

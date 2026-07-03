@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from spend_predictor.synthdata.templategen import author
+from ai_api.synthdata.templategen import author
 
 GOOD = """<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
   <div>{{ inv.vendor_name }}</div><div>{{ buyer_name }}</div>

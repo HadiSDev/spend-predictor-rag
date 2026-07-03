@@ -1,6 +1,6 @@
 # tests/synthdata/test_erp.py
-from spend_predictor.models import ExtractedInvoice, LineItem
-from spend_predictor.synthdata.erp import build_journal
+from ai_api.models import ExtractedInvoice, LineItem
+from ai_api.synthdata.erp import build_journal
 
 
 def _invoice(tax: float) -> ExtractedInvoice:

@@ -1,19 +1,19 @@
 import json
 
-from spend_predictor.models import ExtractedInvoice, LineItem
-from spend_predictor.synthdata.bundle import (
+from ai_api.models import ExtractedInvoice, LineItem
+from ai_api.synthdata.bundle import (
     append_manifest, category_from_account, load_fixture, write_labels,
 )
-from spend_predictor.synthdata.erp import build_journal
-from spend_predictor.synthdata.profiles import PROFILES
+from ai_api.synthdata.erp import build_journal
+from ai_api.synthdata.profiles import PROFILES
 
 
 def test_category_from_account():
     acct = {"account_code": "6010", "account_name": "Cloud Hosting & Infrastructure",
-            "level2": "Technology", "level3": "Cloud Infrastructure", "description": "x"}
+            "level_2": "Technology", "level_3": "Cloud Infrastructure", "description": "x"}
     cat = category_from_account(acct, "Direct")
     assert cat == {"account_code": "6010", "account_name": "Cloud Hosting & Infrastructure",
-                   "level1": "Direct", "level2": "Technology", "level3": "Cloud Infrastructure"}
+                   "level_1": "Direct", "level_2": "Technology", "level_3": "Cloud Infrastructure"}
 
 
 def test_write_and_load_fixture_roundtrip(tmp_path):
@@ -21,7 +21,7 @@ def test_write_and_load_fixture_roundtrip(tmp_path):
                            line_items=[LineItem(description="x", amount=100.0)],
                            subtotal=100.0, tax=0.0, total=100.0)
     cat = {"account_code": "6010", "account_name": "Cloud Hosting & Infrastructure",
-           "level1": "Direct", "level2": "Technology", "level3": "Cloud Infrastructure"}
+           "level_1": "Direct", "level_2": "Technology", "level_3": "Cloud Infrastructure"}
     journal = build_journal(inv, "6010", "Cloud Hosting & Infrastructure")
     fdir = tmp_path / "0001"
     write_labels(fdir, invoice=inv, category=cat, buyer=PROFILES[0], journal=journal)

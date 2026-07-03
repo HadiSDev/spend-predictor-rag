@@ -1,4 +1,4 @@
-from spend_predictor.agents import make_categorizer, make_extractor, make_verifier
+from ai_api.agents import make_categorizer, make_extractor, make_verifier
 
 
 def test_all_agents_are_toolless():

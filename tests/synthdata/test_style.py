@@ -4,8 +4,8 @@ from __future__ import annotations
 import pytest
 from faker import Faker
 
-from spend_predictor.synthdata.render.renderer import list_templates
-from spend_predictor.synthdata.style import build_render_spec
+from ai_api.synthdata.render.renderer import list_templates
+from ai_api.synthdata.style import build_render_spec
 
 
 def _make_spec(seed: int, *, vat_regime: str = "EU"):

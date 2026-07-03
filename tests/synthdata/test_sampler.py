@@ -1,11 +1,11 @@
 # tests/synthdata/test_sampler.py
-from spend_predictor.synthdata.sampler import InvoicePlan, sample_plans
+from ai_api.synthdata.sampler import InvoicePlan, sample_plans
 
 _ACCOUNTS = [
     {"account_code": "6010", "account_name": "Cloud Hosting & Infrastructure",
-     "level2": "Technology", "level3": "Cloud Infrastructure", "description": "cloud servers"},
+     "level_2": "Technology", "level_3": "Cloud Infrastructure", "description": "cloud servers"},
     {"account_code": "6800", "account_name": "Travel - Airfare",
-     "level2": "Travel & Entertainment", "level3": "Airfare", "description": "flights"},
+     "level_2": "Travel & Entertainment", "level_3": "Airfare", "description": "flights"},
 ]
 
 
@@ -23,7 +23,7 @@ def test_each_plan_reconciles_and_has_single_account():
         assert line_sum == round(p.subtotal, 2)
         assert round(p.subtotal + p.tax, 2) == round(p.total, 2)
         assert p.account in _ACCOUNTS  # exactly one chart account drives the invoice
-        assert p.level1 in {"Direct", "Indirect"}
+        assert p.level_1 in {"Direct", "Indirect"}
         assert all(l.description for l in p.lines)
 
 

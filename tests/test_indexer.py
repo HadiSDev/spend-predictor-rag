@@ -1,6 +1,9 @@
 import csv
 
-from spend_predictor.rag import indexer
+import pytest
+from qdrant_client import QdrantClient
+
+from ai_api.rag import indexer
 
 VOCAB = ["cloud", "office", "travel", "legal", "meal"]
 
@@ -11,48 +14,66 @@ def fake_embed(texts):
 
 def _write_coa(path):
     rows = [
-        {"account_code": "6010", "account_name": "Cloud Hosting", "level2": "Technology", "level3": "Cloud Infrastructure", "description": "cloud servers and hosting"},
-        {"account_code": "6500", "account_name": "Office Supplies", "level2": "Facilities & Office", "level3": "Office Supplies", "description": "office stationery"},
-        {"account_code": "7000", "account_name": "Travel", "level2": "Travel & Entertainment", "level3": "Airfare", "description": "travel and flights"},
+        {"account_code": "6010", "account_name": "Cloud Hosting", "level_2": "Technology", "level_3": "Cloud Infrastructure", "description": "cloud servers and hosting"},
+        {"account_code": "6500", "account_name": "Office Supplies", "level_2": "Facilities & Office", "level_3": "Office Supplies", "description": "office stationery"},
+        {"account_code": "7000", "account_name": "Travel", "level_2": "Travel & Entertainment", "level_3": "Airfare", "description": "travel and flights"},
     ]
     with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["account_code", "account_name", "level2", "level3", "description"])
+        w = csv.DictWriter(f, fieldnames=["account_code", "account_name", "level_2", "level_3", "description"])
         w.writeheader()
         w.writerows(rows)
 
 
-def test_build_index_populates_collection(tmp_path):
-    coa = tmp_path / "coa.csv"
-    _write_coa(coa)
-    coll = indexer.build_index(csv_path=str(coa), chroma_dir=str(tmp_path / "db"), embed_fn=fake_embed)
-    assert coll.count() == 3
+@pytest.fixture
+def memory_client(monkeypatch):
+    """Swap the module-global Qdrant client for an in-memory instance."""
+    client = QdrantClient(location=":memory:")
+    monkeypatch.setattr(indexer, "_client", client)
+    return client
 
 
-def test_retrieve_accounts_returns_most_relevant_first(tmp_path):
+def test_build_index_populates_collection(tmp_path, memory_client):
     coa = tmp_path / "coa.csv"
     _write_coa(coa)
-    db = str(tmp_path / "db")
-    indexer.build_index(csv_path=str(coa), chroma_dir=db, embed_fn=fake_embed)
+    indexer.build_index(csv_path=str(coa), tenant_id="acme", embed_fn=fake_embed)
+    coll = indexer._collection_name("acme")
+    assert memory_client.count(coll).count == 3
+
+
+def test_retrieve_accounts_returns_most_relevant_first(tmp_path, memory_client):
+    coa = tmp_path / "coa.csv"
+    _write_coa(coa)
+    indexer.build_index(csv_path=str(coa), tenant_id="acme", embed_fn=fake_embed)
 
     results = indexer.retrieve_accounts(
-        "cloud hosting for servers", top_k=2, embed_fn=fake_embed, chroma_dir=db
+        "cloud hosting for servers", top_k=2, tenant_id="acme", embed_fn=fake_embed
     )
     assert results[0]["account_code"] == "6010"
     assert len(results) == 2
-    assert results[0]["level2"] == "Technology"
-    assert results[0]["level3"] == "Cloud Infrastructure"
+    assert results[0]["level_2"] == "Technology"
+    assert results[0]["level_3"] == "Cloud Infrastructure"
 
 
-def test_build_index_skips_empty_chart(tmp_path):
+def test_retrieve_is_tenant_scoped(tmp_path, memory_client):
+    """A tenant with no index returns nothing — no cross-tenant leakage."""
+    coa = tmp_path / "coa.csv"
+    _write_coa(coa)
+    indexer.build_index(csv_path=str(coa), tenant_id="acme", embed_fn=fake_embed)
+
+    assert indexer.retrieve_accounts("cloud", tenant_id="other", embed_fn=fake_embed) == []
+
+
+def test_build_index_skips_empty_chart(tmp_path, memory_client):
     coa = tmp_path / "empty.csv"
     with open(coa, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["account_code", "account_name", "level2", "level3", "description"])
+        w = csv.DictWriter(f, fieldnames=["account_code", "account_name", "level_2", "level_3", "description"])
         w.writeheader()
-    coll = indexer.build_index(csv_path=str(coa), chroma_dir=str(tmp_path / "db"), embed_fn=fake_embed)
-    assert coll.count() == 0  # no crash on empty chart
+    # No crash on empty chart, and no collection is created.
+    indexer.build_index(csv_path=str(coa), tenant_id="acme", embed_fn=fake_embed)
+    assert indexer.retrieve_accounts("anything", tenant_id="acme", embed_fn=fake_embed) == []
 
 
-def test_build_index_is_idempotent(tmp_path):
+def test_build_index_is_idempotent(tmp_path, memory_client):
     coa = tmp_path / "coa.csv"
     _write_coa(coa)
 
@@ -62,7 +83,6 @@ def test_build_index_is_idempotent(tmp_path):
         calls["n"] += 1
         return fake_embed(texts)
 
-    db = str(tmp_path / "db")
-    indexer.build_index(csv_path=str(coa), chroma_dir=db, embed_fn=counting_embed)
-    indexer.build_index(csv_path=str(coa), chroma_dir=db, embed_fn=counting_embed)
+    indexer.build_index(csv_path=str(coa), tenant_id="acme", embed_fn=counting_embed)
+    indexer.build_index(csv_path=str(coa), tenant_id="acme", embed_fn=counting_embed)
     assert calls["n"] == 1  # second build is a no-op

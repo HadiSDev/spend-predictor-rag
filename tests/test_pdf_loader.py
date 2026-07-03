@@ -1,6 +1,6 @@
 import pytest
 
-from spend_predictor.pdf_loader import extract_text
+from ai_api.pdf_loader import extract_text
 
 
 def _make_pdf(path, lines):

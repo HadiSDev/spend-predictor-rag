@@ -1,4 +1,4 @@
 def test_package_imports():
-    import spend_predictor
+    import ai_api
 
-    assert spend_predictor is not None
+    assert ai_api is not None

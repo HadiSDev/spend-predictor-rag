@@ -1,20 +1,20 @@
 # tests/synthdata/test_generate.py
 import json
 
-from spend_predictor.synthdata.generate import generate_dataset
+from ai_api.synthdata.generate import generate_dataset
 
 _ACCOUNTS = [{"account_code": "6010", "account_name": "Cloud Hosting & Infrastructure",
-              "level2": "Technology", "level3": "Cloud Infrastructure", "description": "cloud"}]
+              "level_2": "Technology", "level_3": "Cloud Infrastructure", "description": "cloud"}]
 
 
 def test_generate_writes_bundles_and_manifest(tmp_path, monkeypatch):
-    import spend_predictor.synthdata.generate as gen
+    import ai_api.synthdata.generate as gen
 
     # Offline: deterministic chart, stub enrichment, fake renderer (no WeasyPrint).
     monkeypatch.setattr(gen, "load_accounts", lambda: _ACCOUNTS)
 
     def fake_enrich(plan, cryptic=False):
-        from spend_predictor.synthdata.content import enrich_descriptions
+        from ai_api.synthdata.content import enrich_descriptions
         return enrich_descriptions(plan, generate_fn=lambda p: '{"descriptions": ' +
                                    json.dumps([f"item {i}" for i in range(len(plan.lines))]) + '}')
 
@@ -37,7 +37,7 @@ def test_generate_writes_bundles_and_manifest(tmp_path, monkeypatch):
 
 
 def test_generate_skips_failed_items_without_aborting(tmp_path, monkeypatch):
-    import spend_predictor.synthdata.generate as gen
+    import ai_api.synthdata.generate as gen
     monkeypatch.setattr(gen, "load_accounts", lambda: _ACCOUNTS)
 
     calls = {"n": 0}
@@ -51,7 +51,7 @@ def test_generate_skips_failed_items_without_aborting(tmp_path, monkeypatch):
         return Path(out_path)
 
     def fake_enrich(plan, cryptic=False):
-        from spend_predictor.synthdata.content import enrich_descriptions
+        from ai_api.synthdata.content import enrich_descriptions
         return enrich_descriptions(plan, generate_fn=lambda p: '{"descriptions": ' +
                                    json.dumps(["x" for _ in plan.lines]) + '}')
 

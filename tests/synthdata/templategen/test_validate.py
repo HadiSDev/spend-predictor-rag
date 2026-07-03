@@ -1,4 +1,4 @@
-from spend_predictor.synthdata.templategen import validate
+from ai_api.synthdata.templategen import validate
 
 GOOD = """<!DOCTYPE html><html><head><meta charset="utf-8"><style>
   body { font-family: sans-serif; color: #222; }

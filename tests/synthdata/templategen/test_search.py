@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from spend_predictor.synthdata.templategen import search
+from ai_api.synthdata.templategen import search
 
 
 def test_presets_are_nonempty_query_strings():
