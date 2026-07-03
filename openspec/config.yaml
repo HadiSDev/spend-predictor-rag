@@ -1,0 +1,10 @@
+schema: spec-driven
+context: |
+  Tech stack: Python 3.12, CrewAI, Qdrant, PostgreSQL, Streamlit, sentence-transformers
+  Framework: CrewAI Flow with Agent.kickoff() (not Crew), Pydantic models
+  Vector store: Qdrant with cosine distance, all-MiniLM-L6-v2 embeddings
+  LLM: Local vLLM (gemma-4-E4B-it) or Claude/GPT-4o via API
+  We use synthetic data with ground truth to benchmark before touching real ERP data
+  Domain: B2B spend analytics & procurement optimization for EU mid-market SMBs
+  Codebase split: src/web_api/ (domain + Clerk API) and src/ai_api/ (PDF/categorization AI workflows)
+  All entities scoped by company_id (multi-tenant via Organization → Company)

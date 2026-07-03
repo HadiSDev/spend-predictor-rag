@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-06-28
+spec: domain-model
+summary: |
+  Full domain model for ERP Procurement Agent:
+  - Organization → User → Company → Account (spend tree)
+  - File (uploaded spend trees, invoice PDFs, exports)
+  - ErpIntegration → ErpAccount (native ERP COA)
+  - Vendor → Invoice → InvoiceLine (purchase invoices with processing states)
+  - ErpEntry (universal raw financial entries from ERP)
+  - Recommendation (savings suggestions)
+  - SyncState (sync watermark per integration)
+  All entities scoped by company_id. Processing status on Invoice, InvoiceLine,
+  and ErpEntry. Ground truth columns for synthetic benchmarking.
