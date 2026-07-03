@@ -10,13 +10,13 @@ from .erp import JournalEntry
 from .profiles import BuyerProfile
 
 
-def category_from_account(account: dict, level1: str) -> dict:
+def category_from_account(account: dict, level_1: str) -> dict:
     return {
         "account_code": account["account_code"],
         "account_name": account["account_name"],
-        "level1": level1,
-        "level2": account["level2"],
-        "level3": account["level3"],
+        "level_1": level_1,
+        "level_2": account["level_2"],
+        "level_3": account["level_3"],
     }
 
 

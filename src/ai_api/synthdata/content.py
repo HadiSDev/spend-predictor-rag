@@ -2,7 +2,7 @@
 
 Labels and numbers come from the InvoicePlan; the model only writes description
 text. We avoid vLLM guided decoding (see memory avoid-vllm-guided-decoding) by
-prompting for JSON and parsing it with spend_predictor.parsing.
+prompting for JSON and parsing it with ai_api.parsing.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def _build_prompt(plan: InvoicePlan, cryptic: bool) -> str:
     return (
         f"You are writing line items for an invoice from vendor '{plan.vendor_name}'.\n"
         f"All lines belong to this expense account: {acct['account_name']} "
-        f"({acct['level2']} > {acct['level3']}) — {acct['description']}.\n"
+        f"({acct['level_2']} > {acct['level_3']}) — {acct['description']}.\n"
         f"{style}\n"
         f"Write EXACTLY {len(plan.lines)} descriptions, one per line below:\n{lines}\n\n"
         'Return ONLY JSON: {"descriptions": ["...", "..."]}'

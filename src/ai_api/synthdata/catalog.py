@@ -1,4 +1,4 @@
-# src/spend_predictor/synthdata/catalog.py
+# src/ai_api/synthdata/catalog.py
 """Deterministic, curated item catalog for synthetic invoice generation.
 
 Public API

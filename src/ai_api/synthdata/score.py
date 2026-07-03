@@ -82,7 +82,7 @@ def score_fixture(
 
     category = {
         key: bool(categorized and getattr(categorized, key) == gold_cat[key])
-        for key in ("account_code", "level1", "level2", "level3")
+        for key in ("account_code", "level_1", "level_2", "level_3")
     }
     numeric = {
         name: _num_eq(getattr(extracted, name, None) if extracted else None, gold_inv.get(name))
@@ -135,7 +135,7 @@ def score_fixtures(fixtures_dir: Path, *, run_pipeline=_default_run_pipeline) ->
     }
     category_accuracy = {
         key: round(sum(1 for r in rows if r["category"][key]) / count, 4)
-        for key in ("account_code", "level1", "level2", "level3")
+        for key in ("account_code", "level_1", "level_2", "level_3")
     }
     numeric_accuracy = {
         name: round(sum(1 for r in rows if r["numeric"][name]) / count, 4)

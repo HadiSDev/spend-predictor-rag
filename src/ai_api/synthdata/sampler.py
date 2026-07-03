@@ -1,4 +1,4 @@
-# src/spend_predictor/synthdata/sampler.py
+# src/ai_api/synthdata/sampler.py
 """Seeded sampler that builds InvoicePlans (all ground-truth labels, no LLM)."""
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from faker import Faker
 
 from ..rag.indexer import load_accounts
 from .catalog import line_descriptions as _line_descriptions, vendor_name as _vendor_name
-from .profiles import PROFILES, BuyerProfile, level1_for
+from .profiles import PROFILES, BuyerProfile, level_1_for
 from .render.renderer import list_templates
 from .style import RenderSpec, build_render_spec
 
@@ -45,7 +45,7 @@ class InvoicePlan:
     subtotal: float
     tax: float
     total: float
-    level1: str
+    level_1: str
     render: RenderSpec | None = None
 
 
@@ -98,7 +98,7 @@ def _sample_one(fake: Faker, account: dict, profile: BuyerProfile) -> InvoicePla
         buyer_country_code=profile.country_code or None,
         buyer_vat_number=(profile.vat_number or None) if regime == "EU" else None,
         lines=lines, subtotal=subtotal, tax=tax, total=total,
-        level1=level1_for(profile, account["level2"]),
+        level_1=level_1_for(profile, account["level_2"]),
         render=render,
     )
 

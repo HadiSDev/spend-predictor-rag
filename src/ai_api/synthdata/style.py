@@ -1,4 +1,4 @@
-# src/spend_predictor/synthdata/style.py
+# src/ai_api/synthdata/style.py
 """Per-invoice render style + extra fields, built deterministically from a seeded Faker."""
 from __future__ import annotations
 

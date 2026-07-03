@@ -36,14 +36,14 @@ def generate_dataset(
             fdir.mkdir(parents=True, exist_ok=True)
             render_fn(invoice, fdir / "invoice.pdf", buyer_name=plan.buyer.name,
                       render_spec=plan.render)
-            category = category_from_account(plan.account, plan.level1)
+            category = category_from_account(plan.account, plan.level_1)
             journal = build_journal(invoice, plan.account["account_code"],
                                     plan.account["account_name"])
             write_labels(fdir, invoice=invoice, category=category,
                          buyer=plan.buyer, journal=journal)
             append_manifest(manifest, {
                 "id": fixture_id, "account_code": plan.account["account_code"],
-                "level1": plan.level1, "vat_regime": plan.vat_regime,
+                "level_1": plan.level_1, "vat_regime": plan.vat_regime,
                 "buyer": plan.buyer.name,
             })
             written += 1
