@@ -1,7 +1,7 @@
 [project]
 name = "spend-predictor-rag"
-version = "0.1.0"
-description = "Autonomous invoice processing & spend categorization with CrewAI + RAG"
+version = "0.2.0"
+description = "ERP Procurement Agent — AI spend categorization, redundancy detection & savings suggestions"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -9,7 +9,7 @@ dependencies = [
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.2",
     "pdfplumber>=0.11.0",
-    "chromadb>=0.5.0",
+    "qdrant-client>=1.12.0",
     "sentence-transformers>=3.0.0",
     "crewai-tools>=1.14.6",
     "ddgs>=9.14.4",
@@ -17,7 +17,17 @@ dependencies = [
     "faker>=40.23.0",
     "weasyprint>=69.0",
     "jinja2>=3.1.6",
+    "streamlit>=1.30.0",
+    "sqlmodel>=0.0.22",
+    "alembic>=1.13.0",
+    "psycopg2-binary>=2.9.0",
     "anls",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "httpx>=0.27.0",
+    "pyjwt[crypto]>=2.9.0",
+    "scalar-fastapi>=1.8.2",
+    "svix>=1.96.1",
 ]
 
 [dependency-groups]
@@ -34,7 +44,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/spend_predictor"]
+packages = ["src/web_api", "src/ai_api", "mock_erp"]
 
 
 [tool.pytest.ini_options]

@@ -11,6 +11,8 @@ build/
 .env
 output/
 chroma_db/
+qdrant_storage/
+pgdata/
 data/web_cache/
 data/synthetic/
 .DS_Store
