@@ -14,9 +14,9 @@ def _enrich(choice: AccountChoice, row: dict) -> CategorizedInvoice:
     return CategorizedInvoice(
         account_code=row["account_code"],
         account_name=row["account_name"],
-        level1=choice.level1,
-        level2=row["level2"],
-        level3=row["level3"],
+        level_1=choice.level_1,
+        level_2=row["level_2"],
+        level_3=row["level_3"],
         confidence=choice.confidence,
         rationale=choice.rationale,
     )
@@ -41,9 +41,9 @@ def ground_categorization(
     fallback = CategorizedInvoice(
         account_code=code,
         account_name="",
-        level1=choice.level1,
-        level2="",
-        level3="",
+        level_1=choice.level_1,
+        level_2="",
+        level_3="",
         confidence=choice.confidence,
         rationale=choice.rationale,
     )

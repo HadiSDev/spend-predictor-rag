@@ -1,4 +1,4 @@
-"""Environment configuration and the vLLM LLM factory."""
+"""Environment configuration and the vLLM LLM factory for the AI service."""
 from __future__ import annotations
 
 import os
@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# repo root = .../spend-predictor-rag (config.py is at src/spend_predictor/config.py)
+# repo root = .../spend-predictor-rag (config.py is at src/ai_api/config.py)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
@@ -21,6 +21,10 @@ VLLM_API_KEY = os.getenv("VLLM_API_KEY", "not-needed")
 VLLM_MAX_TOKENS = int(os.getenv("VLLM_MAX_TOKENS", "8192"))
 VLLM_TIMEOUT = int(os.getenv("VLLM_TIMEOUT", "120"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+
+# Qdrant vector store (replaces ChromaDB)
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 
 # Buyer is known beforehand (backend provides name + website); see the
 # hierarchical-categorization spec. Direct/Indirect is judged from this context.

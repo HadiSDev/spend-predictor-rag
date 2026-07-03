@@ -101,7 +101,7 @@ class AccountChoice(BaseModel):
     account_name: str = Field(
         description="Chosen leaf account name, matching account_code."
     )
-    level1: Literal["Direct", "Indirect"] = Field(
+    level_1: Literal["Direct", "Indirect"] = Field(
         description="Spend class derived from the buyer's business: 'Direct' (cost of "
         "revenue) or 'Indirect' (overhead)."
     )
@@ -118,9 +118,9 @@ class CategorizedInvoice(BaseModel):
 
     account_code: str = Field(description="Leaf account code from the chart of accounts.")
     account_name: str = Field(description="Leaf account name from the chart of accounts.")
-    level1: str = Field(description="Direct or Indirect, from the model (buyer-derived).")
-    level2: str = Field(description="Level-2 category from the chart of accounts.")
-    level3: str = Field(description="Level-3 subcategory from the chart of accounts.")
+    level_1: str = Field(description="Direct or Indirect, from the model (buyer-derived).")
+    level_2: str = Field(description="Level-2 category from the chart of accounts.")
+    level_3: str = Field(description="Level-3 subcategory from the chart of accounts.")
     confidence: float = Field(
         description="Confidence in the categorization, from 0.0 to 1.0."
     )

@@ -19,14 +19,19 @@ from .models import (
     VerificationResult,
 )
 from .pdf_loader import extract_text
-from .rag.indexer import build_index, load_accounts, retrieve_accounts
+from .rag.indexer import build_index as _build_index, load_accounts, retrieve_accounts
+
+
+def build_index(*, tenant_id: str = "default") -> None:
+    """Thin wrapper: delegate to the Qdrant-based indexer with a tenant scope."""
+    _build_index(tenant_id=tenant_id)
 
 
 def _kickoff_json(make_agent, prompt: str, model):
     """Run a toolless agent on ``prompt`` and parse its reply into ``model``.
 
     Centralizes the no-guided-decoding strategy: append a JSON-format hint, then
-    parse the free-form ``.raw`` text (see :mod:`spend_predictor.parsing`).
+    parse the free-form ``.raw`` text (see :mod:`ai_api.parsing`).
     """
     agent = make_agent()
     result = agent.kickoff(prompt + "\n\n" + json_format_hint(model))
@@ -98,9 +103,9 @@ class InvoiceFlow(Flow[InvoiceState]):
             inv = self.state.extracted
             descriptions = "; ".join(li.description for li in inv.line_items)
             query = f"{inv.vendor_name}: {descriptions}"
-            candidates = retrieve_accounts(query, top_k=5)
+            candidates = retrieve_accounts(query, top_k=5, tenant_id="default")
             candidate_lines = "\n".join(
-                f"- {c['account_code']} | {c['level2']} > {c['level3']} > {c['account_name']} | {c['description']}"
+                f"- {c['account_code']} | {c['level_2']} > {c['level_3']} > {c['account_name']} | {c['description']}"
                 for c in candidates
             )
             line_items = "\n".join(
