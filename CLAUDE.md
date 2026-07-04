@@ -69,7 +69,10 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   `/invoices/{id}`, `/invoice-lines`, `/invoice-lines/{id}/audit`, `/erp-entries`
   (filters: `company_id`/`entry_type`/`voucher_id`/`source_invoice_id`/`status`),
   `/erp-entries/{id}`, `/erp-integrations`, `/erp-integrations/{id}`,
-  `/erp-integrations/{id}/accounts`, `/organization`. Manage — `POST /companies`,
+  `/erp-integrations/{id}/accounts`, `/organization`, and **reports** —
+  `GET /reports/entries-summary`, `/reports/entries-by-account`,
+  `/reports/spend-by-category`, `/reports/spend-by-vendor` (all accept
+  `company_id` + `from`/`to`; entries reports also `entry_type`). Manage — `POST /companies`,
   `PATCH /companies/{id}`, `POST /companies/{id}/deactivate|activate`,
   `POST /invoice-lines/{id}/verify` (accept or correct the categorization),
   `PATCH /organization`. **ERP integrations** — `POST /erp-integrations` (with
@@ -108,6 +111,17 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   companies collapses onto one row.
 - Only `Invoice.vendor_id` references a vendor. Invoice **lines do not** link to
   a vendor, and the vendor holds no back-reference to invoices/lines.
+
+## Reporting
+
+- Read-only, tenant-scoped aggregates live in `web_api/reporting.py` (pure SQL
+  `GROUP BY`) behind `web_api/routers/reports.py`. **Ledger sums are
+  entry-based** (`entries-summary`, `entries-by-account` over `ErpEntry`);
+  **category/vendor spend comes from the invoice layer** (`spend-by-category`
+  from categorized lines, `spend-by-vendor` from invoices) — entries carry no
+  category/vendor. Money is always **grouped by currency**, never summed across
+  currencies. Not built in `ai_api/aggregation` (that stub is pipeline-internal;
+  `web_api` can't import `ai_api`).
 
 ## ERP entries
 

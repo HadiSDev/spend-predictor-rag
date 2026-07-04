@@ -220,3 +220,48 @@ class ConnectionTestResult(BaseModel):
 class RefreshAccountsResult(BaseModel):
     seen: int
     added: int
+
+
+# -- Reporting ---------------------------------------------------------------
+
+
+class Report(BaseModel, Generic[T]):
+    """Envelope for a small aggregate report (no pagination)."""
+
+    rows: list[T]
+
+
+class EntrySummaryRow(BaseModel):
+    entry_type: str
+    currency: str | None = None
+    debit_total: Decimal
+    credit_total: Decimal
+    net: Decimal
+    count: int
+
+
+class EntryAccountRow(BaseModel):
+    erp_account_id: str
+    erp_account_code: str
+    erp_account_name: str
+    currency: str | None = None
+    debit_total: Decimal
+    credit_total: Decimal
+    net: Decimal
+    count: int
+
+
+class CategorySpendRow(BaseModel):
+    level_2: str | None = None
+    level_3: str | None = None
+    currency: str | None = None
+    amount_total: Decimal
+    count: int
+
+
+class VendorSpendRow(BaseModel):
+    vendor_id: str
+    vendor_name: str
+    currency: str | None = None
+    amount_total: Decimal
+    count: int

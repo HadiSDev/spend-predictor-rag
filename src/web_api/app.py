@@ -15,6 +15,7 @@ from .routers import (
     invoice_lines,
     invoices,
     organization,
+    reports,
     webhooks,
 )
 
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(erp_entries.router)
     app.include_router(erp_integrations.router)
     app.include_router(organization.router)
+    app.include_router(reports.router)
     app.include_router(webhooks.router)
     return app
 
