@@ -18,12 +18,8 @@ class ErpAccount(SQLModel, table=True):
     erp_account_name: str = Field(sa_type=String, nullable=False)
     erp_account_type: Optional[str] = Field(sa_type=String, nullable=True)
     parent_code: Optional[str] = Field(sa_type=String, nullable=True)
-    is_active: bool = Field(sa_type=Boolean, default=True)  # mirrors the ERP's active flag
-    # Our sync selection: only enabled accounts are fetched for entries. Distinct
-    # from is_active. Preserved across re-syncs (never reset from the ERP).
+    is_active: bool = Field(sa_type=Boolean, default=True)
     sync_enabled: bool = Field(sa_type=Boolean, default=True)
-    # Whether the ERP account is configured with VAT (metadata; used later in
-    # categorization to decide inclusive/exclusive VAT summation).
     with_vat: bool = Field(sa_type=Boolean, default=False)
     raw_json: Optional[dict] = Field(sa_type=JSON, nullable=True)
     created_at: datetime = Field(sa_column=_ts())
