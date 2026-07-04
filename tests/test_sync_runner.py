@@ -91,7 +91,7 @@ class _FakeConnector(ErpConnector):
         def pi(eid, voucher, code, d, debit=0.0, credit=0.0, dt=None):
             return ErpEntryData(erp_entry_id=eid, voucher_id=voucher,
                                 entry_type="purchase_invoice", erp_account_code=code,
-                                entry_date=dt, debit_amount=debit, credit_amount=credit,
+                                accounting_date=dt, debit_amount=debit, credit_amount=credit,
                                 currency="DKK")
         if account_codes is not None and len(account_codes) == 0:
             return []
@@ -261,6 +261,11 @@ def test_entries_are_not_categorized(sqlite_engine):
     for col in ("level_1", "level_2", "level_3", "account_code", "account_name",
                 "confidence", "rationale", "gt_account_code"):
         assert col not in ErpEntry.__table__.columns
+    # The integration is reached via the account, not a direct column; the ledger
+    # date is named accounting_date.
+    assert "erp_integration_id" not in ErpEntry.__table__.columns
+    assert "entry_date" not in ErpEntry.__table__.columns
+    assert "accounting_date" in ErpEntry.__table__.columns
 
 
 def _acct(session, code: str) -> ErpAccount:

@@ -15,12 +15,14 @@ class ErpEntry(SQLModel, table=True):
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     company_id: str = Field(sa_type=String, foreign_key="companies.id", nullable=False)
-    erp_integration_id: str = Field(sa_type=String, foreign_key="erp_integrations.id", nullable=False)
+    # No direct erp_integration_id: the integration is reached through the entry's
+    # account (erp_account_id → ErpAccount.erp_integration_id).
     erp_account_id: str = Field(sa_type=String, foreign_key="erp_accounts.id", nullable=False)
     source_invoice_id: Optional[str] = Field(sa_type=String, foreign_key="invoices.id", nullable=True)
     voucher_id: Optional[str] = Field(sa_type=String, nullable=True)
     entry_type: str = Field(sa_type=String, nullable=False)
-    entry_date: Optional[date] = Field(sa_type=Date, nullable=True)
+    # The ledger posting/accounting date — the axis for period reporting.
+    accounting_date: Optional[date] = Field(sa_type=Date, nullable=True)
     description: Optional[str] = Field(sa_type=String, nullable=True)
     debit_amount: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
     credit_amount: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
@@ -34,6 +36,5 @@ class ErpEntry(SQLModel, table=True):
     created_at: datetime = Field(sa_column=_ts())
 
     company: Optional["Company"] = Relationship(back_populates="erp_entries")
-    erp_integration: Optional["ErpIntegration"] = Relationship(back_populates="erp_entries")
     erp_account: Optional["ErpAccount"] = Relationship(sa_relationship_kwargs={"viewonly": True})
     source_invoice: Optional["Invoice"] = Relationship(back_populates="entries")

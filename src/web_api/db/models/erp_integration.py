@@ -24,5 +24,4 @@ class ErpIntegration(SQLModel, table=True):
         back_populates="erp_integration",
         sa_relationship_kwargs={"cascade": "all, delete-orphan", "uselist": False},
     )
-    erp_entries: list["ErpEntry"] = Relationship(back_populates="erp_integration")
     sync_states: list["SyncState"] = Relationship(back_populates="erp_integration")

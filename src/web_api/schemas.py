@@ -126,12 +126,11 @@ class ErpEntryRead(BaseModel):
 
     id: str
     company_id: str
-    erp_integration_id: str
     erp_account_id: str
     source_invoice_id: str | None = None
     voucher_id: str | None = None
     entry_type: str
-    entry_date: date | None = None
+    accounting_date: date | None = None
     description: str | None = None
     debit_amount: Decimal | None = None
     credit_amount: Decimal | None = None

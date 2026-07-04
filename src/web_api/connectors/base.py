@@ -69,7 +69,7 @@ class ErpEntryData(BaseModel):
     voucher_id: str
     entry_type: str  # purchase_invoice | journal_entry | payment | credit_note
     erp_account_code: str
-    entry_date: date | None = None
+    accounting_date: date | None = None  # ledger posting date
     description: str | None = None
     debit_amount: float | None = None
     credit_amount: float | None = None

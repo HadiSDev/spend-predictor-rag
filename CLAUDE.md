@@ -109,6 +109,15 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 - Only `Invoice.vendor_id` references a vendor. Invoice **lines do not** link to
   a vendor, and the vendor holds no back-reference to invoices/lines.
 
+## ERP entries
+
+- `ErpEntry` is the atomic financial record (raw GL posting), never categorized.
+  Its ledger date is `accounting_date` (the posting date; the axis for period
+  reporting). It carries **no** direct `erp_integration_id` — the integration is
+  reached through its account (`erp_account_id → ErpAccount.erp_integration_id`);
+  `company_id` gives tenant scope. The sync scopes an integration's entries by
+  joining through `ErpAccount`.
+
 ## Model Hosting
 
 - Local vLLM at `http://localhost:8000/v1`, model `google/gemma-4-E4B-it`

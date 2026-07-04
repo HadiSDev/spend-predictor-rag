@@ -44,7 +44,7 @@ def list_erp_entries(
     rows = session.exec(
         select(ErpEntry)
         .where(*conditions)
-        .order_by(ErpEntry.entry_date.desc(), ErpEntry.id)
+        .order_by(ErpEntry.accounting_date.desc(), ErpEntry.id)
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()

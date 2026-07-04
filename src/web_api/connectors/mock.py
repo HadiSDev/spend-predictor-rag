@@ -171,14 +171,14 @@ class MockErpConnector(ErpConnector):
         raw_list = self._paginate("/api/v1/entries", **params)
         result: list[ErpEntryData] = []
         for r in raw_list:
-            entry_date = r.get("date")
+            accounting_date = r.get("date")
             result.append(
                 ErpEntryData(
                     erp_entry_id=str(r["entryNumber"]),
                     voucher_id=str(r["voucherId"]),
                     entry_type=r.get("entryType", "journal_entry"),
                     erp_account_code=str(r.get("account", {}).get("accountNumber", "")),
-                    entry_date=date.fromisoformat(entry_date) if entry_date else None,
+                    accounting_date=date.fromisoformat(accounting_date) if accounting_date else None,
                     description=r.get("description"),
                     debit_amount=r.get("debit"),
                     credit_amount=r.get("credit"),

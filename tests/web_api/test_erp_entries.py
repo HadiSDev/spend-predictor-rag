@@ -29,26 +29,26 @@ def seed_entries(engine, seed):
         s.add(acct_b)
         s.commit()
 
-        def ent(company_id, integration_id, account_id, **kw):
-            row = ErpEntry(company_id=company_id, erp_integration_id=integration_id,
-                           erp_account_id=account_id, **kw)
+        def ent(company_id, account_id, **kw):
+            # Entries carry no direct integration link; it's reached via the account.
+            row = ErpEntry(company_id=company_id, erp_account_id=account_id, **kw)
             s.add(row)
             return row
 
-        a1 = ent(seed["comp_a"], intg_a.id, acct_a.id, voucher_id="V1",
+        a1 = ent(seed["comp_a"], acct_a.id, voucher_id="V1",
                  entry_type="purchase_invoice", source_invoice_id=seed["inv_a"],
-                 entry_date=date(2025, 7, 15), debit_amount=Decimal("80.00"),
+                 accounting_date=date(2025, 7, 15), debit_amount=Decimal("80.00"),
                  status="pending")
-        a2 = ent(seed["comp_a"], intg_a.id, acct_a.id, voucher_id="V1",
+        a2 = ent(seed["comp_a"], acct_a.id, voucher_id="V1",
                  entry_type="purchase_invoice", source_invoice_id=seed["inv_a"],
-                 entry_date=date(2025, 7, 15), debit_amount=Decimal("20.00"),
+                 accounting_date=date(2025, 7, 15), debit_amount=Decimal("20.00"),
                  status="pending")
-        a3 = ent(seed["comp_a"], intg_a.id, acct_a.id, voucher_id="PAY1",
-                 entry_type="payment", entry_date=date(2025, 7, 20),
+        a3 = ent(seed["comp_a"], acct_a.id, voucher_id="PAY1",
+                 entry_type="payment", accounting_date=date(2025, 7, 20),
                  credit_amount=Decimal("100.00"), status="posted")
-        b1 = ent(seed["comp_b"], intg_b.id, acct_b.id, voucher_id="VB",
+        b1 = ent(seed["comp_b"], acct_b.id, voucher_id="VB",
                  entry_type="purchase_invoice", source_invoice_id=seed["inv_b"],
-                 entry_date=date(2025, 8, 5), debit_amount=Decimal("50.00"), status="pending")
+                 accounting_date=date(2025, 8, 5), debit_amount=Decimal("50.00"), status="pending")
         s.commit()
         ids = {"a1": a1.id, "a2": a2.id, "a3": a3.id, "b1": b1.id}
     return ids
@@ -111,7 +111,9 @@ def test_detail_in_scope(client, seed_entries):
     assert body["id"] == seed_entries["a1"]
     assert body["voucher_id"] == "V1"
     assert body["entry_type"] == "purchase_invoice"
-    # Ground-truth and raw payload are not exposed.
+    assert body["accounting_date"] == "2025-07-15"
+    # The integration link and raw/ground-truth payloads are not exposed.
+    assert "erp_integration_id" not in body
     assert "gt_account_code" not in body
     assert "gt_level_1" not in body
     assert "raw_json" not in body

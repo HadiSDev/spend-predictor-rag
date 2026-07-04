@@ -294,8 +294,10 @@ def _persist_entries(
         source_invoice_id = voucher_invoice_map.get(e.voucher_id)
         row = session.get(ErpEntry, entry_id)
         if row is None:
+            # The entry id is still derived from integration_id (deterministic,
+            # idempotent), but the integration is no longer stored on the row —
+            # it is reached through the account.
             row = ErpEntry(id=entry_id, company_id=company_id,
-                           erp_integration_id=integration_id,
                            erp_account_id=erp_account_id,
                            entry_type=e.entry_type)
             session.add(row)
@@ -303,7 +305,7 @@ def _persist_entries(
         row.entry_type = e.entry_type
         row.voucher_id = e.voucher_id
         row.source_invoice_id = source_invoice_id
-        row.entry_date = e.entry_date
+        row.accounting_date = e.accounting_date
         row.description = e.description
         row.debit_amount = _dec(e.debit_amount)
         row.credit_amount = _dec(e.credit_amount)
@@ -355,8 +357,9 @@ def _categorize_pending(
     invoice_ids = [
         iid for iid in session.exec(
             select(ErpEntry.source_invoice_id)
+            .join(ErpAccount, ErpEntry.erp_account_id == ErpAccount.id)
             .where(
-                ErpEntry.erp_integration_id == integration_id,
+                ErpAccount.erp_integration_id == integration_id,
                 ErpEntry.source_invoice_id.is_not(None),
             )
             .distinct()
