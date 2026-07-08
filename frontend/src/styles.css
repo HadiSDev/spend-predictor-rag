@@ -1,0 +1,188 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter/index.css';
+@import '@fontsource-variable/outfit/index.css';
+@import 'react-day-picker/style.css';
+
+/* Class-based dark mode: add `.dark` on <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens extracted from the ERPSAA Framer theme
+ * (erpsaas.framer.website). Semantic values live in :root/.dark and are wired
+ * into Tailwind utilities via `@theme inline`, so swapping a value here
+ * re-themes every component.
+ */
+:root {
+  --canvas: #e9ecea; /* warm sage-gray page background */
+  --foreground: #091315; /* near-black ink */
+
+  --card: #ffffff;
+  --card-foreground: #091315;
+  --popover: #ffffff;
+  --popover-foreground: #091315;
+
+  --muted: #f3f5f4;
+  --muted-foreground: #6b6b6b;
+  --subtle-foreground: #787e7e;
+
+  --primary: #d7ff53; /* lime accent */
+  --primary-foreground: #091315;
+
+  --secondary: #ffffff;
+  --secondary-foreground: #091315;
+
+  --accent: #d7ff53;
+  --accent-foreground: #091315;
+
+  /* Inverted surface (dark sections in the theme). */
+  --inverted: #091315;
+  --inverted-foreground: #ffffff;
+
+  --border: rgb(9 19 21 / 0.08);
+  --input: rgb(9 19 21 / 0.14);
+  --ring: rgb(9 19 21 / 0.45);
+
+  --success: #3e9b4f;
+  --success-foreground: #ffffff;
+  --warning: #e8a13a;
+  --warning-foreground: #091315;
+  --destructive: #e5484d;
+  --destructive-foreground: #ffffff;
+  --info: #2f6feb;
+  --info-foreground: #ffffff;
+
+  --radius: 0.75rem;
+}
+
+.dark {
+  --canvas: #091315;
+  --foreground: #f3f5f4;
+
+  --card: #12201f;
+  --card-foreground: #f3f5f4;
+  --popover: #12201f;
+  --popover-foreground: #f3f5f4;
+
+  --muted: #172624;
+  --muted-foreground: #9aa3a1;
+  --subtle-foreground: #8b9491;
+
+  --primary: #d7ff53;
+  --primary-foreground: #091315;
+
+  --secondary: #172624;
+  --secondary-foreground: #f3f5f4;
+
+  --accent: #d7ff53;
+  --accent-foreground: #091315;
+
+  --inverted: #f3f5f4;
+  --inverted-foreground: #091315;
+
+  --border: rgb(255 255 255 / 0.1);
+  --input: rgb(255 255 255 / 0.16);
+  --ring: rgb(215 255 83 / 0.5);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-background: var(--canvas);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-inverted: var(--inverted);
+  --color-inverted-foreground: var(--inverted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Outfit Variable', ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 8px);
+  --radius-2xl: calc(var(--radius) + 12px);
+  --radius-card: 1.25rem;
+
+  --shadow-card: 0 1px 2px rgb(9 19 21 / 0.04), 0 8px 24px rgb(9 19 21 / 0.05);
+  --shadow-popover: 0 4px 12px rgb(9 19 21 / 0.08), 0 12px 32px rgb(9 19 21 / 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* react-day-picker theming — retint its variables with our tokens. */
+.rdp-root {
+  --rdp-accent-color: var(--color-foreground);
+  --rdp-accent-background-color: var(--color-primary);
+  --rdp-today-color: var(--color-foreground);
+  --rdp-day-width: 2.25rem;
+  --rdp-day-height: 2.25rem;
+  --rdp-day_button-border-radius: var(--radius-md);
+  --rdp-selected-border: none;
+  --rdp-disabled-opacity: 0.4;
+  --rdp-outside-opacity: 0.4;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  color: var(--color-foreground);
+}
+
+.rdp-root .rdp-day_button:hover {
+  background-color: var(--color-muted);
+}
+
+.rdp-root .rdp-selected .rdp-day_button {
+  background-color: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font-weight: 600;
+}
+
+.rdp-root .rdp-chevron {
+  fill: var(--color-foreground);
+}
+

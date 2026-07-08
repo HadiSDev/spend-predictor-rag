@@ -17,3 +17,8 @@ data/web_cache/
 data/synthetic/
 .DS_Store
 data/template_drafts/
+
+# Local agent tooling and session artifacts (never commit)
+.claude/
+.opencode/
+.playwright-mcp/
