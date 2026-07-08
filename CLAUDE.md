@@ -48,6 +48,8 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   verification for local dev. See `.env.example`.
 - API docs use **Scalar** at `/scalar` (built-in Swagger/ReDoc disabled;
   OpenAPI JSON at `/openapi.json`).
+- **CORS** for a browser front-end is opt-in via `WEB_API_CORS_ORIGINS`
+  (comma-separated; empty = no cross-origin access).
 - **Clerk sync**: `POST /api/v1/webhooks/clerk` receives Svix-signed Clerk events
   (org / membership / user) and applies them idempotently — `organization.deleted`
   **soft-suspends** (retains all data; suspended orgs are blocked from API access
@@ -65,7 +67,9 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   (`require_management`); org-profile updates require system admin OR `admin`
   (`require_org_admin`). `member`/`viewer` are read-only. System admins act
   across organizations.
-- **Endpoints**: read — `GET /companies` (`?include_inactive`), `/invoices`,
+- **Endpoints**: read — `GET /users/me` (current principal), `/users` (org member
+  directory), `/vendors` (the org's referenced suppliers, `?q=`),
+  `GET /companies` (`?include_inactive`), `/invoices`,
   `/invoices/{id}`, `/invoice-lines`, `/invoice-lines/{id}/audit`, `/erp-entries`
   (filters: `company_id`/`entry_type`/`voucher_id`/`source_invoice_id`/`status`),
   `/erp-entries/{id}`, `/erp-integrations`, `/erp-integrations/{id}`,

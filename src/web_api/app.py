@@ -5,9 +5,11 @@ Run with:  uvicorn web_api.app:app --reload
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from scalar_fastapi import get_scalar_api_reference
 
+from . import config
 from .routers import (
     companies,
     erp_entries,
@@ -16,6 +18,8 @@ from .routers import (
     invoices,
     organization,
     reports,
+    users,
+    vendors,
     webhooks,
 )
 
@@ -31,6 +35,17 @@ def create_app() -> FastAPI:
         docs_url=None,
         redoc_url=None,
     )
+
+    # Browser front-end access. Empty origins ⇒ no cross-origin access (prod is
+    # explicit); read at call time so tests can configure it.
+    if config.WEB_API_CORS_ORIGINS:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=config.WEB_API_CORS_ORIGINS,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     @app.get("/api/v1/health", tags=["health"])
     def health() -> dict:
@@ -50,6 +65,8 @@ def create_app() -> FastAPI:
     app.include_router(erp_integrations.router)
     app.include_router(organization.router)
     app.include_router(reports.router)
+    app.include_router(users.router)
+    app.include_router(vendors.router)
     app.include_router(webhooks.router)
     return app
 

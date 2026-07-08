@@ -34,6 +34,13 @@ CLERK_JWKS_URL = os.getenv(
 CLERK_AUDIENCE = os.getenv("CLERK_AUDIENCE", "")
 WEB_API_AUTH_DISABLED = os.getenv("WEB_API_AUTH_DISABLED", "false").lower() in ("1", "true", "yes")
 
+# CORS: browser origins allowed to call the API (comma-separated). Empty means
+# no cross-origin access — enabling a browser front-end is explicit. Dev sets
+# e.g. WEB_API_CORS_ORIGINS=http://localhost:5173.
+WEB_API_CORS_ORIGINS = [
+    o.strip() for o in os.getenv("WEB_API_CORS_ORIGINS", "").split(",") if o.strip()
+]
+
 # Name of the Clerk token claim that marks a platform-level system admin.
 # When the claim is truthy, the provisioned User gets is_system_admin=True.
 CLERK_SYSTEM_ADMIN_CLAIM = os.getenv("CLERK_SYSTEM_ADMIN_CLAIM", "system_admin")

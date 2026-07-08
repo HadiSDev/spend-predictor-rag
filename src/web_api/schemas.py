@@ -48,6 +48,27 @@ class CompanyUpdate(BaseModel):
     vat_number: str | None = None
 
 
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    email: str
+    name: str
+    role: str
+    is_system_admin: bool
+    organization_id: str
+
+
+class VendorRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    country_code: str | None = None
+    vat_number: str | None = None
+    description: str | None = None
+
+
 class OrganizationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
