@@ -3,6 +3,47 @@
 Vite + React 19 + TanStack Start, styled with Tailwind v4 and a reusable UI
 component library built on [Base UI](https://base-ui.com/) primitives.
 
+## Application (auth + dashboard)
+
+The app authenticates against the Clerk-backed web API and renders a live
+dashboard.
+
+- **Auth** — Clerk via `@clerk/tanstack-react-start`. `ClerkProvider` is mounted
+  in `src/routes/__root.tsx`; `clerkMiddleware()` is registered in `src/start.ts`
+  so server-side `auth()` works. The sign-in screen (`src/routes/sign-in.tsx`) is
+  a **custom** form built from the UI library, driving Clerk's `useSignIn` future
+  API (`signIn.password()` → `signIn.finalize()`, and `signIn.sso()` for the
+  optional Google button). OAuth returns to `src/routes/sso-callback.tsx`.
+- **Route protection** — `src/routes/_authed.tsx` is a pathless layout whose
+  `beforeLoad` runs Clerk `auth()` in a server function and redirects signed-out
+  users to `/sign-in`. Authenticated pages nest under it (the dashboard is
+  `src/routes/_authed/index.tsx`, served at `/`); future `/admin/*` routes nest
+  here too.
+- **Principal & roles** — `src/lib/auth.tsx` provides `AuthProvider` (loads
+  `GET /users/me`), `usePrincipal()` (`{ …, isSystemAdmin }`), `useApi()`, and a
+  `requireSystemAdmin` guard helper for future admin routes.
+- **API client & data** — `src/lib/api-client.ts` attaches the Clerk session
+  token as a Bearer credential to `VITE_API_BASE_URL`; data is fetched with
+  TanStack Query (`src/lib/reports.ts`, `src/lib/users.ts`) through the
+  `@tanstack/react-router-ssr-query` integration wired in `src/router.tsx`.
+- **Dashboard** — the themed `AppShell` with stat cards + a spend-by-category
+  table from `GET /reports/*` (org-wide), with loading / empty / error states.
+  Money is always grouped by currency, never summed across currencies. The pure
+  content lives in `src/components/dashboard/`.
+
+### Environment
+
+Copy `.env.example` to `.env` and set:
+
+- `VITE_CLERK_PUBLISHABLE_KEY` — Clerk publishable key (same instance the API
+  verifies). Required; the app shows a config error without it.
+- `VITE_API_BASE_URL` — web API base URL (e.g. `http://localhost:8000`).
+- `VITE_CLERK_GOOGLE_OAUTH=true` — optional; shows the Google sign-in button
+  (only when the provider is enabled on the Clerk instance).
+
+In dev the web API's `WEB_API_CORS_ORIGINS` must include the frontend origin
+(`http://localhost:3000`).
+
 ## UI component library (`src/components/ui/`)
 
 `src/components/ui/` is the design system: token-driven, accessible, reusable components
