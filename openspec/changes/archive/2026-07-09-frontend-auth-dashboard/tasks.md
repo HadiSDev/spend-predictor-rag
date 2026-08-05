@@ -50,9 +50,9 @@
 - [x] 6.2 Tests (Vitest + Testing Library): sign-in renders + shows an error on
   rejected credentials (Clerk mocked); dashboard renders stat cards from mocked
   report data and shows the empty state when reports are empty
-- [ ] 6.3 Manual smoke (requires a configured Clerk instance + running web API +
-  data): signed-out `/` → redirect to `/sign-in`; sign in → dashboard with live
-  data; sign out → back to `/sign-in`. Steps documented in `frontend/README.md`;
-  not yet run here (no live Clerk/API credentials in this environment).
+- [x] 6.3 Manual smoke (verified against a live Clerk instance + running web
+  API): signed-out `/` → redirect to `/sign-in`; sign in → org auto-activates →
+  dashboard; sign out → back to `/sign-in`. Steps documented in
+  `frontend/README.md`.
 - [x] 6.4 Update `frontend/README.md`: auth flow, env vars, API client, the
   `_authed` guard + role foundation

@@ -13,6 +13,8 @@ const clerk = {
 
 vi.mock('@clerk/tanstack-react-start', () => ({
   useSignIn: () => ({ signIn: clerk, fetchStatus: 'idle' }),
+  useAuth: () => ({ isSignedIn: false }),
+  useClerk: () => ({ signOut: vi.fn().mockResolvedValue(undefined) }),
 }))
 
 // Keep createFileRoute real; stub navigation.

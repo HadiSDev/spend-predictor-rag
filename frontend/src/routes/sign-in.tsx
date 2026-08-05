@@ -1,7 +1,7 @@
 import * as React from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useForm } from 'react-hook-form'
-import { useSignIn } from '@clerk/tanstack-react-start'
+import { useAuth, useSignIn } from '@clerk/tanstack-react-start'
 import { BarChart3 } from 'lucide-react'
 import {
   Button,
@@ -198,8 +198,19 @@ function EmailCodePanel({ signIn, setError, finish }: PanelProps) {
 
 function SignInPage() {
   const { signIn, fetchStatus } = useSignIn()
+  // Treat a pending (no-active-org) session as signed-in so we forward to the
+  // app, where the `_authed` layout resolves the organization task.
+  const { isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false })
+  const navigate = useNavigate()
   const [formError, setFormError] = React.useState<string | null>(null)
   const [oauthPending, setOauthPending] = React.useState(false)
+
+  // An already-signed-in session shouldn't sit on the sign-in screen. Client
+  // navigation only — never a full reload (that resets Clerk and causes a
+  // sign-in ⇄ dashboard flash loop).
+  React.useEffect(() => {
+    if (isLoaded && isSignedIn) void navigate({ to: '/' })
+  }, [isLoaded, isSignedIn, navigate])
 
   async function finish() {
     if (!signIn) return
@@ -214,10 +225,9 @@ function SignInPage() {
       setFormError(clerkErrorMessage(error))
       return
     }
-    // Full-document navigation (not client-side) so the request to the guarded
-    // route carries Clerk's freshly-set session cookie; a client `navigate()`
-    // can race the cookie write and bounce off the `_authed` guard.
-    window.location.assign('/')
+    // Client-side navigation; the `_authed` layout gates on Clerk's reactive
+    // client state (and activates the org for pending sessions).
+    await navigate({ to: '/' })
   }
 
   async function signInWithGoogle() {

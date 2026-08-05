@@ -20,6 +20,7 @@ import {
   FormLabel,
   FormMessage,
   Input,
+  LoadingScreen,
   NumberInput,
   ToastProvider,
   useToast,
@@ -181,6 +182,15 @@ describe('Form', () => {
     await waitFor(() => expect(onValid).toHaveBeenCalledTimes(1))
     expect(onValid.mock.calls[0][0].vendor).toBe('Acme A/S')
     expect(screen.queryByText('Vendor name is required')).toBeNull()
+  })
+})
+
+describe('LoadingScreen', () => {
+  it('exposes a status role and the message for assistive tech', () => {
+    render(<LoadingScreen message="Preparing your workspace…" />)
+    const status = screen.getByRole('status')
+    expect(status).toBeTruthy()
+    expect(status.textContent).toContain('Preparing your workspace…')
   })
 })
 

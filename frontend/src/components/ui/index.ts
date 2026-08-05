@@ -95,6 +95,7 @@ export { Badge, badgeVariants, type BadgeProps } from './badge'
 export { Avatar, AvatarImage, AvatarFallback } from './avatar'
 export { Separator } from './separator'
 export { Skeleton } from './skeleton'
+export { LoadingScreen, type LoadingScreenProps } from './loading-screen'
 export { Progress, type ProgressProps } from './progress'
 export {
   Table,

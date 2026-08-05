@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useAuth } from '@clerk/tanstack-react-start'
 import { useQuery } from '@tanstack/react-query'
 import { redirect } from '@tanstack/react-router'
+import { LoadingScreen } from '#/components/ui'
 import { createApiClient, type ApiClient } from './api-client'
 import { meQueryOptions } from './users'
 import type { UserRead } from './types'
@@ -48,11 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const meQuery = useQuery(meQueryOptions(api))
 
   if (meQuery.isPending) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-background text-muted-foreground">
-        Loading…
-      </div>
-    )
+    return <LoadingScreen message="Loading your workspace…" />
   }
   if (meQuery.isError || !meQuery.data) {
     return (
@@ -60,8 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         <div className="max-w-sm">
           <h1 className="font-display text-lg font-semibold">Couldn’t load your account</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            The API request for your profile failed. Check that the web API is running and
-            reachable, then reload.
+            Something went wrong loading your profile. Please try again.
           </p>
         </div>
       </div>

@@ -186,3 +186,57 @@ h4 {
   fill: var(--color-foreground);
 }
 
+/* ── Loading screen animations (GPU-safe: transform/opacity only) ───────── */
+@keyframes ep-loading-bar {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+@keyframes ep-loading-mark {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+@keyframes ep-loading-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.12);
+  }
+}
+
+.ep-loading-bar {
+  transform-origin: bottom;
+  animation: ep-loading-bar 1s ease-in-out infinite;
+}
+.ep-loading-mark {
+  animation: ep-loading-mark 2.8s ease-in-out infinite;
+}
+.ep-loading-glow {
+  animation: ep-loading-glow 4s ease-in-out infinite;
+}
+
+/* Accessibility: honour reduced-motion for the whole app. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
