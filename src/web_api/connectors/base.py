@@ -83,6 +83,14 @@ class ErpEntryData(BaseModel):
     raw: dict = {}
 
 
+class DocumentPayload(BaseModel):
+    """A fetched document's bytes and how to serve them."""
+
+    content: bytes
+    media_type: str = "application/pdf"
+    filename: str
+
+
 # -- Catalog metadata --------------------------------------------------------
 
 
@@ -187,4 +195,17 @@ class ErpConnector(ABC):
         is a separate resource keyed by the voucher its entries carry. Vouchers
         that are not purchase invoices (payments, journal entries) return
         ``None``.
+        """
+
+    @abstractmethod
+    def fetch_invoice_document(self, voucher_id: str) -> DocumentPayload | None:
+        """The scanned document attached to a voucher, or ``None`` if it has none.
+
+        Keyed by voucher, exactly like ``fetch_invoice_scan`` — the document and
+        the scan record are two views of one thing.
+
+        ``None`` means "nothing is attached", which is the ordinary case for a
+        payment or a journal entry. A fetch that *failed* must raise
+        ``ErpConnectionError`` instead, so a caller can tell a missing document
+        from an unreachable ERP.
         """

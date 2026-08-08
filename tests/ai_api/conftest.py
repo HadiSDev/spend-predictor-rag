@@ -17,6 +17,7 @@ from ai_api.sync import runner
 from web_api.connectors import register_connector
 from web_api.connectors.base import (
     CredentialField,
+    DocumentPayload,
     ErpAccountData,
     ErpConnector,
     ErpEntryData,
@@ -118,6 +119,9 @@ class FakeConnector(ErpConnector):
 
     def fetch_invoice_scan(self, voucher_id: str) -> ErpInvoiceData | None:
         return INVOICE if voucher_id == INVOICE.voucher_id else None
+
+    def fetch_invoice_document(self, voucher_id: str) -> DocumentPayload | None:
+        return None
 
 
 register_connector("fake", FakeConnector)

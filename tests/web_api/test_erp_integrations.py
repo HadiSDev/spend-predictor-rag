@@ -6,7 +6,7 @@ import pytest
 from web_api import config as web_config
 from web_api import credentials
 from web_api.connectors import register_connector
-from web_api.connectors.base import CredentialField, ErpAccountData, ErpConnector
+from web_api.connectors.base import CredentialField, DocumentPayload, ErpAccountData, ErpConnector
 from web_api.db.models import ErpCredential
 from sqlmodel import Session, select
 from .conftest import auth
@@ -50,6 +50,9 @@ class _FakeConn(ErpConnector):
         return []
 
     def fetch_invoice_scan(self, voucher_id):
+        return None
+
+    def fetch_invoice_document(self, voucher_id):
         return None
 
 

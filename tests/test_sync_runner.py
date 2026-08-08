@@ -15,6 +15,7 @@ from sqlmodel import Session, SQLModel, create_engine, func, select
 
 from web_api.connectors import register_connector
 from web_api.connectors.base import (
+    DocumentPayload,
     ErpAccountData,
     ErpConnector,
     ErpEntryData,
@@ -122,6 +123,9 @@ class _FakeConnector(ErpConnector):
 
     def fetch_invoice_scan(self, voucher_id: str) -> ErpInvoiceData | None:
         return _SCANS.get(voucher_id)
+
+    def fetch_invoice_document(self, voucher_id: str) -> DocumentPayload | None:
+        return None
 
 
 @pytest.fixture

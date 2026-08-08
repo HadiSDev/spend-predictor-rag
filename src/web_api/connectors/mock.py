@@ -1,6 +1,7 @@
 """Mock ERP connector — calls the mock-erp-api FastAPI server."""
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
@@ -9,6 +10,7 @@ import httpx
 from . import register_connector
 from .base import (
     CredentialField,
+    DocumentPayload,
     ErpAccountData,
     ErpAuthError,
     ErpConnectionError,
@@ -72,6 +74,33 @@ class MockErpConnector(ErpConnector):
             raise ErpDataError(f"Unexpected {resp.status_code}: {resp.text}")
 
         return resp.json()
+
+    def _request_raw(self, path: str) -> tuple[bytes, str | None] | None:
+        """GET a non-JSON resource. Returns ``(content, filename)``.
+
+        ``None`` on a 404 (nothing at this path — an ordinary, expected case for
+        a voucher with no document). Any other non-2xx or transport failure
+        raises ``ErpConnectionError``, so a caller can tell "nothing there" from
+        "couldn't reach the ERP".
+        """
+        headers = {"x-app-secret-token": self.api_key}
+        try:
+            resp = self._http_client().get(path, headers=headers)
+        except httpx.RequestError as exc:
+            raise ErpConnectionError(str(exc)) from exc
+
+        if resp.status_code == 404:
+            return None
+        if resp.status_code != 200:
+            raise ErpConnectionError(f"ERP error {resp.status_code}: {resp.text}")
+
+        filename = None
+        disposition = resp.headers.get("content-disposition")
+        if disposition:
+            match = re.search(r'filename="?([^";]+)"?', disposition)
+            if match:
+                filename = match.group(1)
+        return resp.content, filename
 
     # -- Pagination helper ---------------------------------------------------
 
@@ -221,6 +250,18 @@ class MockErpConnector(ErpConnector):
             }
         raw = self._invoice_by_voucher.get(str(voucher_id))
         return self._map_invoice(raw) if raw is not None else None
+
+    def fetch_invoice_document(self, voucher_id: str) -> DocumentPayload | None:
+        """Fetch the voucher's PDF from the mock ERP's document endpoint."""
+        response = self._request_raw(f"/api/v1/documents/{voucher_id}")
+        if response is None:
+            return None
+        content, filename = response
+        return DocumentPayload(
+            content=content,
+            media_type="application/pdf",
+            filename=filename or f"voucher_{voucher_id}.pdf",
+        )
 
 
 register_connector("mock", MockErpConnector)
