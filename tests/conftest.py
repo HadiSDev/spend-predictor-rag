@@ -2,29 +2,24 @@ import pytest
 
 
 @pytest.fixture
-def mock_erp_base_url(monkeypatch):
-    """Serve the mock ERP in-process and route connector HTTP calls to it.
+def mock_erp_connector():
+    """A MockErpConnector wired to the mock ERP app, in-process.
 
-    ``httpx.ASGITransport`` in the installed httpx version (0.28) only
-    implements the *async* transport interface (``handle_async_request``),
-    but the connector's ``httpx.Client`` is synchronous — driving it with a
-    bare ``ASGITransport`` raises ``AttributeError: 'ASGITransport' object
-    has no attribute 'handle_request'``. Starlette's ``TestClient`` builds a
-    transport that bridges an ASGI app to sync calls via a blocking portal;
-    reuse that transport instead of trying to drive ASGITransport
-    synchronously.
+    Mirrors ``tests/test_mock_erp.py``'s ``connector_over_app`` fixture:
+    ``TestClient`` is a synchronous ``httpx.Client`` bound to the ASGI app
+    (entering it fires startup, i.e. the data generator). Assigning it as
+    the connector's own ``_http`` — an attribute the connector already
+    lazily builds itself — gives every fetch a real HTTP round-trip through
+    the actual FastAPI handlers, without a live server and without touching
+    any private httpx internals.
     """
-    from mock_erp.main import app, regenerate_data
-    from starlette.testclient import TestClient
-    import httpx
+    from fastapi.testclient import TestClient
+    from mock_erp.main import app
+    from web_api.connectors.mock import MockErpConnector
 
-    regenerate_data()
-    transport = TestClient(app)._transport
-    real_client = httpx.Client
-
-    def _client(*args, **kwargs):
-        kwargs.setdefault("transport", transport)
-        return real_client(*args, **kwargs)
-
-    monkeypatch.setattr(httpx, "Client", _client)
-    return "http://mock-erp"
+    client = TestClient(app)
+    client.__enter__()
+    connector = MockErpConnector({"api_key": "mock-secret"})
+    connector._http = client
+    yield connector
+    client.__exit__(None, None, None)
