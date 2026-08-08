@@ -7,6 +7,7 @@ the same shape a human verification does. Append-only: helpers only ever add
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -55,13 +56,22 @@ def record_audit(
     actor: str = SYSTEM_ACTOR,
     changes: list[dict] | None = None,
 ) -> AuditLog:
-    """Append an audit entry. Caller commits as part of its own transaction."""
+    """Append an audit entry. Caller commits as part of its own transaction.
+
+    `created_at` is stamped here in Python (microsecond resolution) rather than
+    left to the column's `server_default=func.now()`: SQLite's `CURRENT_TIMESTAMP`
+    only has *second* resolution, so two rows written by the same request (e.g.
+    ai_categorize + a same-second verify) would otherwise tie, and a voucher-wide
+    feed ordered `created_at DESC` needs those rows to stay ordered the way they
+    were written.
+    """
     entry = AuditLog(
         entity_type=entity_type,
         entity_id=entity_id,
         action=action,
         actor=actor,
         changes=changes or [],
+        created_at=datetime.now(timezone.utc),
     )
     session.add(entry)
     return entry

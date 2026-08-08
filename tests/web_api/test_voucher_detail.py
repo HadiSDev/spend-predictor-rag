@@ -5,6 +5,12 @@ connected ERP integration, one account, a `File`-linked Org A invoice, and
 three postings on voucher "4821" (a purchase-invoice entry, a payment entry,
 and — separately — a lone journal entry with no voucher at all).
 """
+from datetime import datetime, timezone
+
+from sqlmodel import Session
+
+from web_api.db.models import AuditLog
+
 from .conftest import auth
 
 
@@ -79,3 +85,101 @@ def test_by_entry_is_tenant_scoped(client, voucher_seed):
         headers=auth("tokB"),
     )
     assert res.status_code == 404
+
+
+# -- Voucher-wide audit feed --------------------------------------------------
+
+
+def test_voucher_audit_merges_invoice_and_line_rows_newest_first(client, voucher_seed):
+    """One chronological story for the voucher: a per-line history cannot answer
+    'what happened to this voucher' without N requests."""
+    client.post(f"/api/v1/invoice-lines/{voucher_seed['line_a1']}/verify",
+                json={"level_2": "Technology"}, headers=auth("tokA"))
+    client.post(f"/api/v1/invoice-lines/{voucher_seed['line_a2']}/verify",
+                json={}, headers=auth("tokA"))
+
+    res = client.get(f"/api/v1/erp-entries/vouchers/{voucher_seed['voucher']}/audit",
+                     headers=auth("tokA"))
+
+    assert res.status_code == 200
+    rows = res.json()
+    assert len(rows) == 2
+    assert [r["created_at"] for r in rows] == sorted(
+        (r["created_at"] for r in rows), reverse=True
+    )
+    assert rows[0]["action"] == "verify"
+    assert rows[1]["action"] == "edit"
+    # Each row names what it happened to, so the feed needs no extra lookup.
+    assert all(r["entity_label"] for r in rows)
+
+
+def test_voucher_audit_by_entry_matches_direct_lookup(client, voucher_seed):
+    """Naming any posting on the voucher returns the same audit feed as naming
+    the voucher itself — the same inheritance the detail endpoint already has."""
+    client.post(f"/api/v1/invoice-lines/{voucher_seed['line_a1']}/verify",
+                json={"level_2": "Technology"}, headers=auth("tokA"))
+
+    direct = client.get(f"/api/v1/erp-entries/vouchers/{voucher_seed['voucher']}/audit",
+                        headers=auth("tokA")).json()
+    by_entry = client.get(
+        f"/api/v1/erp-entries/vouchers/by-entry/{voucher_seed['entry_invoice']}/audit",
+        headers=auth("tokA"),
+    ).json()
+
+    assert direct == by_entry
+    assert len(direct) == 1
+
+
+def test_voucher_audit_with_no_invoice_is_empty(client, voucher_seed):
+    """A voucher (or lone posting) with no linked invoice has nothing to audit."""
+    res = client.get(
+        f"/api/v1/erp-entries/vouchers/by-entry/{voucher_seed['entry_unvouchered']}/audit",
+        headers=auth("tokA"),
+    )
+    assert res.status_code == 200
+    assert res.json() == []
+
+
+def test_voucher_audit_is_tenant_scoped(client, voucher_seed):
+    """A foreign voucher's audit trail is indistinguishable from a missing one."""
+    res = client.get(f"/api/v1/erp-entries/vouchers/{voucher_seed['voucher']}/audit",
+                     headers=auth("tokB"))
+    assert res.status_code == 404
+
+
+def test_voucher_audit_by_entry_is_tenant_scoped(client, voucher_seed):
+    res = client.get(
+        f"/api/v1/erp-entries/vouchers/by-entry/{voucher_seed['entry_invoice']}/audit",
+        headers=auth("tokB"),
+    )
+    assert res.status_code == 404
+
+
+def test_voucher_audit_unknown_voucher_is_404(client, voucher_seed):
+    res = client.get("/api/v1/erp-entries/vouchers/does-not-exist/audit", headers=auth("tokA"))
+    assert res.status_code == 404
+
+
+def test_voucher_audit_tiebreak_is_deterministic_across_requests(client, engine, voucher_seed):
+    """Several audit rows can share a `created_at` (one transaction writing more
+    than one row). Fabricate that tie directly rather than hoping two HTTP
+    requests land in different microseconds, and prove the order the feed picks
+    is the same on every request rather than shuffling."""
+    tied = datetime(2025, 7, 10, 12, 0, 0, tzinfo=timezone.utc)
+    with Session(engine) as s:
+        row1 = AuditLog(entity_type="invoice_line", entity_id=voucher_seed["line_a1"],
+                        action="ai_categorize", actor="system", changes=[], created_at=tied)
+        row2 = AuditLog(entity_type="invoice_line", entity_id=voucher_seed["line_a2"],
+                        action="ai_categorize", actor="system", changes=[], created_at=tied)
+        s.add(row1)
+        s.add(row2)
+        s.commit()
+        expected_order = [row1.id, row2.id] if row1.id > row2.id else [row2.id, row1.id]
+
+    first = client.get(f"/api/v1/erp-entries/vouchers/{voucher_seed['voucher']}/audit",
+                       headers=auth("tokA")).json()
+    second = client.get(f"/api/v1/erp-entries/vouchers/{voucher_seed['voucher']}/audit",
+                        headers=auth("tokA")).json()
+
+    assert [r["id"] for r in first] == expected_order
+    assert [r["id"] for r in second] == expected_order

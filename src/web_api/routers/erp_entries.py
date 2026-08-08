@@ -15,15 +15,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import String, func, literal, nulls_last
 from sqlmodel import Session, select
 
-from web_api.db.models import ErpAccount, ErpEntry, File, Invoice, InvoiceLine, Vendor
+from web_api.db.models import AuditLog, ErpAccount, ErpEntry, File, Invoice, InvoiceLine, Vendor
 from ..deps import TenantScope, get_session, resolve_company_ids, tenant_scope
 from ..schemas import (
+    AuditLogRead,
     CurrencyMode,
     DocumentRead,
     ErpEntryRead,
     InvoiceDetailRead,
     InvoiceLineRead,
     Page,
+    VoucherAuditRead,
     VoucherDetailRead,
     VoucherGroupRead,
 )
@@ -504,6 +506,68 @@ def get_voucher_detail(
         .order_by(ErpEntry.id)
     ).all()
     return _voucher_detail(session, scope, list(rows))
+
+
+# Declared before `/erp-entries/vouchers/{voucher_id}/audit` and before
+# `/erp-entries/{entry_id}`, for the same reason as `by-entry` above.
+@router.get("/erp-entries/vouchers/by-entry/{entry_id}/audit",
+            response_model=list[VoucherAuditRead])
+def list_voucher_audit_by_entry(
+    entry_id: str,
+    scope: TenantScope = Depends(tenant_scope),
+    session: Session = Depends(get_session),
+) -> list[VoucherAuditRead]:
+    detail = get_voucher_by_entry(entry_id, scope, session)
+    return _voucher_audit(session, detail)
+
+
+# Declared before `/erp-entries/{entry_id}` for the same reason as `vouchers`
+# above: a bare `{voucher_id}` path parameter would otherwise swallow it too.
+@router.get("/erp-entries/vouchers/{voucher_id}/audit",
+            response_model=list[VoucherAuditRead])
+def list_voucher_audit(
+    voucher_id: str,
+    scope: TenantScope = Depends(tenant_scope),
+    session: Session = Depends(get_session),
+) -> list[VoucherAuditRead]:
+    """Every change to this voucher's invoice and lines, newest first.
+
+    Newest-first because this is a feed — what happened lately. The per-line
+    `GET /invoice-lines/{id}/audit` stays oldest-first: a history reads forward.
+    """
+    detail = get_voucher_detail(voucher_id, scope, session)
+    return _voucher_audit(session, detail)
+
+
+def _voucher_audit(session: Session, detail: VoucherDetailRead) -> list[VoucherAuditRead]:
+    """Merge the voucher's invoice- and line-level audit rows into one feed.
+
+    Tenant scope is inherited from the caller: both routes above resolve
+    `detail` through the Task 5 resolvers, which already 404 outside the
+    caller's scope before any audit row is looked up.
+    """
+    if detail.invoice is None:
+        return []
+    labels = {detail.invoice.id: "Invoice"}
+    for index, line in enumerate(detail.invoice.lines, start=1):
+        labels[line.id] = line.description or f"Line {index}"
+
+    rows = session.exec(
+        select(AuditLog)
+        .where(AuditLog.entity_id.in_(list(labels)))
+        .where(AuditLog.entity_type.in_(["invoice", "invoice_line"]))
+        # Newest first. `id` is only a tiebreak for the (now rare — see
+        # `record_audit`) case of two rows sharing a `created_at`; it keeps the
+        # order stable across requests even then, rather than reordering.
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+    ).all()
+    return [
+        VoucherAuditRead(
+            **AuditLogRead.model_validate(row).model_dump(),
+            entity_label=labels.get(row.entity_id, row.entity_type),
+        )
+        for row in rows
+    ]
 
 
 @router.get("/erp-entries/{entry_id}", response_model=ErpEntryRead)

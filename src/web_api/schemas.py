@@ -370,6 +370,16 @@ class VoucherDetailRead(BaseModel):
     document: DocumentRead | None = None
 
 
+class VoucherAuditRead(AuditLogRead):
+    """An audit row with the thing it happened to already named.
+
+    The same reasoning as `ErpEntryRead` resolving its account and vendor: a
+    feed of foreign keys would cost the client a lookup per row.
+    """
+
+    entity_label: str
+
+
 # -- ERP integrations & accounts ---------------------------------------------
 
 

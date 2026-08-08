@@ -193,6 +193,7 @@ def voucher_seed(engine, seed):
             "integration_a": integ.id,
             "account_a": account.id,
             "file_a": file_row.id,
+            "voucher": "4821",
             "entry_invoice": entry_invoice.id,
             "entry_payment": entry_payment.id,
             "entry_unvouchered": entry_unvouchered.id,
