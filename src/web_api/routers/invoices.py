@@ -1,6 +1,8 @@
 """Invoice review endpoints — list, detail, and the scanned document."""
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -10,6 +12,8 @@ from web_api.connectors.base import ErpConnectionError
 from .. import integrations
 from ..deps import TenantScope, get_session, resolve_company_ids, tenant_scope
 from ..schemas import InvoiceDetailRead, InvoiceLineRead, InvoiceRead, Page
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["invoices"])
 
@@ -87,35 +91,45 @@ def get_invoice(
 def _resolve_document_source(session: Session, invoice: Invoice) -> tuple[ErpIntegration, str]:
     """Which integration holds this invoice's document, and under which voucher.
 
-    An invoice carries no integration id. The documented path is through its
-    postings: entry -> erp_account -> erp_integration. An invoice with no
-    postings falls back to the company's single connected integration, and 404s
-    when there is none or more than one rather than guessing which ERP to ask.
+    An invoice carries no integration id. The only path is through its
+    postings: entry -> erp_account -> erp_integration, and every hop is
+    re-scoped to the invoice's own company — an entry is trusted to name its
+    integration, but never trusted to name one belonging to a *different*
+    tenant, which a single bad sync row could otherwise cause.
+
+    There is deliberately no fallback. Guessing a voucher id (the old
+    fallback used `invoice.invoice_number`) is wrong on its face: a supplier's
+    invoice number and the ERP's own voucher sequence are different
+    namespaces, and a numeric supplier number can collide with a real voucher
+    id and serve a document belonging to a different transaction entirely.
+    Likewise, if the posting's own integration is disconnected, that is a
+    404, not a cue to ask a *different* integration with a *different* key —
+    the true voucher id was already in hand and is not transferable.
     """
     row = session.exec(
         select(ErpEntry, ErpAccount)
         .join(ErpAccount, ErpAccount.id == ErpEntry.erp_account_id)
-        .where(ErpEntry.source_invoice_id == invoice.id, ErpEntry.voucher_id.is_not(None))
+        .where(
+            ErpEntry.source_invoice_id == invoice.id,
+            ErpEntry.company_id == invoice.company_id,
+            ErpEntry.voucher_id.is_not(None),
+        )
         .order_by(ErpEntry.id)
     ).first()
     if row is not None:
         entry, account = row
         integration = session.get(ErpIntegration, account.erp_integration_id)
-        if integration is not None and integration.disconnected_at is None:
+        if (
+            integration is not None
+            and integration.disconnected_at is None
+            and integration.company_id == invoice.company_id
+        ):
             return integration, str(entry.voucher_id)
 
-    candidates = session.exec(
-        select(ErpIntegration).where(
-            ErpIntegration.company_id == invoice.company_id,
-            ErpIntegration.disconnected_at.is_(None),
-        )
-    ).all()
-    if len(candidates) != 1 or invoice.invoice_number is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Cannot determine which ERP holds this document",
-        )
-    return candidates[0], str(invoice.invoice_number)
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Cannot determine which ERP holds this document",
+    )
 
 
 @router.get("/invoices/{invoice_id}/document")
@@ -139,13 +153,33 @@ def get_invoice_document(
         )
 
     integration, voucher_id = _resolve_document_source(session, invoice)
-    connector = integrations.connector_for_integration(session, integration)
+    try:
+        connector = integrations.connector_for_integration(session, integration)
+    except RuntimeError as exc:
+        # Credentials could not be decrypted (e.g. WEB_API_CREDENTIAL_ENC_KEY
+        # rotated or unset). Our problem, not the caller's to see the detail of
+        # — logged for an operator, reported to the client as a retryable
+        # unavailability rather than a bare 500.
+        logger.error(
+            "could not build connector for integration %s (invoice %s): %s",
+            integration.id, invoice_id, exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The ERP connection for this document is not currently available.",
+        ) from exc
     try:
         payload = connector.fetch_invoice_document(voucher_id)
     except ErpConnectionError as exc:
+        # The ERP's raw error text (stack trace, internal hostname, ...) stays
+        # server-side; the client gets a fixed, safe message.
+        logger.warning(
+            "document fetch failed for invoice %s (integration %s, voucher %s): %s",
+            invoice_id, integration.id, voucher_id, exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Could not reach the ERP to fetch this document: {exc}",
+            detail="Could not reach the ERP to fetch this document.",
         ) from exc
     if payload is None:
         raise HTTPException(
