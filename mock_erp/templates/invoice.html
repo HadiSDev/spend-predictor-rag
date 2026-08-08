@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 18mm; }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 10pt; color: #111; }
+  h1 { font-size: 16pt; margin: 0 0 2mm; }
+  .muted { color: #666; }
+  .meta { display: flex; justify-content: space-between; margin: 8mm 0 6mm; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; border-bottom: 1px solid #333; padding: 2mm 0; }
+  td { padding: 2mm 0; border-bottom: 1px solid #eee; }
+  .num { text-align: right; }
+  .totals { margin-top: 6mm; margin-left: auto; width: 60mm; }
+  .totals div { display: flex; justify-content: space-between; padding: 1mm 0; }
+  .grand { border-top: 1px solid #333; font-weight: bold; }
+</style>
+<h1>{{ supplier.name }}</h1>
+<div class="muted">Supplier no. {{ supplier.supplierNumber }}</div>
+<div class="meta">
+  <div><strong>Invoice {{ invoice_number }}</strong><br>
+       <span class="muted">Voucher {{ voucher_id }}</span></div>
+  <div>{{ date }}</div>
+</div>
+<table>
+  <thead>
+    <tr><th>Description</th><th class="num">Qty</th>
+        <th class="num">Unit</th><th class="num">Net</th></tr>
+  </thead>
+  <tbody>
+    {% for line in lines %}
+    <tr>
+      <td>{{ line.description }}</td>
+      <td class="num">{{ line.quantity }}</td>
+      <td class="num">{{ '%.2f'|format(line.unitPrice) }}</td>
+      <td class="num">{{ '%.2f'|format(line.netAmount) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<div class="totals">
+  <div><span>Net</span><span>{{ '%.2f'|format(net) }}</span></div>
+  <div><span>VAT</span><span>{{ '%.2f'|format(vat) }}</span></div>
+  <div class="grand"><span>Total {{ currency }}</span><span>{{ '%.2f'|format(gross) }}</span></div>
+</div>

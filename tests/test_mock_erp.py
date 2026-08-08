@@ -185,3 +185,22 @@ def test_entries_endpoint_account_filter():
         nums = {e["account"]["accountNumber"] for e in body["collection"]}
         assert nums <= {6010, 6020}
         assert body["collection"]  # some entries matched
+
+
+def test_document_route_returns_a_pdf_for_a_voucher_with_an_invoice():
+    with TestClient(app) as c:
+        invoices = c.get("/api/v1/purchase-invoices", headers=_H).json()["collection"]
+        voucher_id = invoices[0]["voucherId"]
+
+        res = c.get(f"/api/v1/documents/{voucher_id}", headers=_H)
+
+        assert res.status_code == 200
+        assert res.headers["content-type"] == "application/pdf"
+        # A real PDF, not an error page rendered with the wrong content type.
+        assert res.content.startswith(b"%PDF-")
+
+
+def test_document_route_404s_for_a_voucher_with_no_invoice():
+    with TestClient(app) as c:
+        res = c.get("/api/v1/documents/99999999", headers=_H)
+        assert res.status_code == 404

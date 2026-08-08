@@ -12,13 +12,14 @@ from datetime import date, datetime
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from .auth import verify_auth
 from .data.accounts import ACCOUNTS
 from .data.entries import generate as generate_entries
 from .data.invoices import generate as generate_invoices
 from .data.vendors import build_vendors, get_cheaper_alternatives
+from .documents import clear_cache, render_for_voucher
 
 _GENERATION_SEED = int(os.getenv("MOCK_ERP_SEED", "42"))
 _N_MONTHS = int(os.getenv("MOCK_ERP_MONTHS", "12"))
@@ -41,6 +42,7 @@ _CHEAPER_ALTERNATIVES: dict[int, int] = {}
 
 def regenerate_data() -> None:
     global _ACCOUNTS, _VENDORS, _INVOICES, _ENTRIES, _GENERATED_AT, _CHEAPER_ALTERNATIVES
+    clear_cache()
     _ACCOUNTS = [{
         "accountNumber": a["accountNumber"],
         "name": a["name"],
@@ -193,6 +195,30 @@ async def list_entries(
             if str(e.get("account", {}).get("accountNumber", "")) in wanted
         ]
     return _paginate(collection, page, pageSize)
+
+
+# ── Documents ───────────────────────────────────────────────────────────────
+
+
+@app.get("/api/v1/documents/{voucher_id}")
+async def get_document(voucher_id: str) -> Response:
+    """The scanned invoice for a voucher, as a PDF.
+
+    Vouchers that are not purchase invoices (payments, journal entries) have no
+    document and 404 — the same distinction `fetch_invoice_scan` already makes.
+    """
+    match = next(
+        (inv for inv in _INVOICES if str(inv.get("voucherId")) == str(voucher_id)),
+        None,
+    )
+    if match is None:
+        raise HTTPException(status_code=404, detail="No document for this voucher")
+    filename = match.get("file", {}).get("fileName", f"voucher_{voucher_id}.pdf")
+    return Response(
+        content=render_for_voucher(match),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 # ── Auth wrapper (optional — /api/v1/* routes behind verify_auth) ──────────
