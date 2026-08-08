@@ -36,6 +36,10 @@ class Invoice(SQLModel, table=True):
     fx_rate_date: Optional[date] = Field(sa_type=Date, nullable=True)
 
     status: InvoiceStatus = Field(sa_type=String, nullable=False, default=InvoiceStatus.UNCATEGORIZED)
+    # Provenance, which decides what may be corrected. 'erp' rows are as-posted
+    # evidence and their header is read-only; 'pdf_extraction' rows came from the
+    # AI's parse of a document and may be corrected by a human.
+    source: str = Field(sa_type=String, nullable=False, default="erp")
     error_message: Optional[str] = Field(sa_type=String, nullable=True)
 
     raw_json: Optional[dict] = Field(sa_type=JSON, nullable=True)

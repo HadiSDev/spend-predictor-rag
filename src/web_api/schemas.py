@@ -329,6 +329,8 @@ class InvoiceRead(BaseModel):
     fx_rate: Decimal | None = None
     fx_rate_date: date | None = None
     status: str
+    # 'erp' | 'pdf_extraction' — see Invoice.source.
+    source: str = "erp"
     error_message: str | None = None
 
 
