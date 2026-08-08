@@ -15,9 +15,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import String, func, literal, nulls_last
 from sqlmodel import Session, select
 
-from web_api.db.models import ErpAccount, ErpEntry, Invoice, InvoiceLine, Vendor
+from web_api.db.models import ErpAccount, ErpEntry, File, Invoice, InvoiceLine, Vendor
 from ..deps import TenantScope, get_session, resolve_company_ids, tenant_scope
-from ..schemas import CurrencyMode, ErpEntryRead, Page, VoucherGroupRead
+from ..schemas import (
+    CurrencyMode,
+    DocumentRead,
+    ErpEntryRead,
+    InvoiceDetailRead,
+    InvoiceLineRead,
+    Page,
+    VoucherDetailRead,
+    VoucherGroupRead,
+)
+from .invoices import _invoice_read
 
 router = APIRouter(prefix="/api/v1", tags=["erp-entries"])
 
@@ -401,6 +411,99 @@ def _voucher_group(
         unconverted_count=unconverted_count,
         entries=[_entry_read(r) for r in rows],
     )
+
+
+def _voucher_detail(session: Session, scope: TenantScope, entries: list) -> VoucherDetailRead:
+    """Assemble a voucher payload from its postings.
+
+    `_EXCLUDED_ENTRY_TYPES` deliberately does not apply: this is a lookup of a
+    voucher the caller named, like `GET /erp-entries/{id}`, not a listing to
+    sweep. Dropping a payment here would leave the voucher's totals unexplainable.
+    """
+    if not entries:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voucher not found")
+
+    reads = [_entry_read(row) for row in entries]
+    first = entries[0][0]
+
+    invoice_id = next((r.source_invoice_id for r in reads if r.source_invoice_id), None)
+    invoice_payload = None
+    document = None
+    if invoice_id is not None:
+        invoice = session.get(Invoice, invoice_id)
+        if invoice is not None and invoice.company_id in scope.company_ids:
+            lines = session.exec(
+                select(InvoiceLine)
+                .where(InvoiceLine.invoice_id == invoice.id)
+                .order_by(InvoiceLine.id)
+            ).all()
+            file_row = (
+                session.get(File, invoice.file_id) if invoice.file_id is not None else None
+            )
+            detail = _invoice_read(invoice, file_row).model_dump()
+            detail["lines"] = [InvoiceLineRead.model_validate(ln) for ln in lines]
+            invoice_payload = InvoiceDetailRead.model_validate(detail)
+            if file_row is not None:
+                document = DocumentRead(file_id=file_row.id, filename=file_row.filename)
+
+    currencies = {r.currency for r in reads}
+    return VoucherDetailRead(
+        voucher_id=first.voucher_id,
+        company_id=first.company_id,
+        accounting_date=max((r.accounting_date for r in reads if r.accounting_date), default=None),
+        # Claimed only when every posting agrees, matching VoucherGroupRead.
+        currency=currencies.pop() if len(currencies) == 1 else None,
+        entry_count=len(reads),
+        entries=reads,
+        invoice=invoice_payload,
+        document=document,
+    )
+
+
+# Declared before both `/erp-entries/vouchers/{voucher_id}` and
+# `/erp-entries/{entry_id}`: FastAPI matches in declaration order, so a
+# parameterized route declared first would swallow "by-entry" as a voucher id.
+@router.get("/erp-entries/vouchers/by-entry/{entry_id}", response_model=VoucherDetailRead)
+def get_voucher_by_entry(
+    entry_id: str,
+    scope: TenantScope = Depends(tenant_scope),
+    session: Session = Depends(get_session),
+) -> VoucherDetailRead:
+    """The voucher a posting belongs to, addressed by the posting.
+
+    A group whose `voucher_id` is null is a group of one and has no shareable
+    key of its own; this is how such a group is deep-linked.
+    """
+    rows = session.exec(
+        _entry_select().where(
+            ErpEntry.id == entry_id, ErpEntry.company_id.in_(scope.company_ids)
+        )
+    ).all()
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
+    voucher_id = rows[0][0].voucher_id
+    if voucher_id is not None:
+        return get_voucher_detail(voucher_id, scope, session)
+    return _voucher_detail(session, scope, list(rows))
+
+
+# Declared before `/erp-entries/{entry_id}` for the same reason as `vouchers`
+# above: a bare `{voucher_id}` path parameter would otherwise swallow it too.
+@router.get("/erp-entries/vouchers/{voucher_id}", response_model=VoucherDetailRead)
+def get_voucher_detail(
+    voucher_id: str,
+    scope: TenantScope = Depends(tenant_scope),
+    session: Session = Depends(get_session),
+) -> VoucherDetailRead:
+    """One voucher's postings, its invoice with lines, and its document."""
+    rows = session.exec(
+        _entry_select()
+        .where(
+            ErpEntry.voucher_id == voucher_id, ErpEntry.company_id.in_(scope.company_ids)
+        )
+        .order_by(ErpEntry.id)
+    ).all()
+    return _voucher_detail(session, scope, list(rows))
 
 
 @router.get("/erp-entries/{entry_id}", response_model=ErpEntryRead)

@@ -343,6 +343,33 @@ class InvoiceDetailRead(InvoiceRead):
     lines: list[InvoiceLineRead] = []
 
 
+class DocumentRead(BaseModel):
+    """The document attached to a voucher's invoice. Derived from
+    `Invoice.file_id`/`File.filename` — never an independent source of truth."""
+
+    file_id: str
+    filename: str
+
+
+class VoucherDetailRead(BaseModel):
+    """Everything one voucher's detail panel needs, in one request.
+
+    Exists for the cold load: `GET /erp-entries/vouchers` already embeds each
+    group's entries, so a panel opened from the table has its postings already.
+    A shared link arriving at an unfiltered page does not, and also needs the
+    invoice, its lines, and the document descriptor.
+    """
+
+    voucher_id: str | None = None
+    company_id: str
+    accounting_date: date | None = None
+    currency: str | None = None
+    entry_count: int
+    entries: list[ErpEntryRead] = []
+    invoice: InvoiceDetailRead | None = None
+    document: DocumentRead | None = None
+
+
 # -- ERP integrations & accounts ---------------------------------------------
 
 
