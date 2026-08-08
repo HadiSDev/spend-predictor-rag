@@ -332,6 +332,11 @@ class InvoiceRead(BaseModel):
     # 'erp' | 'pdf_extraction' — see Invoice.source.
     source: str = "erp"
     error_message: str | None = None
+    file_id: str | None = None
+    # Resolved from the linked File so a client never needs a second lookup to
+    # decide whether to render a viewer.
+    file_name: str | None = None
+    has_document: bool = False
 
 
 class InvoiceDetailRead(InvoiceRead):

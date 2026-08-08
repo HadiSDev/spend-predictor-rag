@@ -6,7 +6,7 @@ and the token verifier is overridden via FastAPI ``dependency_overrides``.
 from __future__ import annotations
 
 import base64
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -14,7 +14,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from web_api.db.models import Company, Invoice, InvoiceLine, Organization
+from web_api.db.models import (
+    Company,
+    ErpAccount,
+    ErpEntry,
+    ErpIntegration,
+    File,
+    Invoice,
+    InvoiceLine,
+    Organization,
+)
 from web_api import deps
 from web_api.app import create_app
 from web_api.auth import ClerkPrincipal, TokenVerificationError
@@ -115,6 +124,79 @@ def seed(engine):
             "inv_a": inv_a.id, "inv_b": inv_b.id,
             "line_a1": line_a1.id, "line_a2": line_a2.id, "line_b1": line_b1.id,
         }
+    return ids
+
+
+@pytest.fixture
+def voucher_seed(engine, seed):
+    """Extends ``seed`` with a connected ERP integration + a real voucher for Org A.
+
+    General-purpose, for any test that needs an invoice traceable back to an
+    ERP integration through its postings: a connected ``ErpIntegration``, one
+    ``ErpAccount``, a ``File`` linked to ``seed['inv_a']``, and three postings
+    on voucher ``"4821"`` — a purchase-invoice entry (linking the voucher to
+    the invoice), a payment entry (excluded from entry listings, but still a
+    real posting), and a lone posting with no voucher at all.
+    """
+    ids = dict(seed)
+    with Session(engine) as s:
+        integ = ErpIntegration(
+            company_id=ids["comp_a"], erp_type="mock", label="Debug ERP",
+            connected_at=datetime.now(timezone.utc),
+        )
+        s.add(integ)
+        s.commit()
+
+        account = ErpAccount(
+            erp_integration_id=integ.id, erp_account_code="6200",
+            erp_account_name="Software", erp_account_type="expense",
+        )
+        s.add(account)
+        s.commit()
+
+        file_row = File(
+            company_id=ids["comp_a"], filename="invoice.pdf",
+            file_type="invoice_pdf", storage_path="vouchers/4821/invoice.pdf",
+        )
+        s.add(file_row)
+        s.commit()
+
+        invoice = s.get(Invoice, ids["inv_a"])
+        invoice.file_id = file_row.id
+        s.add(invoice)
+        s.commit()
+
+        entry_invoice = ErpEntry(
+            company_id=ids["comp_a"], erp_account_id=account.id,
+            source_invoice_id=ids["inv_a"], voucher_id="4821",
+            entry_type="purchase_invoice", accounting_date=date(2025, 7, 1),
+            debit_amount=Decimal("100.00"), currency="DKK",
+        )
+        entry_payment = ErpEntry(
+            company_id=ids["comp_a"], erp_account_id=account.id,
+            voucher_id="4821", entry_type="payment",
+            accounting_date=date(2025, 7, 5),
+            credit_amount=Decimal("100.00"), currency="DKK",
+        )
+        entry_unvouchered = ErpEntry(
+            company_id=ids["comp_a"], erp_account_id=account.id,
+            voucher_id=None, entry_type="journal_entry",
+            accounting_date=date(2025, 7, 6),
+            debit_amount=Decimal("10.00"), currency="DKK",
+        )
+        s.add(entry_invoice)
+        s.add(entry_payment)
+        s.add(entry_unvouchered)
+        s.commit()
+
+        ids.update({
+            "integration_a": integ.id,
+            "account_a": account.id,
+            "file_a": file_row.id,
+            "entry_invoice": entry_invoice.id,
+            "entry_payment": entry_payment.id,
+            "entry_unvouchered": entry_unvouchered.id,
+        })
     return ids
 
 

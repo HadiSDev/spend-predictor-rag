@@ -13,12 +13,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from web_api.db.models import ErpCredential, ErpIntegration
 
-from .connectors import available_connectors, connector_class
-from .credentials import encrypt_config
+from .connectors import ErpConnector, available_connectors, connector_class, get_connector
+from .credentials import decrypt_config, encrypt_config
 from .schemas import ErpIntegrationRead, IntegrationSpec
 
 
@@ -96,3 +96,28 @@ def provision_integration(
             )
         )
     return integration
+
+
+def connector_config(session: Session, integration: ErpIntegration) -> dict:
+    """The integration's decrypted credentials, or ``{}`` for connector defaults.
+
+    No credential row is the normal case for a connector whose fields all have
+    defaults (the Debug ERP is one), so it is not an error.
+    """
+    credential = session.exec(
+        select(ErpCredential).where(ErpCredential.erp_integration_id == integration.id)
+    ).first()
+    if credential is None:
+        return {}
+    try:
+        return decrypt_config(credential.encrypted_config)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not decrypt credentials for integration {integration.id} — "
+            "is WEB_API_CREDENTIAL_ENC_KEY set to the key they were written with?"
+        ) from exc
+
+
+def connector_for_integration(session: Session, integration: ErpIntegration) -> ErpConnector:
+    """A configured connector for this integration."""
+    return get_connector(integration.erp_type, connector_config(session, integration))

@@ -40,7 +40,6 @@ from web_api.connectors.base import (
 from web_api.db.models import (
     Company,
     ErpAccount,
-    ErpCredential,
     ErpEntry,
     ErpIntegration,
     File,
@@ -57,9 +56,9 @@ from ..procurement_agent import recommender
 from ..redundancy import detector as redundancy
 from web_api.audit import LINE_AUDIT_FIELDS, diff_changes, record_audit
 from web_api.db.models.audit_log import SYSTEM_ACTOR
-from web_api.credentials import decrypt_config
 from web_api.db.session import engine
 from web_api.fx import CONVERTED, UNCHANGED, UNCONVERTED, FxService
+from web_api.integrations import connector_config as _connector_config
 from web_api.rollup import recompute_invoice_status
 from .categorizer import build_candidates, categorize
 
@@ -134,27 +133,6 @@ def connected_integrations(
             "The runner only syncs integrations that already exist and are connected."
         )
     return list(rows)
-
-
-def _connector_config(session: Session, integration: ErpIntegration) -> dict:
-    """The integration's decrypted credentials, or ``{}`` for connector defaults.
-
-    No credential row is the normal case for a connector whose fields all have
-    defaults (the Debug ERP is one), so it is not an error — ``{}`` lets the
-    connector fall back to what it declared.
-    """
-    credential = session.exec(
-        select(ErpCredential).where(ErpCredential.erp_integration_id == integration.id)
-    ).first()
-    if credential is None:
-        return {}
-    try:
-        return decrypt_config(credential.encrypted_config)
-    except Exception as exc:
-        raise RuntimeError(
-            f"Could not decrypt credentials for integration {integration.id} — "
-            "is WEB_API_CREDENTIAL_ENC_KEY set to the key they were written with?"
-        ) from exc
 
 
 def _resolve_since(state: SyncState, override: date | None) -> date | None:
