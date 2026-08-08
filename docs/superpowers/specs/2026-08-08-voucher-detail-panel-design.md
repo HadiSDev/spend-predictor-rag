@@ -74,9 +74,15 @@ authenticated member of the owning org.
 - `404` when `Invoice.file_id` is null — nothing is attached.
 - Resolves the integration and the voucher key through the invoice's entries
   (`ErpEntry.source_invoice_id → erp_account_id → ErpAccount.erp_integration_id`), the
-  path CLAUDE.md already documents. An invoice with no entries falls back to the
-  company's connected integration when there is exactly one, and `404`s when there is
-  none or more than one, rather than guessing.
+  path CLAUDE.md already documents, constrained at every hop to the invoice's own
+  `company_id`. An invoice whose postings do not yield a *connected* integration and a
+  real `voucher_id` returns `404`.
+  **No fallback.** An earlier draft fell back to the company's single connected
+  integration keyed by `invoice_number`; that was wrong and is deliberately absent.
+  `invoice_number` is the *supplier's* number while voucher ids are the ERP's own
+  sequence — two namespaces — so a numeric supplier number can collide with a real
+  voucher and serve a document belonging to a different transaction. Refusing to answer
+  is the only safe response to "we cannot tell which document this is".
 - Decrypts that integration's credentials the same way the sync runner does.
 - Streams the payload with `Content-Type: application/pdf` and
   `Content-Disposition: inline; filename="…"`.

@@ -666,35 +666,44 @@ And the resolver above it:
 def _resolve_document_source(session: Session, invoice: Invoice) -> tuple[ErpIntegration, str]:
     """Which integration holds this invoice's document, and under which voucher.
 
-    An invoice carries no integration id. The documented path is through its
-    postings: entry -> erp_account -> erp_integration. An invoice with no
-    postings falls back to the company's single connected integration, and 404s
-    when there is none or more than one rather than guessing which ERP to ask.
+    An invoice carries no integration id. The only path is through its postings:
+    entry -> erp_account -> erp_integration, constrained at every hop to the
+    invoice's own company. When that does not yield a *connected* integration and
+    a real voucher id, we refuse rather than guess.
+
+    There is deliberately no fallback. An earlier draft fell back to the
+    company's single connected integration keyed by `invoice_number`, which is
+    the *supplier's* number while voucher ids are the ERP's own sequence — two
+    namespaces, so a numeric supplier number can collide with a real voucher and
+    serve a document belonging to a different transaction.
     """
     row = session.exec(
         select(ErpEntry, ErpAccount)
         .join(ErpAccount, ErpAccount.id == ErpEntry.erp_account_id)
-        .where(ErpEntry.source_invoice_id == invoice.id, ErpEntry.voucher_id.is_not(None))
+        .where(
+            ErpEntry.source_invoice_id == invoice.id,
+            # Never leave the invoice's tenant: a mis-synced entry pointing at
+            # another company's account would otherwise have this endpoint
+            # decrypt that tenant's credentials and query their ERP.
+            ErpEntry.company_id == invoice.company_id,
+            ErpEntry.voucher_id.is_not(None),
+        )
         .order_by(ErpEntry.id)
     ).first()
     if row is not None:
         entry, account = row
         integration = session.get(ErpIntegration, account.erp_integration_id)
-        if integration is not None and integration.disconnected_at is None:
+        if (
+            integration is not None
+            and integration.disconnected_at is None
+            and integration.company_id == invoice.company_id
+        ):
             return integration, str(entry.voucher_id)
 
-    candidates = session.exec(
-        select(ErpIntegration).where(
-            ErpIntegration.company_id == invoice.company_id,
-            ErpIntegration.disconnected_at.is_(None),
-        )
-    ).all()
-    if len(candidates) != 1 or invoice.invoice_number is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Cannot determine which ERP holds this document",
-        )
-    return candidates[0], str(invoice.invoice_number)
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Cannot determine which ERP holds this document",
+    )
 ```
 
 Add the imports this needs: `Response` from `fastapi`, `ErpAccount`/`ErpEntry`/`ErpIntegration` from `web_api.db.models`, `ErpConnectionError` from `web_api.connectors.base`, `connector_for_integration` from `..integrations`.
