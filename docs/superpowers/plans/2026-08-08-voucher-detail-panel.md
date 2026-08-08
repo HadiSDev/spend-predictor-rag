@@ -275,7 +275,6 @@ A document that disagreed with its data would make the correction UI untestable.
 """
 from __future__ import annotations
 
-from functools import lru_cache
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -306,11 +305,6 @@ def render_invoice_pdf(invoice: dict) -> bytes:
         gross=invoice["grossAmount"],
     )
     return HTML(string=html).write_pdf()
-
-
-@lru_cache(maxsize=256)
-def _render_cached(voucher_id: str, fingerprint: int) -> bytes:
-    raise RuntimeError("populated via render_for_voucher")
 
 
 def render_for_voucher(invoice: dict) -> bytes:
@@ -1159,8 +1153,6 @@ def test_patch_corrects_a_parsed_invoice_and_audits_it(client, seed, engine):
 
     assert res.status_code == 200
     assert res.json()["invoice_number"] == "INV-9"
-    audit = client.get(f"/api/v1/erp-entries/vouchers/by-entry/x/audit", headers=auth("tokA"))
-    assert audit.status_code == 404  # no entry 'x'; the audit row is asserted below
 
     with Session(engine) as s:
         from web_api.db.models import AuditLog
@@ -1906,7 +1898,6 @@ git commit -m "docs: record the voucher detail surface and invoice provenance"
 **Naming consistency checked across tasks:** `DocumentPayload` (3→4), `connector_for_integration` (4→5), `VoucherDetailRead` (5→6, 8, 10), `VoucherAuditRead` (6→8, 10), `VoucherKey` (10→14), `size="wide"` (8→12), `VoucherTab` (9→12, 14), `INVOICE_AUDIT_FIELDS` (7).
 
 **Known rough edges the implementer must resolve rather than paper over:**
-- Task 2 Step 4 includes a deliberately-dead `_render_cached` stub to be deleted; the `_MEMO` dict is the mechanism.
+
 - Task 3's `mock_erp_base_url` fixture assumes `httpx`; verify the connector's real HTTP client first.
 - Task 5's `_entry_select()` row shape (rows vs tuples) must be checked and the defensive `isinstance` collapsed to the real shape.
-- Task 7's middle test contains a stray HTTP round-trip to be removed before committing.
