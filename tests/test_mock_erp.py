@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from mock_erp.data.entries import _ACCOUNTS_PAYABLE, _VAT_INPUT_ACCOUNT
 from mock_erp.main import app
 from web_api.connectors.mock import MockErpConnector
 
@@ -56,6 +57,54 @@ def test_entries_reconcile_with_invoice():
         pay = {e["voucherId"] for e in entries if e["entryType"] == "payment"}
         inv_vouchers = {i["voucherId"] for i in invoices}
         assert pay and pay.isdisjoint(inv_vouchers)
+
+
+def test_expense_postings_carry_their_invoice_line_text():
+    """One posting per line, described by that line — not a generic account label.
+
+    This is what makes a ledger row readable against the invoice it came from,
+    and what ties a posting to the `InvoiceLine` the categorizer worked on.
+    """
+    with TestClient(app) as c:
+        invoices = _page_all(c, "/api/v1/purchase-invoices")
+        entries = _page_all(c, "/api/v1/entries")
+        # A multi-line invoice, or the one-posting-per-line claim proves nothing.
+        inv = next(i for i in invoices if len(i["lines"]) > 1)
+        postings = [e for e in entries if e["voucherId"] == inv["voucherId"]]
+        plumbing = {_ACCOUNTS_PAYABLE, _VAT_INPUT_ACCOUNT}
+        expense = [e for e in postings
+                   if e["account"]["accountNumber"] not in plumbing]
+
+        assert [(e["description"], e["debit"]) for e in expense] == [
+            (ln["description"], ln["netAmount"]) for ln in inv["lines"]
+        ]
+
+
+def test_a_posting_names_the_line_it_came_from():
+    """The link the API resolves a spend category through.
+
+    Only line-derived postings carry it; VAT and the payable belong to the whole
+    invoice, so `None` there is the correct answer rather than missing data.
+    """
+    with TestClient(app) as c:
+        invoices = _page_all(c, "/api/v1/purchase-invoices")
+        entries = _page_all(c, "/api/v1/entries")
+        inv = next(i for i in invoices if len(i["lines"]) > 1)
+        postings = [e for e in entries if e["voucherId"] == inv["voucherId"]]
+        plumbing = {_ACCOUNTS_PAYABLE, _VAT_INPUT_ACCOUNT}
+
+        expense = [e for e in postings if e["account"]["accountNumber"] not in plumbing]
+        assert [e["lineNumber"] for e in expense] == [ln["lineNumber"] for ln in inv["lines"]]
+        assert all(e["lineNumber"] is None
+                   for e in postings if e["account"]["accountNumber"] in plumbing)
+
+
+def test_connector_carries_the_source_line_id(connector_over_app):
+    """A None must survive the mapping rather than becoming the string "None"."""
+    entries = connector_over_app.fetch_entries()
+    linked = [e for e in entries if e.source_line_erp_id is not None]
+    assert linked and all(e.source_line_erp_id.isdigit() for e in linked)
+    assert any(e.source_line_erp_id is None for e in entries)
 
 
 def test_entries_since_filter():

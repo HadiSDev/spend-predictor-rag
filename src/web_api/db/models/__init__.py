@@ -8,6 +8,7 @@ from .erp_credential import ErpCredential
 from .erp_entry import ErpEntry
 from .erp_integration import ErpIntegration
 from .file import File
+from .fx_rate import FxRate
 from .invoice import Invoice
 from .invoice_line import InvoiceLine
 from .organization import Organization
@@ -28,6 +29,7 @@ __all__ = [
     "ErpEntry",
     "ErpIntegration",
     "File",
+    "FxRate",
     "Invoice",
     "InvoiceLine",
     "Organization",

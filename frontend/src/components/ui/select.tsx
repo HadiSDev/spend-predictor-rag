@@ -29,19 +29,28 @@ SelectTrigger.displayName = 'SelectTrigger'
 export function SelectValue({
   placeholder,
   className,
+  items,
 }: {
   placeholder?: string
   className?: string
+  /**
+   * Value → label pairs, for when the values aren't display text (e.g. Clerk
+   * role keys like `org:member`). Base UI resolves labels from the root's own
+   * `items` only when `Select.Value` has no children — and this component
+   * always passes a function child to render the placeholder — so the mapping
+   * has to happen here.
+   */
+  items?: ReadonlyArray<{ value: unknown; label: React.ReactNode }>
 }) {
   return (
     <BaseSelect.Value className={className}>
-      {(value: unknown) =>
-        value === null || value === undefined || value === '' ? (
-          <span className="text-muted-foreground">{placeholder}</span>
-        ) : (
-          (value as React.ReactNode)
-        )
-      }
+      {(value: unknown) => {
+        if (value === null || value === undefined || value === '') {
+          return <span className="text-muted-foreground">{placeholder}</span>
+        }
+        const match = items?.find((item) => item.value === value)
+        return (match ? match.label : value) as React.ReactNode
+      }}
     </BaseSelect.Value>
   )
 }

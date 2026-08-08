@@ -69,12 +69,35 @@ class ErpEntryData(BaseModel):
     voucher_id: str
     entry_type: str  # purchase_invoice | journal_entry | payment | credit_note
     erp_account_code: str
+    # The ERP's own id for the invoice line this posting came from, matching an
+    # `ErpInvoiceLineData.line_erp_id` on the voucher's scan. One line may be
+    # posted as several entries, so this is many-to-one. None for a posting with
+    # no line behind it — input VAT, the payable, a journal entry — which is the
+    # common case and not an error.
+    source_line_erp_id: str | None = None
     accounting_date: date | None = None  # ledger posting date
     description: str | None = None
     debit_amount: float | None = None
     credit_amount: float | None = None
     currency: str | None = None
     raw: dict = {}
+
+
+# -- Catalog metadata --------------------------------------------------------
+
+
+class CredentialField(BaseModel):
+    """One input a connector needs to authenticate.
+
+    Describes the input, never a stored value: a ``secret`` field's value is
+    write-only and is never returned by any endpoint.
+    """
+
+    name: str
+    label: str
+    required: bool = False
+    secret: bool = False
+    default: str | None = None
 
 
 # -- Errors ------------------------------------------------------------------
@@ -100,10 +123,24 @@ class ErpDataError(Exception):
 
 
 class ErpConnector(ABC):
-    """Contract all ERP integrations must implement."""
+    """Contract all ERP integrations must implement.
+
+    ``display_label`` and ``credential_fields`` are what the connector catalog
+    (``GET /api/v1/erp-types``) projects, so declaring them here is all a new
+    connector needs to become selectable in a client.
+    """
+
+    #: Human-readable name for pickers. Defaults to the class name.
+    display_label: str = ""
+    #: The credentials this connector accepts, in the order to present them.
+    credential_fields: list[CredentialField] = []
 
     def __init__(self, config: dict) -> None:
         self.config = config
+
+    @classmethod
+    def label(cls) -> str:
+        return cls.display_label or cls.__name__
 
     @abstractmethod
     def authorize(self) -> str:

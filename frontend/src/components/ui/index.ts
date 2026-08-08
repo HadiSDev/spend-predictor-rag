@@ -2,7 +2,12 @@
 // Import from '#/components/ui' (or '@/ui').
 
 export { cn } from './cn'
-export { ThemeProvider, useTheme, type Theme } from './theme-provider'
+export {
+  ThemeProvider,
+  useTheme,
+  type Theme,
+  type ThemePreference,
+} from './theme-provider'
 
 export { Button, buttonVariants, type ButtonProps } from './button'
 export { IconButton, type IconButtonProps } from './icon-button'
@@ -39,6 +44,23 @@ export {
   SelectGroupLabel,
   SelectSeparator,
 } from './select'
+export {
+  Combobox,
+  ComboboxInput,
+  ComboboxTrigger,
+  ComboboxIcon,
+  ComboboxValue,
+  ComboboxClear,
+  ComboboxContent,
+  ComboboxList,
+  ComboboxItem,
+  ComboboxEmpty,
+  ComboboxStatus,
+  ComboboxGroup,
+  ComboboxGroupLabel,
+  ComboboxSeparator,
+  type ComboboxContentProps,
+} from './combobox'
 
 export {
   Dialog,
@@ -60,6 +82,17 @@ export {
   AlertDialogTitle,
   AlertDialogDescription,
 } from './alert-dialog'
+export {
+  Drawer,
+  DrawerTrigger,
+  DrawerClose,
+  DrawerContent,
+  DrawerHeader,
+  DrawerFooter,
+  DrawerTitle,
+  DrawerDescription,
+  type DrawerContentProps,
+} from './drawer'
 export {
   DropdownMenu,
   DropdownMenuTrigger,

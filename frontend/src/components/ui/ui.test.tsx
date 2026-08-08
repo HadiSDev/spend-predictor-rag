@@ -4,12 +4,22 @@ import { useForm } from 'react-hook-form'
 import {
   Button,
   type ColumnDef,
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
   DataTable,
   DatePicker,
   Dialog,
   DialogContent,
   DialogTitle,
   DialogTrigger,
+  Drawer,
+  DrawerContent,
+  DrawerTitle,
+  DrawerTrigger,
   Field,
   FieldControl,
   FieldLabel,
@@ -22,6 +32,11 @@ import {
   Input,
   LoadingScreen,
   NumberInput,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   ToastProvider,
   useToast,
 } from './index'
@@ -68,6 +83,47 @@ describe('Dialog', () => {
     expect(await screen.findByText('Verify line')).toBeTruthy()
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByText('Verify line')).toBeNull())
+  })
+})
+
+describe('Drawer', () => {
+  it('opens from its anchored side, moves focus inside, and closes on Escape', async () => {
+    render(
+      <Drawer>
+        <DrawerTrigger render={<Button>Open panel</Button>} />
+        <DrawerContent side="right">
+          <DrawerTitle>Entry detail</DrawerTitle>
+        </DrawerContent>
+      </Drawer>,
+    )
+    expect(screen.queryByText('Entry detail')).toBeNull()
+
+    const trigger = screen.getByRole('button', { name: 'Open panel' })
+    fireEvent.click(trigger)
+    const panel = await screen.findByText('Entry detail')
+    // Anchored right, not centred like Dialog.
+    expect(panel.closest('[class*="right-0"]')).toBeTruthy()
+    // Focus is trapped inside the panel, not left on the trigger behind it.
+    await waitFor(() => expect(document.activeElement).not.toBe(trigger))
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByText('Entry detail')).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+  })
+
+  it('dismisses via its close control', async () => {
+    render(
+      <Drawer>
+        <DrawerTrigger render={<Button>Open panel</Button>} />
+        <DrawerContent>
+          <DrawerTitle>Entry detail</DrawerTitle>
+        </DrawerContent>
+      </Drawer>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Open panel' }))
+    await screen.findByText('Entry detail')
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryByText('Entry detail')).toBeNull())
   })
 })
 
@@ -208,5 +264,205 @@ describe('DatePicker', () => {
     const picked = onChange.mock.calls[0][0] as Date
     expect(picked.getDate()).toBe(15)
     expect(picked.getMonth()).toBe(0)
+  })
+})
+
+const FRUITS = ['Apple', 'Banana', 'Blueberry', 'Cherry']
+
+function ComboboxDemo({
+  onValueChange,
+  loading,
+}: {
+  onValueChange?: (value: string | null) => void
+  loading?: boolean
+}) {
+  return (
+    <Combobox items={FRUITS} onValueChange={onValueChange}>
+      <ComboboxInput aria-label="Fruit" placeholder="Search fruit" />
+      <ComboboxContent loading={loading}>
+        <ComboboxEmpty>No fruit found.</ComboboxEmpty>
+        <ComboboxList>
+          {(item: string) => (
+            <ComboboxItem key={item} value={item}>
+              {item}
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  )
+}
+
+/** Opens the popup the way a pointer does — Base UI listens below `click`. */
+function openCombobox(): HTMLInputElement {
+  const input: HTMLInputElement = screen.getByRole('combobox', { name: 'Fruit' })
+  input.focus()
+  fireEvent.pointerDown(input, { pointerType: 'mouse' })
+  fireEvent.mouseDown(input)
+  fireEvent.mouseUp(input)
+  fireEvent.click(input)
+  return input
+}
+
+describe('Combobox', () => {
+  it('filters the options as the user types, case-insensitively', async () => {
+    render(<ComboboxDemo />)
+    const input = openCombobox()
+    expect(await screen.findByRole('option', { name: 'Apple' })).toBeTruthy()
+
+    fireEvent.change(input, { target: { value: 'bl' } })
+
+    await waitFor(() => expect(screen.queryByRole('option', { name: 'Apple' })).toBeNull())
+    expect(screen.getByRole('option', { name: 'Blueberry' })).toBeTruthy()
+    expect(screen.queryByRole('option', { name: 'Banana' })).toBeNull()
+  })
+
+  it('reports the selected value once and closes the popup', async () => {
+    const onValueChange = vi.fn()
+    render(<ComboboxDemo onValueChange={onValueChange} />)
+    const input = openCombobox()
+
+    fireEvent.click(await screen.findByRole('option', { name: 'Cherry' }))
+
+    await waitFor(() => expect(screen.queryByRole('option', { name: 'Cherry' })).toBeNull())
+    expect(onValueChange).toHaveBeenCalledTimes(1)
+    expect(onValueChange.mock.calls[0][0]).toBe('Cherry')
+    expect(input.value).toBe('Cherry')
+  })
+
+  it('selects with the keyboard and closes on Escape without changing the value', async () => {
+    const onValueChange = vi.fn()
+    render(<ComboboxDemo onValueChange={onValueChange} />)
+    const input = openCombobox()
+    await screen.findByRole('option', { name: 'Apple' })
+
+    // Escape closes without selecting.
+    fireEvent.keyDown(input, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('option', { name: 'Apple' })).toBeNull())
+    expect(onValueChange).not.toHaveBeenCalled()
+
+    // Arrow down highlights the first option, Enter selects it.
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    await screen.findByRole('option', { name: 'Apple' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(onValueChange).toHaveBeenCalledTimes(1))
+    expect(onValueChange.mock.calls[0][0]).toBe('Apple')
+  })
+
+  it('shows the empty state when nothing matches', async () => {
+    render(<ComboboxDemo />)
+    const input = openCombobox()
+    await screen.findByRole('option', { name: 'Apple' })
+
+    fireEvent.change(input, { target: { value: 'zzz' } })
+
+    expect(await screen.findByText('No fruit found.')).toBeTruthy()
+    expect(screen.queryAllByRole('option')).toHaveLength(0)
+  })
+
+  // Without the chevron the control is indistinguishable from a plain Input,
+  // and a user has no reason to click it expecting a list — it shipped that way
+  // once already, unnoticed, because nothing asserted it.
+  it('marks itself as opening a list', () => {
+    const { container } = render(<ComboboxDemo />)
+
+    expect(container.querySelector('svg.lucide-chevron-down')).toBeTruthy()
+  })
+
+  it('drops the chevron when the input lives inside the popup', () => {
+    const { container } = render(
+      <Combobox items={FRUITS}>
+        <ComboboxInput aria-label="Fruit" hideIcon />
+      </Combobox>,
+    )
+
+    expect(container.querySelector('svg.lucide-chevron-down')).toBeNull()
+  })
+
+  it('renders a start adornment without covering the input', () => {
+    render(
+      <Combobox items={FRUITS}>
+        <ComboboxInput aria-label="Fruit" startAdornment={<span>DK</span>} />
+      </Combobox>,
+    )
+
+    const adornment = screen.getByText('DK')
+    expect(adornment.parentElement?.className).toContain('pointer-events-none')
+    // The input keeps room for it, so the text never sits under the adornment.
+    expect(screen.getByRole('combobox', { name: 'Fruit' }).className).toContain('pl-10')
+  })
+
+  it('shows a loading indication instead of the list while items load', async () => {
+    render(<ComboboxDemo loading />)
+    openCombobox()
+
+    const status = await screen.findByRole('status')
+    expect(status.textContent).toContain('Loading…')
+    expect(screen.queryAllByRole('option')).toHaveLength(0)
+    expect(screen.queryByText('No fruit found.')).toBeNull()
+  })
+
+  it('associates the input with a surrounding Field label', () => {
+    render(
+      <Field>
+        <FieldLabel>Vendor</FieldLabel>
+        <Combobox items={FRUITS}>
+          <ComboboxInput />
+        </Combobox>
+      </Field>,
+    )
+    // Resolving by role + accessible name proves the label is linked to the input.
+    const control = screen.getByRole('combobox', { name: 'Vendor' })
+    expect(control).toBeInstanceOf(HTMLInputElement)
+  })
+})
+
+describe('Select', () => {
+  const ROLES = [
+    { value: 'org:admin', label: 'Admin' },
+    { value: 'org:member', label: 'Member' },
+  ]
+
+  function renderSelect(items?: typeof ROLES) {
+    render(
+      <Select items={ROLES} value="org:member">
+        <SelectTrigger aria-label="Role">
+          <SelectValue items={items} />
+        </SelectTrigger>
+        <SelectContent>
+          {ROLES.map((role) => (
+            <SelectItem key={role.value} value={role.value}>
+              {role.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>,
+    )
+    return screen.getByLabelText('Role')
+  }
+
+  it('shows the item label rather than the raw value when given items', () => {
+    // SelectValue always passes a function child, so Base UI never consults the
+    // root's own `items` — the mapping has to be handed to SelectValue itself.
+    expect(renderSelect(ROLES).textContent).toBe('Member')
+  })
+
+  it('falls back to the raw value when no items are given', () => {
+    expect(renderSelect(undefined).textContent).toBe('org:member')
+  })
+
+  it('shows the placeholder when nothing is selected', () => {
+    render(
+      <Select items={ROLES} value="">
+        <SelectTrigger aria-label="Role">
+          <SelectValue items={ROLES} placeholder="Choose a role" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="org:admin">Admin</SelectItem>
+        </SelectContent>
+      </Select>,
+    )
+    expect(screen.getByLabelText('Role').textContent).toBe('Choose a role')
   })
 })

@@ -127,6 +127,9 @@
 
   --shadow-card: 0 1px 2px rgb(9 19 21 / 0.04), 0 8px 24px rgb(9 19 21 / 0.05);
   --shadow-popover: 0 4px 12px rgb(9 19 21 / 0.08), 0 12px 32px rgb(9 19 21 / 0.12);
+  /* Panels nested inside a card (tables, code blocks). Deliberately shallower
+     than --shadow-card so the nesting reads as one step down, not two cards. */
+  --shadow-panel: 0 1px 2px rgb(9 19 21 / 0.03), 0 2px 6px rgb(9 19 21 / 0.04);
 }
 
 * {

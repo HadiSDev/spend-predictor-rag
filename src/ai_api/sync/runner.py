@@ -8,10 +8,14 @@ It replaces the per-invoice PDF flow with batch processing of structured
 transaction data. Deterministic: a given seed/connector state yields the same
 rows and the same summary on every run.
 
-Run it directly against the mock ERP API::
+What gets synced is a database query, never an argument: every
+``ErpIntegration`` that is still connected, using that integration's own stored
+credentials. Companies and integrations are created through the customer API —
+the runner never creates a tenant.
 
-    python -m ai_api.sync.runner            # reset DB, sync mock data
-    python -m ai_api.sync.runner --no-reset # incremental (keep rows)
+    python -m ai_api.sync.runner                       # every connected integration
+    python -m ai_api.sync.runner --integration-id <id> # re-run just one
+    python -m ai_api.sync.runner --since 2026-01-01    # backfill from a date
 """
 from __future__ import annotations
 
@@ -36,6 +40,7 @@ from web_api.connectors.base import (
 from web_api.db.models import (
     Company,
     ErpAccount,
+    ErpCredential,
     ErpEntry,
     ErpIntegration,
     File,
@@ -43,7 +48,6 @@ from web_api.db.models import (
     InvoiceLine,
     InvoiceStatus,
     LineStatus,
-    Organization,
     SpendCategory,
     SyncState,
     Vendor,
@@ -53,7 +57,9 @@ from ..procurement_agent import recommender
 from ..redundancy import detector as redundancy
 from web_api.audit import LINE_AUDIT_FIELDS, diff_changes, record_audit
 from web_api.db.models.audit_log import SYSTEM_ACTOR
+from web_api.credentials import decrypt_config
 from web_api.db.session import engine
+from web_api.fx import CONVERTED, UNCHANGED, UNCONVERTED, FxService
 from web_api.rollup import recompute_invoice_status
 from .categorizer import build_candidates, categorize
 
@@ -74,37 +80,94 @@ def _dec(value) -> Optional[Decimal]:
     return Decimal(str(value))
 
 
+def _fx_counts() -> dict[str, int]:
+    return {CONVERTED: 0, UNCONVERTED: 0, UNCHANGED: 0}
+
+
+def _safe_convert(counts: dict[str, int], convert) -> None:
+    """Convert one row, absorbing any failure into an unconverted count.
+
+    Currency conversion is presentation; the ledger data is the point. A rate
+    source that is down, slow, or returning nonsense must never cost us the
+    entries we just fetched — so the row is persisted unconverted and the run
+    goes on. A later recompute fills the gap in.
+    """
+    try:
+        counts[convert()] += 1
+    except Exception as exc:  # never let FX break persistence
+        logger.warning("    FX: conversion failed, storing unconverted: %s", exc)
+        counts[UNCONVERTED] += 1
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# -- Bootstrap ---------------------------------------------------------------
+# -- Work discovery ----------------------------------------------------------
 
 
-def _bootstrap_tenant(
-    session: Session, org_name: str, company_name: str, erp_type: str
-) -> tuple[str, str]:
-    """Ensure Organization, Company and ErpIntegration rows exist. Idempotent."""
-    org_id = _det_id("org", org_name)
-    company_id = _det_id("company", org_id, company_name)
-    integration_id = _det_id("integration", company_id, erp_type)
+def connected_integrations(
+    session: Session, integration_id: str | None = None
+) -> list[ErpIntegration]:
+    """Every integration that should be synced.
 
-    if session.get(Organization, org_id) is None:
-        session.add(Organization(id=org_id, name=org_name))
-    if session.get(Company, company_id) is None:
-        session.add(Company(id=company_id, organization_id=org_id, name=company_name))
-    integration = session.get(ErpIntegration, integration_id)
-    if integration is None:
-        integration = ErpIntegration(
-            id=integration_id,
-            company_id=company_id,
-            erp_type=erp_type,
-            label=f"{erp_type} integration",
-            connected_at=_now(),
+    A connected integration *is* the statement "this company's ERP data is read
+    from here" — it is what company creation and ``POST /erp-integrations``
+    write, and what ``disconnect`` retracts. So that is the whole work list.
+
+    Deliberately not filtered on ``Company.is_active``: a company is
+    soft-deactivated for the customer-facing API, and whether that should also
+    stop polling its ERP is a separate product question. Coupling the two here
+    would decide it in the wrong place.
+
+    ``integration_id`` only *narrows* what the database produced. It cannot name
+    a tenant into existence — an id outside the connected set is an error, not
+    something to create.
+    """
+    statement = select(ErpIntegration).where(ErpIntegration.disconnected_at.is_(None))
+    if integration_id is not None:
+        statement = statement.where(ErpIntegration.id == integration_id)
+    rows = session.exec(statement.order_by(ErpIntegration.created_at, ErpIntegration.id)).all()
+    if integration_id is not None and not rows:
+        raise ValueError(
+            f"No connected ERP integration with id {integration_id!r}. "
+            "The runner only syncs integrations that already exist and are connected."
         )
-        session.add(integration)
-    session.commit()
-    return company_id, integration_id
+    return list(rows)
+
+
+def _connector_config(session: Session, integration: ErpIntegration) -> dict:
+    """The integration's decrypted credentials, or ``{}`` for connector defaults.
+
+    No credential row is the normal case for a connector whose fields all have
+    defaults (the Debug ERP is one), so it is not an error — ``{}`` lets the
+    connector fall back to what it declared.
+    """
+    credential = session.exec(
+        select(ErpCredential).where(ErpCredential.erp_integration_id == integration.id)
+    ).first()
+    if credential is None:
+        return {}
+    try:
+        return decrypt_config(credential.encrypted_config)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not decrypt credentials for integration {integration.id} — "
+            "is WEB_API_CREDENTIAL_ENC_KEY set to the key they were written with?"
+        ) from exc
+
+
+def _resolve_since(state: SyncState, override: date | None) -> date | None:
+    """Where this integration's fetch starts.
+
+    An explicit override (a backfill) wins; otherwise the integration continues
+    from its own watermark. A single value shared across integrations would be
+    meaningless once one run covers several at different points in their
+    history.
+    """
+    if override is not None:
+        return override
+    return state.last_invoice_date
 
 
 # -- Persist -----------------------------------------------------------------
@@ -119,16 +182,20 @@ def _persist_accounts(
         acc_id = _det_id("erp_account", integration_id, acc.erp_account_code)
         row = session.get(ErpAccount, acc_id)
         if row is None:
-            # New account: default our sync selection to enabled. Existing rows
-            # keep whatever selection a user set — never reset from the ERP.
+            # New account: our sync selection defaults to enabled, and the ERP's
+            # VAT value seeds the assumption. Existing rows keep whatever the
+            # customer set — never reset from the ERP.
             row = ErpAccount(id=acc_id, erp_integration_id=integration_id,
-                             erp_account_code=acc.erp_account_code)
+                             erp_account_code=acc.erp_account_code,
+                             with_vat=acc.with_vat)
             session.add(row)
+        # ERP-owned metadata only. `sync_enabled` and `with_vat` are the
+        # customer's; this is the second writer that must respect that, and the
+        # one whose clobbering would look like the setting resetting at random.
         row.erp_account_name = acc.erp_account_name
         row.erp_account_type = acc.erp_account_type
         row.parent_code = acc.parent_code
         row.is_active = acc.is_active
-        row.with_vat = acc.with_vat
         row.raw_json = acc.raw
         mapping[acc.erp_account_code] = acc_id
     session.commit()
@@ -209,6 +276,9 @@ def _persist_invoices(
     company_id: str,
     invoices: list[ErpInvoiceData],
     vendor_map: dict[str, str],
+    fx: FxService,
+    base_currency: str,
+    fx_counts: dict[str, int],
 ) -> tuple[dict[str, str], int, int]:
     """Upsert Invoice + InvoiceLine (+ scan File) as pending.
 
@@ -241,6 +311,9 @@ def _persist_invoices(
         row.tax = _dec(inv.tax)
         # Status is a rollup of the lines; not reset on re-sync.
         row.raw_json = inv.raw
+        # Converted at the invoice's own date, never today's. `currency`,
+        # `total` and `tax` above stay exactly as the ERP posted them.
+        _safe_convert(fx_counts, lambda: fx.convert_invoice(row, base_currency))
 
         if inv.voucher_id is not None:
             voucher_invoice_map[inv.voucher_id] = invoice_id
@@ -261,9 +334,38 @@ def _persist_invoices(
             # Status is NOT reset on re-sync: an already-categorized or verified
             # line keeps its lifecycle state (verified results are preserved).
             lrow.raw_json = line.raw
+            # A line has no date or currency of its own — it converts at its
+            # invoice's, so a line and its invoice can never disagree on rate.
+            _safe_convert(
+                fx_counts,
+                lambda lrow=lrow: fx.convert_line(
+                    lrow, base_currency,
+                    currency=inv.currency, invoice_date=inv.invoice_date,
+                ),
+            )
             n_lines += 1
     session.commit()
     return voucher_invoice_map, len(invoices), n_lines
+
+
+def _source_line_id(
+    session: Session, source_invoice_id: Optional[str], entry: ErpEntryData
+) -> Optional[str]:
+    """The `InvoiceLine` a posting came from, or None when it came from no line.
+
+    None is the ordinary case, not a failure: input VAT, the payable
+    counterparty and journal entries are properties of a whole voucher. It is
+    also what we fall back to when the connector names a line the invoice scan
+    did not deliver — a dangling FK would abort the whole sync over one posting.
+    """
+    if source_invoice_id is None or entry.source_line_erp_id is None:
+        return None
+    line_id = _det_id("line", source_invoice_id, entry.source_line_erp_id)
+    if session.get(InvoiceLine, line_id) is None:
+        logger.warning("  entry %s references unknown invoice line %s",
+                       entry.erp_entry_id, entry.source_line_erp_id)
+        return None
+    return line_id
 
 
 def _persist_entries(
@@ -273,6 +375,9 @@ def _persist_entries(
     entries: list[ErpEntryData],
     voucher_invoice_map: dict[str, str],
     account_map: dict[str, str],
+    fx: FxService,
+    base_currency: str,
+    fx_counts: dict[str, int],
 ) -> tuple[int, int]:
     """Upsert raw ErpEntry rows, linking each to its invoice via the voucher.
 
@@ -281,6 +386,14 @@ def _persist_entries(
     voucher has an invoice scan; otherwise it stays NULL (payments, journals).
     Returns ``(n_entries, n_linked)``. Entries whose account is unknown to the
     persisted chart of accounts are skipped (the FK requires a known account).
+
+    When the connector says which invoice line a posting came from, the entry is
+    also linked to that ``InvoiceLine`` — many entries to one line, since a line
+    may be posted across several accounts. The line id is *derived*, not looked
+    up by matching: ``_persist_invoices`` builds it from the same
+    ``(invoice_id, line_erp_id)`` pair, so the two agree by construction. The
+    row is still confirmed to exist before the FK is set, because a connector is
+    free to reference a line its invoice scan never delivered.
     """
     n_entries = 0
     n_linked = 0
@@ -292,6 +405,7 @@ def _persist_entries(
             continue
         entry_id = _det_id("entry", integration_id, e.erp_entry_id)
         source_invoice_id = voucher_invoice_map.get(e.voucher_id)
+        source_invoice_line_id = _source_line_id(session, source_invoice_id, e)
         row = session.get(ErpEntry, entry_id)
         if row is None:
             # The entry id is still derived from integration_id (deterministic,
@@ -305,6 +419,7 @@ def _persist_entries(
         row.entry_type = e.entry_type
         row.voucher_id = e.voucher_id
         row.source_invoice_id = source_invoice_id
+        row.source_invoice_line_id = source_invoice_line_id
         row.accounting_date = e.accounting_date
         row.description = e.description
         row.debit_amount = _dec(e.debit_amount)
@@ -312,6 +427,9 @@ def _persist_entries(
         row.currency = e.currency
         row.erp_entry_id = e.erp_entry_id
         row.raw_json = e.raw
+        # Converted at the posting's accounting date. Debit and credit are each
+        # converted from their own posted value, never derived from one another.
+        _safe_convert(fx_counts, lambda row=row: fx.convert_entry(row, base_currency))
         n_entries += 1
         if source_invoice_id is not None:
             n_linked += 1
@@ -508,144 +626,184 @@ def _build_summary(session: Session, company_id: str) -> dict:
 # -- Public API --------------------------------------------------------------
 
 
-def run_sync(
-    erp_type: str = "mock",
-    config: dict | None = None,
-    *,
-    org_name: str = "Demo Org",
-    company_name: str = "Demo Company",
-    since: date | None = None,
-    reset: bool = False,
+def _sync_one(
+    session: Session,
+    integration: ErpIntegration,
+    connector: ErpConnector,
+    since_override: date | None,
+    fx: FxService,
+    base_currency: str,
 ) -> dict:
-    """Run a full sync cycle: connect → fetch → persist → categorize → downstream.
+    """Run the full pipeline for one integration.
 
-    Returns a summary dict. With ``reset=True`` the schema is dropped and
-    recreated first, so the run is fully reproducible.
+    Unchanged from the single-tenant version except for where its ids come from:
+    ``company_id`` and ``integration_id`` are read off the integration row
+    instead of being invented.
+
+    ``base_currency`` likewise comes off the company row. The runner reads it
+    and never writes it: it is a customer setting, like ``sync_enabled``.
     """
-    config = config or {}
-    if reset:
-        logger.info("Resetting database schema…")
-        SQLModel.metadata.drop_all(engine)
-    SQLModel.metadata.create_all(engine)
+    company_id = integration.company_id
+    integration_id = integration.id
+    fx_counts = _fx_counts()
 
-    # 1. Connect
-    logger.info("[1/7] Connecting to %s ERP…", erp_type)
-    connector: ErpConnector = get_connector(erp_type, config)
-    connector.authorize()
-    if not connector.test_connection():
-        raise RuntimeError(f"Could not reach the {erp_type} ERP — is it running?")
-    logger.info("  connection OK")
+    sync_state = _begin_sync_state(session, integration_id)
+    since = _resolve_since(sync_state, since_override)
+
+    try:
+        # Reaching the ERP is this integration's problem, not the run's — one
+        # unreachable system must not stop every other tenant.
+        connector.authorize()
+        if not connector.test_connection():
+            raise RuntimeError(
+                f"Could not reach the {integration.erp_type} ERP — is it running?"
+            )
+
+        # 1. Fetch accounts + vendors, and persist accounts first so the sync
+        #    selection (sync_enabled) is known before pulling entries.
+        logger.info("  [1/6] Fetching accounts & vendors…")
+        accounts = connector.fetch_accounts()
+        vendors = connector.fetch_vendors(since=since)
+        account_map = _persist_accounts(session, integration_id, accounts)
+        enabled_codes = _enabled_account_codes(session, integration_id)
+        logger.info("    fetched %d accounts (%d enabled for sync), %d vendors",
+                    len(accounts), len(enabled_codes), len(vendors))
+
+        # Entries are the primary ledger unit, but only for the accounts we
+        # selected (fetch-time gate — we don't pull the whole ERP). Invoice
+        # scans are then pulled per voucher for the invoice-bearing vouchers.
+        entries = connector.fetch_entries(since=since, account_codes=enabled_codes)
+        vouchers: dict[str, list[ErpEntryData]] = {}
+        for e in entries:
+            vouchers.setdefault(e.voucher_id, []).append(e)
+        invoice_vouchers = [
+            v for v, es in vouchers.items()
+            if any(e.entry_type == "purchase_invoice" for e in es)
+        ]
+        invoices: list[ErpInvoiceData] = []
+        for v in invoice_vouchers:
+            scan = connector.fetch_invoice_scan(v)
+            if scan is not None:
+                invoices.append(scan)
+        logger.info("    fetched %d entries (%d vouchers, %d invoice scans)",
+                    len(entries), len(vouchers), len(invoices))
+
+        # 2. Persist
+        logger.info("  [2/6] Persisting to PostgreSQL…")
+        vendor_map = _persist_vendors(session, vendors)
+        voucher_invoice_map, n_inv, n_lines = _persist_invoices(
+            session, company_id, invoices, vendor_map, fx, base_currency, fx_counts
+        )
+        n_entries, n_linked = _persist_entries(
+            session, company_id, integration_id, entries,
+            voucher_invoice_map, account_map, fx, base_currency, fx_counts
+        )
+        logger.info("    persisted %d invoices, %d lines, %d entries (%d linked to an invoice)",
+                    n_inv, n_lines, n_entries, n_linked)
+        logger.info("    converted to %s: %d rows (%d unconverted, %d already current)",
+                    base_currency, fx_counts[CONVERTED],
+                    fx_counts[UNCONVERTED], fx_counts[UNCHANGED])
+
+        # 3. Categorize
+        logger.info("  [3/6] Categorizing pending invoice lines…")
+        candidates = build_candidates(accounts)
+        cat_stats = _categorize_pending(session, integration_id, company_id, candidates)
+        logger.info("    categorized=%d failed=%d (invoices: %d completed, %d failed)",
+                    cat_stats["categorized"], cat_stats["failed"],
+                    cat_stats["invoices_completed"], cat_stats["invoices_failed"])
+
+        # 4/5/6. Downstream (separate workstreams — wired as stubs for now)
+        logger.info("  [4/6] Aggregating spend…")
+        _call_stub("spend_by_category", aggregation.spend_by_category, company_id)
+        _call_stub("spend_by_vendor", aggregation.spend_by_vendor, company_id)
+        logger.info("  [5/6] Detecting redundant vendors…")
+        _call_stub("same_category_overlaps", redundancy.find_same_category_overlaps, company_id)
+        logger.info("  [6/6] Generating savings recommendations…")
+        _call_stub("recommendations", recommender.all_recommendations, company_id)
+
+        summary = _build_summary(session, company_id)
+        _finish_sync_state(session, sync_state, invoices, status="idle")
+        summary["status"] = "ok"
+        summary["company_id"] = company_id
+        summary["erp_type"] = integration.erp_type
+        summary["categorization"] = cat_stats
+        summary["accounts"] = len(accounts)
+        summary["accounts_enabled"] = len(enabled_codes)
+        summary["base_currency"] = base_currency
+        summary["fx"] = fx_counts
+        return summary
+    except Exception as exc:
+        # The watermark is left where it was: a failed run has not advanced.
+        _finish_sync_state(session, sync_state, [], status="error", error=str(exc))
+        raise
+
+
+def run_sync(*, since: date | None = None, integration_id: str | None = None) -> dict[str, dict]:
+    """Sync every connected ERP integration. Returns one summary per integration.
+
+    Takes no tenant and no credentials: the work list is
+    ``connected_integrations()`` and each connector is built from that
+    integration's own stored credential. A failure is confined to the
+    integration it happened to — the rest of the run continues.
+    """
+    SQLModel.metadata.create_all(engine)
+    results: dict[str, dict] = {}
 
     with Session(engine) as session:
-        company_id, integration_id = _bootstrap_tenant(
-            session, org_name, company_name, erp_type
-        )
-        logger.info("  company=%s integration=%s", company_id, integration_id)
-
-        sync_state = _begin_sync_state(session, integration_id)
-
-        try:
-            # 2. Fetch accounts + vendors, and persist accounts first so the
-            #    sync selection (sync_enabled) is known before pulling entries.
-            logger.info("[2/7] Fetching accounts & vendors…")
-            accounts = connector.fetch_accounts()
-            vendors = connector.fetch_vendors(since=since)
-            account_map = _persist_accounts(session, integration_id, accounts)
-            enabled_codes = _enabled_account_codes(session, integration_id)
-            logger.info("  fetched %d accounts (%d enabled for sync), %d vendors",
-                        len(accounts), len(enabled_codes), len(vendors))
-
-            # Entries are the primary ledger unit, but only for the accounts we
-            # selected (fetch-time gate — we don't pull the whole ERP). Invoice
-            # scans are then pulled per voucher for the invoice-bearing vouchers.
-            entries = connector.fetch_entries(since=since, account_codes=enabled_codes)
-            vouchers: dict[str, list[ErpEntryData]] = {}
-            for e in entries:
-                vouchers.setdefault(e.voucher_id, []).append(e)
-            invoice_vouchers = [
-                v for v, es in vouchers.items()
-                if any(e.entry_type == "purchase_invoice" for e in es)
-            ]
-            invoices: list[ErpInvoiceData] = []
-            for v in invoice_vouchers:
-                scan = connector.fetch_invoice_scan(v)
-                if scan is not None:
-                    invoices.append(scan)
-            logger.info("  fetched %d entries (%d vouchers, %d invoice scans)",
-                        len(entries), len(vouchers), len(invoices))
-
-            # 3. Persist
-            logger.info("[3/7] Persisting to PostgreSQL…")
-            vendor_map = _persist_vendors(session, vendors)
-            voucher_invoice_map, n_inv, n_lines = _persist_invoices(
-                session, company_id, invoices, vendor_map
+        work = connected_integrations(session, integration_id)
+        if not work:
+            logger.info(
+                "No connected ERP integrations — create a company with an ERP "
+                "connection in Settings first."
             )
-            n_entries, n_linked = _persist_entries(
-                session, company_id, integration_id, entries,
-                voucher_invoice_map, account_map
-            )
-            logger.info("  persisted %d invoices, %d lines, %d entries (%d linked to an invoice)",
-                        n_inv, n_lines, n_entries, n_linked)
+            return results
 
-            # 4. Categorize
-            logger.info("[4/7] Categorizing pending invoice lines…")
-            candidates = build_candidates(accounts)
-            cat_stats = _categorize_pending(session, integration_id, company_id, candidates)
-            logger.info("  categorized=%d failed=%d (invoices: %d completed, %d failed)",
-                        cat_stats["categorized"], cat_stats["failed"],
-                        cat_stats["invoices_completed"], cat_stats["invoices_failed"])
-
-            # 5/6/7. Downstream (separate workstreams — wired as stubs for now)
-            logger.info("[5/7] Aggregating spend…")
-            _call_stub("spend_by_category", aggregation.spend_by_category, company_id)
-            _call_stub("spend_by_vendor", aggregation.spend_by_vendor, company_id)
-            logger.info("[6/7] Detecting redundant vendors…")
-            _call_stub("same_category_overlaps", redundancy.find_same_category_overlaps, company_id)
-            logger.info("[7/7] Generating savings recommendations…")
-            _call_stub("recommendations", recommender.all_recommendations, company_id)
-
-            summary = _build_summary(session, company_id)
-            _finish_sync_state(session, sync_state, invoices, status="idle")
-            logger.info("Sync complete: %s", summary)
-            summary["company_id"] = company_id
-            summary["categorization"] = cat_stats
-            summary["accounts"] = len(accounts)
-            summary["accounts_enabled"] = len(enabled_codes)
-            return summary
-        except Exception as exc:  # surface failure on the watermark, then re-raise
-            _finish_sync_state(session, sync_state, [], status="error", error=str(exc))
-            raise
-
-
-def run_synthetic(
-    *,
-    base_url: str | None = None,
-    api_key: str = "mock-secret",
-    reset: bool = True,
-    **kwargs,
-) -> dict:
-    """Generate data via the MockErpConnector (server-side, seeded) and sync it.
-
-    The mock ERP API generates deterministic data from its seed; this simply
-    runs the full pipeline against it. Used for dev, demo and benchmarking
-    before real ERP data is available.
-    """
-    config: dict = {"api_key": api_key}
-    if base_url:
-        config["base_url"] = base_url
-    return run_sync("mock", config, reset=reset, **kwargs)
+        logger.info("Syncing %d connected integration(s)…", len(work))
+        # One FX service for the whole run: its memo means a date shared by two
+        # integrations costs one rate lookup, not two.
+        fx = FxService(session)
+        for integration in work:
+            company = session.get(Company, integration.company_id)
+            label = company.name if company is not None else integration.company_id
+            base_currency = company.base_currency if company is not None else "EUR"
+            logger.info("[%s] %s via %s", label, integration.id, integration.erp_type)
+            try:
+                config = _connector_config(session, integration)
+                connector: ErpConnector = get_connector(integration.erp_type, config)
+                results[integration.id] = _sync_one(
+                    session, integration, connector, since, fx, base_currency
+                )
+                logger.info("  done: %s", results[integration.id])
+            except Exception as exc:
+                # Isolated on purpose: tenant B is not punished for tenant A's
+                # ERP being down, a stale key, or an unregistered connector.
+                logger.error("  FAILED: %s", exc)
+                results[integration.id] = {
+                    "status": "error",
+                    "error": str(exc),
+                    "company_id": integration.company_id,
+                    "erp_type": integration.erp_type,
+                }
+    return results
 
 
 # -- SyncState helpers -------------------------------------------------------
 
 
 def _begin_sync_state(session: Session, integration_id: str) -> SyncState:
-    state = SyncState(
-        id=_det_id("sync_state", integration_id),
-        erp_integration_id=integration_id,
-        status="syncing",
-    )
-    session.merge(state)
+    """Mark this integration as syncing, preserving what it already knows.
+
+    Loaded and updated rather than merged from a fresh object: a fresh
+    ``SyncState`` carries ``last_invoice_date = None``, so merging one would
+    erase the watermark this run is about to read.
+    """
+    state_id = _det_id("sync_state", integration_id)
+    state = session.get(SyncState, state_id)
+    if state is None:
+        state = SyncState(id=state_id, erp_integration_id=integration_id)
+        session.add(state)
+    state.status = "syncing"
+    state.error_message = None
     session.commit()
     return state
 
@@ -660,10 +818,16 @@ def _finish_sync_state(
 ) -> None:
     watermark = max((inv.invoice_date for inv in invoices), default=None)
     state.last_sync_at = _now()
-    state.last_invoice_date = watermark
+    # Only ever moved forward, and never by a failed run — a sync that raised
+    # has not covered the period it was reaching for, so the next run must
+    # still start where the last successful one stopped.
+    if watermark is not None and (
+        state.last_invoice_date is None or watermark > state.last_invoice_date
+    ):
+        state.last_invoice_date = watermark
     state.status = status
     state.error_message = error
-    session.merge(state)
+    session.add(state)
     session.commit()
 
 
@@ -671,38 +835,46 @@ def _finish_sync_state(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the ERP procurement sync pipeline.")
-    parser.add_argument("--erp-type", default="mock")
-    parser.add_argument("--base-url", default=None,
-                        help="Mock ERP base URL (default: connector default, http://localhost:8001)")
-    parser.add_argument("--api-key", default="mock-secret")
-    parser.add_argument("--org-name", default="Demo Org")
-    parser.add_argument("--company-name", default="Demo Company")
-    parser.add_argument("--since", default=None, help="ISO date watermark (incremental fetch)")
-    parser.add_argument("--no-reset", dest="reset", action="store_false",
-                        help="Keep existing rows instead of dropping the schema first")
-    parser.set_defaults(reset=True)
+    parser = argparse.ArgumentParser(
+        description="Sync every connected ERP integration. Companies and their "
+                    "ERP connections are created in the app, never here.",
+    )
+    parser.add_argument(
+        "--integration-id", default=None,
+        help="Sync only this integration (must already exist and be connected)",
+    )
+    parser.add_argument(
+        "--since", default=None,
+        help="Backfill from this ISO date, overriding each integration's own watermark",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-
     since = date.fromisoformat(args.since) if args.since else None
-    config: dict = {"api_key": args.api_key}
-    if args.base_url:
-        config["base_url"] = args.base_url
 
-    summary = run_sync(
-        args.erp_type,
-        config,
-        org_name=args.org_name,
-        company_name=args.company_name,
-        since=since,
-        reset=args.reset,
-    )
-    print("\n=== Sync summary ===")
-    for key, value in summary.items():
-        print(f"{key}: {value}")
-    return 0
+    try:
+        results = run_sync(since=since, integration_id=args.integration_id)
+    except ValueError as exc:  # unknown --integration-id
+        parser.error(str(exc))
+        return 2
+
+    if not results:
+        print("\nNothing to sync — no connected ERP integrations.")
+        return 0
+
+    failed = 0
+    for integration_id, summary in results.items():
+        print(f"\n=== {integration_id} ({summary.get('erp_type')}) ===")
+        if summary.get("status") == "error":
+            failed += 1
+            print(f"status: error\nerror: {summary['error']}")
+            continue
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+
+    # A scheduler still needs to see that something broke, even though the
+    # other integrations were synced.
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

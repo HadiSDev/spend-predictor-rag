@@ -6,7 +6,7 @@ import pytest
 from web_api import config as web_config
 from web_api import credentials
 from web_api.connectors import register_connector
-from web_api.connectors.base import ErpAccountData, ErpConnector
+from web_api.connectors.base import CredentialField, ErpAccountData, ErpConnector
 from web_api.db.models import ErpCredential
 from sqlmodel import Session, select
 from .conftest import auth
@@ -18,6 +18,13 @@ SECRET = "super-secret-key-value"
 
 class _FakeConn(ErpConnector):
     """Reachable ERP whose account chart can grow between calls."""
+
+    display_label = "Fake ERP"
+    # Credentials are validated against these, so the fake declares what it takes.
+    credential_fields = [
+        CredentialField(name="base_url", label="Base URL", required=True),
+        CredentialField(name="api_key", label="API key", secret=True),
+    ]
 
     accounts: list[ErpAccountData] = [
         ErpAccountData(erp_account_code="6010", erp_account_name="Cloud", erp_account_type="expense", with_vat=True),
@@ -85,6 +92,35 @@ def test_create_stores_encrypted_credentials(client, seed, engine):
 def test_create_unknown_erp_type_rejected(client, seed):
     r = _create(client, "tokA", seed["comp_a"], erp_type="does-not-exist")
     assert r.status_code == 422
+
+
+def test_create_missing_required_credential_rejected(client, seed):
+    # base_url is required on the fake connector; blank is as absent as missing.
+    r = _create(client, "tokA", seed["comp_a"], creds={"api_key": SECRET})
+    assert r.status_code == 422
+    assert "base_url" in r.text
+    assert _create(client, "tokA", seed["comp_a"],
+                   creds={"base_url": "  ", "api_key": SECRET}).status_code == 422
+
+
+def test_create_undeclared_credential_key_rejected(client, seed, engine):
+    r = _create(client, "tokA", seed["comp_a"],
+                creds={"base_url": "http://x", "apikey": SECRET})  # typo'd key
+    assert r.status_code == 422
+    assert "apikey" in r.text
+    with Session(engine) as s:
+        assert s.exec(select(ErpCredential)).all() == []
+
+
+def test_update_undeclared_credential_key_rejected(client, seed, engine):
+    integration_id = _create(client, "tokA", seed["comp_a"]).json()["id"]
+    r = client.patch(f"/api/v1/erp-integrations/{integration_id}", headers=auth("tokA"),
+                     json={"credentials": {"base_url": "http://y", "apikey": "x"}})
+    assert r.status_code == 422
+    with Session(engine) as s:  # the original credential is untouched
+        cred = s.exec(select(ErpCredential).where(
+            ErpCredential.erp_integration_id == integration_id)).one()
+        assert credentials.decrypt_config(cred.encrypted_config)["api_key"] == SECRET
 
 
 def test_create_requires_management(client, seed):
@@ -194,6 +230,52 @@ def test_refresh_adds_new_and_preserves_selection(client, seed, monkeypatch):
     assert by_code["6010"]["sync_enabled"] is False   # selection preserved
 
 
+def test_refresh_preserves_a_customers_vat_setting(client, seed, monkeypatch):
+    """`with_vat` is the customer's assumption, not the ERP's fact.
+
+    It decides whether a parsed invoice is read as VAT-inclusive when
+    reconciling, so a refresh that reset it would discard a judgement someone
+    made — silently, and only visibly much later as a wrong comparison.
+    """
+    iid = _create(client, "tokA", seed["comp_a"]).json()["id"]
+    client.post(f"/api/v1/erp-integrations/{iid}/refresh-accounts", headers=auth("tokA"))
+    accts = client.get(f"/api/v1/erp-integrations/{iid}/accounts", headers=auth("tokA")).json()
+    a6010 = next(a for a in accts if a["erp_account_code"] == "6010")
+    assert a6010["with_vat"] is True   # seeded from the ERP
+
+    # The customer disagrees with the ERP.
+    client.patch(f"/api/v1/erp-accounts/{a6010['id']}", headers=auth("tokA"),
+                 json={"with_vat": False})
+    # ...and the ERP still insists, while renaming the account.
+    monkeypatch.setattr(_FakeConn, "accounts", [
+        ErpAccountData(erp_account_code="6010", erp_account_name="Cloud Hosting (renamed)",
+                       erp_account_type="expense", with_vat=True),
+        ErpAccountData(erp_account_code="6020", erp_account_name="Software",
+                       erp_account_type="expense", with_vat=True),
+    ])
+    client.post(f"/api/v1/erp-integrations/{iid}/refresh-accounts", headers=auth("tokA"))
+
+    after = {a["erp_account_code"]: a for a in client.get(
+        f"/api/v1/erp-integrations/{iid}/accounts", headers=auth("tokA")).json()}
+    assert after["6010"]["with_vat"] is False                        # ours stands
+    assert after["6010"]["erp_account_name"] == "Cloud Hosting (renamed)"  # theirs refreshes
+
+
+def test_a_newly_discovered_account_takes_the_erps_vat_value(client, seed, monkeypatch):
+    iid = _create(client, "tokA", seed["comp_a"]).json()["id"]
+    client.post(f"/api/v1/erp-integrations/{iid}/refresh-accounts", headers=auth("tokA"))
+
+    monkeypatch.setattr(_FakeConn, "accounts", _FakeConn.accounts + [
+        ErpAccountData(erp_account_code="1000", erp_account_name="Cash",
+                       erp_account_type="asset", with_vat=False)])
+    client.post(f"/api/v1/erp-integrations/{iid}/refresh-accounts", headers=auth("tokA"))
+
+    after = {a["erp_account_code"]: a for a in client.get(
+        f"/api/v1/erp-integrations/{iid}/accounts", headers=auth("tokA")).json()}
+    assert after["1000"]["with_vat"] is False   # seeded, not defaulted
+    assert after["6010"]["with_vat"] is True
+
+
 # -- Account toggle ----------------------------------------------------------
 
 def test_account_toggle_and_scope(client, seed):
@@ -215,3 +297,46 @@ def test_account_toggle_and_scope(client, seed):
     # Read path is tenant-scoped: another org's member cannot even see the accounts.
     assert client.get(f"/api/v1/erp-integrations/{iid}/accounts",
                       headers=auth("tokB")).status_code == 404
+
+
+# -- Connector catalog -------------------------------------------------------
+
+def test_erp_types_lists_registered_connectors(client, seed):
+    r = client.get("/api/v1/erp-types", headers=auth("tokA"))
+    assert r.status_code == 200
+    by_type = {t["erp_type"]: t for t in r.json()}
+
+    mock = by_type["mock"]
+    assert mock["label"] == "Debug ERP"
+    fields = {f["name"]: f for f in mock["credential_fields"]}
+    assert set(fields) == {"base_url", "api_key"}
+    # Both optional with the defaults the connector already applies; only the key
+    # is secret, and a descriptor carries no stored value.
+    assert fields["base_url"] == {"name": "base_url", "label": "Base URL",
+                                  "required": False, "secret": False,
+                                  "default": "http://localhost:8001"}
+    assert fields["api_key"]["secret"] is True
+    assert fields["api_key"]["required"] is False
+
+    # Registering a connector is all it takes to appear.
+    assert by_type["faketest"]["label"] == "Fake ERP"
+
+
+def test_erp_types_readable_by_any_authenticated_role(client, seed):
+    # Not management-gated: it is not tenant data.
+    for token in ("tok_viewerA", "tok_memberA", "tokA"):
+        assert client.get("/api/v1/erp-types", headers=auth(token)).status_code == 200
+
+
+def test_erp_types_requires_authentication(client, seed):
+    assert client.get("/api/v1/erp-types").status_code == 401
+    assert client.get("/api/v1/erp-types", headers=auth("bad-token")).status_code == 401
+
+
+def test_erp_types_drive_valid_creation(client, seed):
+    types = {t["erp_type"] for t in client.get(
+        "/api/v1/erp-types", headers=auth("tokA")).json()}
+    assert _create(client, "tokA", seed["comp_a"], erp_type="faketest").status_code == 201
+    assert "not-a-connector" not in types
+    assert _create(client, "tokA", seed["comp_a"],
+                   erp_type="not-a-connector").status_code == 422

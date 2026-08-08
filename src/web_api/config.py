@@ -49,6 +49,14 @@ CLERK_SYSTEM_ADMIN_CLAIM = os.getenv("CLERK_SYSTEM_ADMIN_CLAIM", "system_admin")
 # CLERK_WEBHOOK_SIGNING_SECRET verifies Svix-signed webhook deliveries.
 # CLERK_SECRET_KEY authenticates outbound Clerk Backend API calls.
 # WEB_API_CLERK_OUTBOUND_DISABLED short-circuits outbound calls (dev/tests).
+# Historical FX rates (ECB daily reference rates via Frankfurter). Off by
+# default: with FX_ENABLED unset nothing makes an outbound rate request and rows
+# are simply stored unconverted, which is what keeps tests and offline runs
+# hermetic. Already-cached rates in `fx_rates` keep working either way.
+FX_ENABLED = os.getenv("FX_ENABLED", "false").lower() in ("1", "true", "yes")
+FX_PROVIDER_URL = os.getenv("FX_PROVIDER_URL", "https://api.frankfurter.dev/v1")
+FX_HTTP_TIMEOUT_SECONDS = float(os.getenv("FX_HTTP_TIMEOUT_SECONDS", "10"))
+
 CLERK_WEBHOOK_SIGNING_SECRET = os.getenv("CLERK_WEBHOOK_SIGNING_SECRET", "")
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 CLERK_API_BASE_URL = os.getenv("CLERK_API_BASE_URL", "https://api.clerk.com/v1")

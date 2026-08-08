@@ -6,7 +6,14 @@ Usage::
     connector.authorize(config)
     invoices = connector.fetch_invoices()
 """
-from .base import ErpConnector, ErpAuthError, ErpConnectionError, ErpDataError, ErpRateLimitError
+from .base import (
+    CredentialField,
+    ErpConnector,
+    ErpAuthError,
+    ErpConnectionError,
+    ErpDataError,
+    ErpRateLimitError,
+)
 
 
 _CONNECTORS: dict[str, type[ErpConnector]] = {}
@@ -28,6 +35,20 @@ def get_connector(name: str, config: dict | None = None) -> ErpConnector:
 def available_connectors() -> list[str]:
     """Sorted list of registered connector (erp_type) names."""
     return sorted(_CONNECTORS)
+
+
+def connector_catalog() -> list[tuple[str, type[ErpConnector]]]:
+    """``(erp_type, class)`` for every registered connector, sorted by name.
+
+    The catalog endpoint projects this, so registering a connector is all it
+    takes for it to become selectable.
+    """
+    return [(name, _CONNECTORS[name]) for name in sorted(_CONNECTORS)]
+
+
+def connector_class(name: str) -> type[ErpConnector] | None:
+    """The registered class for ``name``, or ``None`` if unknown."""
+    return _CONNECTORS.get(name)
 
 
 # Import built-in connectors for their registration side effects. Kept at the

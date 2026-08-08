@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import JSON, Numeric, String
+from sqlalchemy import JSON, Date, Numeric, String
 from sqlmodel import Field, Relationship, SQLModel
 
 from ._base import _ts, _uuid
@@ -20,6 +20,14 @@ class InvoiceLine(SQLModel, table=True):
     unit_price: Optional[Decimal] = Field(sa_type=Numeric(12, 4), nullable=True)
     amount: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
     native_account_code: Optional[str] = Field(sa_type=String, nullable=True)
+
+    # Conversion into the company's base currency. A line has no date of its
+    # own: it is converted at its invoice's `invoice_date`. `amount` stays as
+    # posted; null base fields mean "not converted".
+    base_currency: Optional[str] = Field(sa_type=String(3), nullable=True)
+    base_amount: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
+    fx_rate: Optional[Decimal] = Field(sa_type=Numeric(18, 8), nullable=True)
+    fx_rate_date: Optional[date] = Field(sa_type=Date, nullable=True)
 
     status: LineStatus = Field(sa_type=String, nullable=False, default=LineStatus.UNCATEGORIZED)
     error_message: Optional[str] = Field(sa_type=String, nullable=True)

@@ -14,6 +14,14 @@ import { Route as SsoCallbackRouteImport } from './routes/sso-callback'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
+import { Route as AuthedSettingsRouteImport } from './routes/_authed/settings'
+import { Route as AuthedEntriesRouteImport } from './routes/_authed/entries'
+import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
+import { Route as AuthedSettingsProfileRouteImport } from './routes/_authed/settings/profile'
+import { Route as AuthedSettingsOrganizationRouteImport } from './routes/_authed/settings/organization'
+import { Route as AuthedSettingsCompaniesRouteImport } from './routes/_authed/settings/companies'
+import { Route as AuthedSettingsCompaniesIndexRouteImport } from './routes/_authed/settings/companies.index'
+import { Route as AuthedSettingsCompaniesCompanyIdAccountsRouteImport } from './routes/_authed/settings/companies.$companyId.accounts'
 
 const UiRoute = UiRouteImport.update({
   id: '/ui',
@@ -39,18 +47,75 @@ const AuthedIndexRoute = AuthedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedSettingsRoute = AuthedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedEntriesRoute = AuthedEntriesRouteImport.update({
+  id: '/entries',
+  path: '/entries',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedSettingsIndexRoute = AuthedSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
+const AuthedSettingsProfileRoute = AuthedSettingsProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
+const AuthedSettingsOrganizationRoute =
+  AuthedSettingsOrganizationRouteImport.update({
+    id: '/organization',
+    path: '/organization',
+    getParentRoute: () => AuthedSettingsRoute,
+  } as any)
+const AuthedSettingsCompaniesRoute = AuthedSettingsCompaniesRouteImport.update({
+  id: '/companies',
+  path: '/companies',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
+const AuthedSettingsCompaniesIndexRoute =
+  AuthedSettingsCompaniesIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthedSettingsCompaniesRoute,
+  } as any)
+const AuthedSettingsCompaniesCompanyIdAccountsRoute =
+  AuthedSettingsCompaniesCompanyIdAccountsRouteImport.update({
+    id: '/$companyId/accounts',
+    path: '/$companyId/accounts',
+    getParentRoute: () => AuthedSettingsCompaniesRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthedIndexRoute
   '/sign-in': typeof SignInRoute
   '/sso-callback': typeof SsoCallbackRoute
   '/ui': typeof UiRoute
+  '/entries': typeof AuthedEntriesRoute
+  '/settings': typeof AuthedSettingsRouteWithChildren
+  '/settings/companies': typeof AuthedSettingsCompaniesRouteWithChildren
+  '/settings/organization': typeof AuthedSettingsOrganizationRoute
+  '/settings/profile': typeof AuthedSettingsProfileRoute
+  '/settings/': typeof AuthedSettingsIndexRoute
+  '/settings/companies/': typeof AuthedSettingsCompaniesIndexRoute
+  '/settings/companies/$companyId/accounts': typeof AuthedSettingsCompaniesCompanyIdAccountsRoute
 }
 export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/sso-callback': typeof SsoCallbackRoute
   '/ui': typeof UiRoute
+  '/entries': typeof AuthedEntriesRoute
   '/': typeof AuthedIndexRoute
+  '/settings/organization': typeof AuthedSettingsOrganizationRoute
+  '/settings/profile': typeof AuthedSettingsProfileRoute
+  '/settings': typeof AuthedSettingsIndexRoute
+  '/settings/companies': typeof AuthedSettingsCompaniesIndexRoute
+  '/settings/companies/$companyId/accounts': typeof AuthedSettingsCompaniesCompanyIdAccountsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -58,15 +123,58 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/sso-callback': typeof SsoCallbackRoute
   '/ui': typeof UiRoute
+  '/_authed/entries': typeof AuthedEntriesRoute
+  '/_authed/settings': typeof AuthedSettingsRouteWithChildren
   '/_authed/': typeof AuthedIndexRoute
+  '/_authed/settings/companies': typeof AuthedSettingsCompaniesRouteWithChildren
+  '/_authed/settings/organization': typeof AuthedSettingsOrganizationRoute
+  '/_authed/settings/profile': typeof AuthedSettingsProfileRoute
+  '/_authed/settings/': typeof AuthedSettingsIndexRoute
+  '/_authed/settings/companies/': typeof AuthedSettingsCompaniesIndexRoute
+  '/_authed/settings/companies/$companyId/accounts': typeof AuthedSettingsCompaniesCompanyIdAccountsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/sign-in' | '/sso-callback' | '/ui'
+  fullPaths:
+    | '/'
+    | '/sign-in'
+    | '/sso-callback'
+    | '/ui'
+    | '/entries'
+    | '/settings'
+    | '/settings/companies'
+    | '/settings/organization'
+    | '/settings/profile'
+    | '/settings/'
+    | '/settings/companies/'
+    | '/settings/companies/$companyId/accounts'
   fileRoutesByTo: FileRoutesByTo
-  to: '/sign-in' | '/sso-callback' | '/ui' | '/'
+  to:
+    | '/sign-in'
+    | '/sso-callback'
+    | '/ui'
+    | '/entries'
+    | '/'
+    | '/settings/organization'
+    | '/settings/profile'
+    | '/settings'
+    | '/settings/companies'
+    | '/settings/companies/$companyId/accounts'
   id:
-    '__root__' | '/_authed' | '/sign-in' | '/sso-callback' | '/ui' | '/_authed/'
+    | '__root__'
+    | '/_authed'
+    | '/sign-in'
+    | '/sso-callback'
+    | '/ui'
+    | '/_authed/entries'
+    | '/_authed/settings'
+    | '/_authed/'
+    | '/_authed/settings/companies'
+    | '/_authed/settings/organization'
+    | '/_authed/settings/profile'
+    | '/_authed/settings/'
+    | '/_authed/settings/companies/'
+    | '/_authed/settings/companies/$companyId/accounts'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -113,14 +221,109 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedIndexRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/settings': {
+      id: '/_authed/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthedSettingsRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/entries': {
+      id: '/_authed/entries'
+      path: '/entries'
+      fullPath: '/entries'
+      preLoaderRoute: typeof AuthedEntriesRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/settings/': {
+      id: '/_authed/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AuthedSettingsIndexRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
+    '/_authed/settings/profile': {
+      id: '/_authed/settings/profile'
+      path: '/profile'
+      fullPath: '/settings/profile'
+      preLoaderRoute: typeof AuthedSettingsProfileRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
+    '/_authed/settings/organization': {
+      id: '/_authed/settings/organization'
+      path: '/organization'
+      fullPath: '/settings/organization'
+      preLoaderRoute: typeof AuthedSettingsOrganizationRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
+    '/_authed/settings/companies': {
+      id: '/_authed/settings/companies'
+      path: '/companies'
+      fullPath: '/settings/companies'
+      preLoaderRoute: typeof AuthedSettingsCompaniesRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
+    '/_authed/settings/companies/': {
+      id: '/_authed/settings/companies/'
+      path: '/'
+      fullPath: '/settings/companies/'
+      preLoaderRoute: typeof AuthedSettingsCompaniesIndexRouteImport
+      parentRoute: typeof AuthedSettingsCompaniesRoute
+    }
+    '/_authed/settings/companies/$companyId/accounts': {
+      id: '/_authed/settings/companies/$companyId/accounts'
+      path: '/$companyId/accounts'
+      fullPath: '/settings/companies/$companyId/accounts'
+      preLoaderRoute: typeof AuthedSettingsCompaniesCompanyIdAccountsRouteImport
+      parentRoute: typeof AuthedSettingsCompaniesRoute
+    }
   }
 }
 
+interface AuthedSettingsCompaniesRouteChildren {
+  AuthedSettingsCompaniesIndexRoute: typeof AuthedSettingsCompaniesIndexRoute
+  AuthedSettingsCompaniesCompanyIdAccountsRoute: typeof AuthedSettingsCompaniesCompanyIdAccountsRoute
+}
+
+const AuthedSettingsCompaniesRouteChildren: AuthedSettingsCompaniesRouteChildren =
+  {
+    AuthedSettingsCompaniesIndexRoute: AuthedSettingsCompaniesIndexRoute,
+    AuthedSettingsCompaniesCompanyIdAccountsRoute:
+      AuthedSettingsCompaniesCompanyIdAccountsRoute,
+  }
+
+const AuthedSettingsCompaniesRouteWithChildren =
+  AuthedSettingsCompaniesRoute._addFileChildren(
+    AuthedSettingsCompaniesRouteChildren,
+  )
+
+interface AuthedSettingsRouteChildren {
+  AuthedSettingsCompaniesRoute: typeof AuthedSettingsCompaniesRouteWithChildren
+  AuthedSettingsOrganizationRoute: typeof AuthedSettingsOrganizationRoute
+  AuthedSettingsProfileRoute: typeof AuthedSettingsProfileRoute
+  AuthedSettingsIndexRoute: typeof AuthedSettingsIndexRoute
+}
+
+const AuthedSettingsRouteChildren: AuthedSettingsRouteChildren = {
+  AuthedSettingsCompaniesRoute: AuthedSettingsCompaniesRouteWithChildren,
+  AuthedSettingsOrganizationRoute: AuthedSettingsOrganizationRoute,
+  AuthedSettingsProfileRoute: AuthedSettingsProfileRoute,
+  AuthedSettingsIndexRoute: AuthedSettingsIndexRoute,
+}
+
+const AuthedSettingsRouteWithChildren = AuthedSettingsRoute._addFileChildren(
+  AuthedSettingsRouteChildren,
+)
+
 interface AuthedRouteChildren {
+  AuthedEntriesRoute: typeof AuthedEntriesRoute
+  AuthedSettingsRoute: typeof AuthedSettingsRouteWithChildren
   AuthedIndexRoute: typeof AuthedIndexRoute
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
+  AuthedEntriesRoute: AuthedEntriesRoute,
+  AuthedSettingsRoute: AuthedSettingsRouteWithChildren,
   AuthedIndexRoute: AuthedIndexRoute,
 }
 

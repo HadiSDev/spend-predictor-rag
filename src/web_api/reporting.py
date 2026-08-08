@@ -5,10 +5,21 @@ Each function takes an explicit, already-scoped `company_ids` list (the router
 resolves it from the caller's tenant scope) and returns a list of plain row
 dicts; the router maps those onto response schemas.
 
-Money is always grouped by `currency` — amounts of different currencies are
-never summed together — and sums are coalesced to 0 so a group is never null.
+Money is always grouped by a currency column — amounts of different currencies
+are never summed together — and sums are coalesced to 0 so a group is never null.
 Ledger sums come from `ErpEntry` (the financial source of truth); category and
 vendor spend come from the invoice/line layer, where those dimensions live.
+
+**Which** currency column depends on the mode. `base` (the default) groups by the
+stored `base_currency` and sums the converted amounts, so a customer sees one
+figure per dimension in their own currency. `original` groups by the as-posted
+`currency` and reproduces the pre-conversion behaviour exactly.
+
+Rows that could not be converted have a null `base_currency`, so in base mode
+they form their own group: currency null, totals 0, and `unconverted_count` set.
+That is deliberate — money we cannot express in the customer's currency is
+reported as its own visible line rather than folded into a total it does not
+belong in, or dropped so the total silently understates spend.
 """
 from __future__ import annotations
 
@@ -29,6 +40,28 @@ def _dec(value) -> Decimal:
     return Decimal(str(value)) if value is not None else _ZERO
 
 
+BASE = "base"
+ORIGINAL = "original"
+
+
+def _entry_columns(mode: str):
+    """`(currency, debit, credit)` columns for an ErpEntry rollup."""
+    if mode == BASE:
+        return ErpEntry.base_currency, ErpEntry.base_debit_amount, ErpEntry.base_credit_amount
+    return ErpEntry.currency, ErpEntry.debit_amount, ErpEntry.credit_amount
+
+
+def _unconverted(mode: str, currency, count: int) -> int:
+    """How many rows in this group had no base amount.
+
+    A null currency in base mode *is* the unconverted group — the base columns
+    are only ever null together — so the group's own count is the answer. In
+    original mode nothing is excluded, so it is always zero (a null posted
+    currency there is just an ERP that did not say).
+    """
+    return count if mode == BASE and currency is None else 0
+
+
 def entries_summary(
     session: Session,
     company_ids: list[str],
@@ -36,12 +69,14 @@ def entries_summary(
     entry_type: str | None = None,
     from_date: date | None = None,
     to_date: date | None = None,
+    currency_mode: str = BASE,
 ) -> list[dict]:
     """Sum debits/credits (+ net, count) per `(entry_type, currency)`."""
     if not company_ids:
         return []
-    debit = func.coalesce(func.sum(ErpEntry.debit_amount), 0)
-    credit = func.coalesce(func.sum(ErpEntry.credit_amount), 0)
+    currency_col, debit_col, credit_col = _entry_columns(currency_mode)
+    debit = func.coalesce(func.sum(debit_col), 0)
+    credit = func.coalesce(func.sum(credit_col), 0)
     conditions = [ErpEntry.company_id.in_(company_ids)]
     if entry_type is not None:
         conditions.append(ErpEntry.entry_type == entry_type)
@@ -51,9 +86,9 @@ def entries_summary(
         conditions.append(ErpEntry.accounting_date <= to_date)
 
     rows = session.exec(
-        select(ErpEntry.entry_type, ErpEntry.currency, debit, credit, func.count())
+        select(ErpEntry.entry_type, currency_col, debit, credit, func.count())
         .where(*conditions)
-        .group_by(ErpEntry.entry_type, ErpEntry.currency)
+        .group_by(ErpEntry.entry_type, currency_col)
     ).all()
     result = [
         {
@@ -63,6 +98,7 @@ def entries_summary(
             "credit_total": _dec(cred),
             "net": _dec(deb) - _dec(cred),
             "count": cnt,
+            "unconverted_count": _unconverted(currency_mode, cur, cnt),
         }
         for et, cur, deb, cred, cnt in rows
     ]
@@ -77,12 +113,14 @@ def entries_by_account(
     entry_type: str | None = None,
     from_date: date | None = None,
     to_date: date | None = None,
+    currency_mode: str = BASE,
 ) -> list[dict]:
     """Sum debits/credits (+ net, count) per ERP account and currency."""
     if not company_ids:
         return []
-    debit = func.coalesce(func.sum(ErpEntry.debit_amount), 0)
-    credit = func.coalesce(func.sum(ErpEntry.credit_amount), 0)
+    currency_col, debit_col, credit_col = _entry_columns(currency_mode)
+    debit = func.coalesce(func.sum(debit_col), 0)
+    credit = func.coalesce(func.sum(credit_col), 0)
     conditions = [ErpEntry.company_id.in_(company_ids)]
     if entry_type is not None:
         conditions.append(ErpEntry.entry_type == entry_type)
@@ -94,12 +132,12 @@ def entries_by_account(
     rows = session.exec(
         select(
             ErpAccount.id, ErpAccount.erp_account_code, ErpAccount.erp_account_name,
-            ErpEntry.currency, debit, credit, func.count(),
+            currency_col, debit, credit, func.count(),
         )
         .join(ErpAccount, ErpEntry.erp_account_id == ErpAccount.id)
         .where(*conditions)
         .group_by(ErpAccount.id, ErpAccount.erp_account_code,
-                  ErpAccount.erp_account_name, ErpEntry.currency)
+                  ErpAccount.erp_account_name, currency_col)
     ).all()
     result = [
         {
@@ -111,6 +149,7 @@ def entries_by_account(
             "credit_total": _dec(cred),
             "net": _dec(deb) - _dec(cred),
             "count": cnt,
+            "unconverted_count": _unconverted(currency_mode, cur, cnt),
         }
         for aid, code, name, cur, deb, cred, cnt in rows
     ]
@@ -125,17 +164,23 @@ def spend_by_category(
     level: str = "level_2",
     from_date: date | None = None,
     to_date: date | None = None,
+    currency_mode: str = BASE,
 ) -> list[dict]:
     """Sum categorized invoice-line amounts + count per spend level and currency.
 
     Only `ai_categorized`/`verified` lines count. ``level`` is ``level_2``
     (default) or ``level_3`` — the latter groups by both level_2 and level_3.
-    Currency and the date filter come from the parent invoice.
+    The date filter comes from the parent invoice; so does the posted currency,
+    while the base currency is stamped on the line by its own conversion.
     """
     if not company_ids:
         return []
     by_l3 = level == "level_3"
-    amount = func.coalesce(func.sum(InvoiceLine.amount), 0)
+    if currency_mode == BASE:
+        currency_col, amount_col = InvoiceLine.base_currency, InvoiceLine.base_amount
+    else:
+        currency_col, amount_col = Invoice.currency, InvoiceLine.amount
+    amount = func.coalesce(func.sum(amount_col), 0)
     conditions = [
         InvoiceLine.company_id.in_(company_ids),
         InvoiceLine.status.in_([LineStatus.AI_CATEGORIZED, LineStatus.VERIFIED]),
@@ -146,10 +191,10 @@ def spend_by_category(
         conditions.append(Invoice.invoice_date <= to_date)
 
     dims = [InvoiceLine.level_2, InvoiceLine.level_3] if by_l3 else [InvoiceLine.level_2]
-    group_cols = [*dims, Invoice.currency]
+    group_cols = [*dims, currency_col]
 
     rows = session.exec(
-        select(*dims, Invoice.currency, amount, func.count())
+        select(*dims, currency_col, amount, func.count())
         .join(Invoice, InvoiceLine.invoice_id == Invoice.id)
         .where(*conditions)
         .group_by(*group_cols)
@@ -167,6 +212,7 @@ def spend_by_category(
             "currency": cur,
             "amount_total": _dec(amt),
             "count": cnt,
+            "unconverted_count": _unconverted(currency_mode, cur, cnt),
         })
     result.sort(key=lambda r: (-r["amount_total"], r["level_2"] or "", r["level_3"] or "", r["currency"] or ""))
     return result
@@ -178,11 +224,16 @@ def spend_by_vendor(
     *,
     from_date: date | None = None,
     to_date: date | None = None,
+    currency_mode: str = BASE,
 ) -> list[dict]:
     """Sum invoice totals + count per vendor and currency."""
     if not company_ids:
         return []
-    amount = func.coalesce(func.sum(Invoice.total), 0)
+    if currency_mode == BASE:
+        currency_col, amount_col = Invoice.base_currency, Invoice.base_total
+    else:
+        currency_col, amount_col = Invoice.currency, Invoice.total
+    amount = func.coalesce(func.sum(amount_col), 0)
     conditions = [Invoice.company_id.in_(company_ids)]
     if from_date is not None:
         conditions.append(Invoice.invoice_date >= from_date)
@@ -190,10 +241,10 @@ def spend_by_vendor(
         conditions.append(Invoice.invoice_date <= to_date)
 
     rows = session.exec(
-        select(Vendor.id, Vendor.name, Invoice.currency, amount, func.count())
+        select(Vendor.id, Vendor.name, currency_col, amount, func.count())
         .join(Vendor, Invoice.vendor_id == Vendor.id)
         .where(*conditions)
-        .group_by(Vendor.id, Vendor.name, Invoice.currency)
+        .group_by(Vendor.id, Vendor.name, currency_col)
     ).all()
     result = [
         {
@@ -202,6 +253,7 @@ def spend_by_vendor(
             "currency": cur,
             "amount_total": _dec(amt),
             "count": cnt,
+            "unconverted_count": _unconverted(currency_mode, cur, cnt),
         }
         for vid, vname, cur, amt, cnt in rows
     ]

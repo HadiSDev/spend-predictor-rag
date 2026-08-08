@@ -8,6 +8,7 @@ import httpx
 
 from . import register_connector
 from .base import (
+    CredentialField,
     ErpAccountData,
     ErpAuthError,
     ErpConnectionError,
@@ -19,6 +20,9 @@ from .base import (
     ErpVendorData,
 )
 
+DEFAULT_BASE_URL = "http://localhost:8001"
+DEFAULT_API_KEY = "mock-secret"
+
 
 class MockErpConnector(ErpConnector):
     """Connector that talks to the mock-erp-api server.
@@ -28,10 +32,18 @@ class MockErpConnector(ErpConnector):
         api_key: str   (default mock-secret)
     """
 
+    display_label = "Debug ERP"
+    # Both optional: the defaults below are what the debug server expects, so an
+    # integration with no credentials at all is valid.
+    credential_fields = [
+        CredentialField(name="base_url", label="Base URL", default=DEFAULT_BASE_URL),
+        CredentialField(name="api_key", label="API key", secret=True, default=DEFAULT_API_KEY),
+    ]
+
     def __init__(self, config: dict) -> None:
         super().__init__(config)
-        self.base_url = config.get("base_url", "http://localhost:8001")
-        self.api_key = config.get("api_key", "mock-secret")
+        self.base_url = config.get("base_url") or DEFAULT_BASE_URL
+        self.api_key = config.get("api_key") or DEFAULT_API_KEY
         self._token: str | None = None
         self._http: httpx.Client | None = None
         self._invoice_by_voucher: dict[str, dict] | None = None
@@ -179,6 +191,11 @@ class MockErpConnector(ErpConnector):
                     entry_type=r.get("entryType", "journal_entry"),
                     erp_account_code=str(r.get("account", {}).get("accountNumber", "")),
                     accounting_date=date.fromisoformat(accounting_date) if accounting_date else None,
+                    # Absent on a posting with no line behind it (VAT, payable),
+                    # so the None has to survive rather than becoming "None".
+                    source_line_erp_id=(
+                        str(r["lineNumber"]) if r.get("lineNumber") is not None else None
+                    ),
                     description=r.get("description"),
                     debit_amount=r.get("debit"),
                     credit_amount=r.get("credit"),

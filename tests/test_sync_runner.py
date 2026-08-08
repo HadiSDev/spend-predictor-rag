@@ -6,7 +6,8 @@ categorize. Runs without a live Postgres or the mock ERP HTTP server.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
+from decimal import Decimal
 
 import pytest
 from sqlalchemy.pool import StaticPool
@@ -23,14 +24,18 @@ from web_api.connectors.base import (
 )
 from web_api.db.models import (
     AuditLog,
+    Company,
     ErpAccount,
     ErpEntry,
+    ErpIntegration,
     File,
     Invoice,
     InvoiceLine,
+    Organization,
     SyncState,
     Vendor,
 )
+from web_api.fx import FxService
 from ai_api.persistence import LineGroundTruth
 from ai_api.sync import runner
 
@@ -88,18 +93,21 @@ class _FakeConnector(ErpConnector):
         return list(_SCANS.values())
 
     def fetch_entries(self, since=None, account_codes=None) -> list[ErpEntryData]:
-        def pi(eid, voucher, code, d, debit=0.0, credit=0.0, dt=None):
+        def pi(eid, voucher, code, line_no, debit=0.0, credit=0.0, dt=None):
+            # `line_no` is the invoice line this posting came from, or None for
+            # the VAT and payable postings, which belong to no single line.
             return ErpEntryData(erp_entry_id=eid, voucher_id=voucher,
                                 entry_type="purchase_invoice", erp_account_code=code,
+                                source_line_erp_id=line_no,
                                 accounting_date=dt, debit_amount=debit, credit_amount=credit,
                                 currency="DKK")
         if account_codes is not None and len(account_codes) == 0:
             return []
         all_entries = [
-            pi("E1", "V1", "6010", None, debit=1000.0, dt=date(2025, 7, 15)),
+            pi("E1", "V1", "6010", "1", debit=1000.0, dt=date(2025, 7, 15)),
             pi("E2", "V1", "2200", None, debit=250.0, dt=date(2025, 7, 15)),
             pi("E3", "V1", "2100", None, credit=1250.0, dt=date(2025, 7, 15)),
-            pi("E4", "V2", "6020", None, debit=400.0, dt=date(2025, 8, 3)),
+            pi("E4", "V2", "6020", "1", debit=400.0, dt=date(2025, 8, 3)),
             pi("E5", "V2", "2200", None, debit=100.0, dt=date(2025, 8, 3)),
             pi("E6", "V2", "2100", None, credit=500.0, dt=date(2025, 8, 3)),
             # Payment voucher — no invoice scan, must stay unlinked.
@@ -118,17 +126,41 @@ class _FakeConnector(ErpConnector):
 
 @pytest.fixture
 def sqlite_engine(monkeypatch):
+    """An engine plus one connected integration for the runner to discover.
+
+    The tenant is built here rather than by the runner: `run_sync` reads its
+    work from the database and never creates an organization or a company.
+    """
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(runner, "engine", engine)
     register_connector("fake", _FakeConnector)
+
+    with Session(engine) as s:
+        org = Organization(name="Test Org", clerk_org_id="clerk_test")
+        s.add(org)
+        s.commit()
+        company = Company(organization_id=org.id, name="Test Company")
+        s.add(company)
+        s.commit()
+        s.add(ErpIntegration(company_id=company.id, erp_type="fake",
+                             connected_at=datetime.now(timezone.utc)))
+        s.commit()
     return engine
 
 
+def _summary(result: dict) -> dict:
+    """The single integration's summary out of the per-integration result."""
+    assert len(result) == 1, result
+    summary = next(iter(result.values()))
+    assert summary["status"] == "ok", summary
+    return summary
+
+
 def test_run_sync_end_to_end(sqlite_engine):
-    summary = runner.run_sync("fake", reset=False)
+    summary = _summary(runner.run_sync())
 
     assert summary["vendors"] == 1
     assert summary["invoices"] == 2
@@ -186,7 +218,7 @@ def test_run_sync_end_to_end(sqlite_engine):
 
 
 def test_verified_line_not_overwritten_by_resync(sqlite_engine):
-    runner.run_sync("fake", reset=False)
+    runner.run_sync()
 
     # A human verifies the categorized line, correcting the account.
     with Session(sqlite_engine) as s:
@@ -198,7 +230,7 @@ def test_verified_line_not_overwritten_by_resync(sqlite_engine):
         line_id = ln.id
 
     # A re-sync must not re-categorize (overwrite) the verified line.
-    runner.run_sync("fake", reset=False)
+    runner.run_sync()
     with Session(sqlite_engine) as s:
         ln = s.get(InvoiceLine, line_id)
         assert ln.status == "verified"
@@ -206,7 +238,7 @@ def test_verified_line_not_overwritten_by_resync(sqlite_engine):
 
 
 def test_invoice_has_file_and_no_voucher_column(sqlite_engine):
-    runner.run_sync("fake", reset=False)
+    runner.run_sync()
 
     # The invoice scan references the internal File domain, and is a purely
     # internal document: no voucher, no ERP id, no integration link of its own.
@@ -232,7 +264,7 @@ def test_invoice_has_file_and_no_voucher_column(sqlite_engine):
 
 
 def test_entries_link_to_invoice_via_voucher(sqlite_engine):
-    runner.run_sync("fake", reset=False)
+    runner.run_sync()
 
     with Session(sqlite_engine) as s:
         inv1 = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
@@ -248,8 +280,56 @@ def test_entries_link_to_invoice_via_voucher(sqlite_engine):
         assert all(e.source_invoice_id is None for e in pay)
 
 
+def test_a_posting_links_to_the_invoice_line_it_came_from(sqlite_engine):
+    """The line id is derived from (invoice, line_erp_id), not matched.
+
+    `_persist_invoices` builds the line's id from the same pair, so the two
+    agree by construction rather than by resembling each other.
+    """
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        e1 = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == "E1")).one()
+        line = s.get(InvoiceLine, e1.source_invoice_line_id)
+        assert line is not None
+        assert line.description == "Cloud server - monthly hosting"
+        assert line.invoice_id == e1.source_invoice_id
+
+
+def test_vat_and_payable_postings_link_to_no_line(sqlite_engine):
+    """They belong to the whole invoice, so null is the right answer, not a gap."""
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        for erp_id in ("E2", "E3"):
+            row = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == erp_id)).one()
+            assert row.source_invoice_line_id is None
+
+
+def test_a_posting_naming_an_undelivered_line_is_kept_unlinked(sqlite_engine, monkeypatch):
+    """A dangling FK would abort the sync over one posting; null does not."""
+    original = _FakeConnector.fetch_entries
+
+    def with_a_bad_reference(self, since=None, account_codes=None):
+        rows = original(self, since=since, account_codes=account_codes)
+        for row in rows:
+            if row.erp_entry_id == "E1":
+                row.source_line_erp_id = "does-not-exist"
+        return rows
+
+    monkeypatch.setattr(_FakeConnector, "fetch_entries", with_a_bad_reference)
+    # Completes rather than raising on the FK.
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        e1 = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == "E1")).one()
+        assert e1.source_invoice_line_id is None
+        # The posting itself is still persisted, not dropped.
+        assert e1.source_invoice_id is not None
+
+
 def test_entries_are_not_categorized(sqlite_engine):
-    runner.run_sync("fake", reset=False)
+    runner.run_sync()
 
     with Session(sqlite_engine) as s:
         entries = s.exec(select(ErpEntry)).all()
@@ -272,8 +352,8 @@ def _acct(session, code: str) -> ErpAccount:
     return session.exec(select(ErpAccount).where(ErpAccount.erp_account_code == code)).one()
 
 
-def test_with_vat_persisted_from_erp(sqlite_engine):
-    runner.run_sync("fake", reset=False)
+def test_with_vat_seeded_from_erp(sqlite_engine):
+    runner.run_sync()
     with Session(sqlite_engine) as s:
         assert _acct(s, "6010").with_vat is True   # expense account, with VAT
         assert _acct(s, "2100").with_vat is False   # balance-sheet, without VAT
@@ -281,9 +361,34 @@ def test_with_vat_persisted_from_erp(sqlite_engine):
         assert _acct(s, "6010").sync_enabled is True
 
 
+def test_a_customers_vat_setting_survives_a_resync(sqlite_engine):
+    """The second writer.
+
+    `refresh-accounts` is not the only thing that upserts accounts — the sync
+    does too, on every run. Preserving the setting in only one of them makes it
+    revert unpredictably, which is the hardest kind of bug to report.
+    """
+    runner.run_sync()
+    with Session(sqlite_engine) as s:
+        acct = _acct(s, "6010")
+        assert acct.with_vat is True    # seeded from the ERP
+        acct.with_vat = False           # the customer disagrees
+        acct.sync_enabled = True
+        s.add(acct)
+        s.commit()
+
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        acct = _acct(s, "6010")
+        assert acct.with_vat is False   # ours stands
+        # ERP-owned metadata still refreshes.
+        assert acct.erp_account_name == "Cloud Hosting & Infrastructure"
+
+
 def test_disabled_account_yields_no_entries(sqlite_engine):
     # First sync populates accounts + entries (E1 posts to account 6010).
-    runner.run_sync("fake", reset=False)
+    runner.run_sync()
     with Session(sqlite_engine) as s:
         acct6010 = _acct(s, "6010")
         assert s.exec(select(func.count()).select_from(ErpEntry)
@@ -296,7 +401,7 @@ def test_disabled_account_yields_no_entries(sqlite_engine):
         s.add(acct6010)
         s.commit()
 
-    runner.run_sync("fake", reset=False)
+    runner.run_sync()
     with Session(sqlite_engine) as s:
         acct6010 = _acct(s, "6010")
         assert acct6010.sync_enabled is False   # selection survived the re-sync
@@ -309,8 +414,8 @@ def test_disabled_account_yields_no_entries(sqlite_engine):
 
 
 def test_run_sync_is_idempotent(sqlite_engine):
-    first = runner.run_sync("fake", reset=False)
-    second = runner.run_sync("fake", reset=False)
+    first = _summary(runner.run_sync())
+    second = _summary(runner.run_sync())
     assert first["vendors"] == second["vendors"]
     assert first["lines"] == second["lines"]
     assert first["entries"] == second["entries"]
@@ -320,3 +425,173 @@ def test_run_sync_is_idempotent(sqlite_engine):
         assert s.exec(select(func.count()).select_from(InvoiceLine)).one() == 2
         assert s.exec(select(func.count()).select_from(ErpEntry)).one() == 8
         assert s.exec(select(func.count()).select_from(File)).one() == 2
+
+
+# -- currency conversion -----------------------------------------------------
+#
+# The fake ERP posts everything in DKK; the company reports in EUR. Rates come
+# from a stub that records every call, so these tests can assert not only what
+# was converted but how many lookups it cost.
+
+_EUR_RATES = {"EUR": Decimal("1"), "DKK": Decimal("7.4600"), "USD": Decimal("1.0850")}
+
+
+class _StubRates:
+    """Serves the same published rates for any date, and counts the asking."""
+
+    def __init__(self, rates=None, fail: bool = False):
+        self.rates = _EUR_RATES if rates is None else rates
+        self.fail = fail
+        self.calls: list[date] = []
+
+    def fetch(self, rate_date: date):
+        self.calls.append(rate_date)
+        return None if self.fail else (rate_date, dict(self.rates))
+
+
+@pytest.fixture
+def eur_company(sqlite_engine):
+    """Point the seeded company at EUR, so its DKK postings must convert."""
+    with Session(sqlite_engine) as s:
+        company = s.exec(select(Company)).one()
+        company.base_currency = "EUR"
+        s.add(company)
+        s.commit()
+    return sqlite_engine
+
+
+def _with_rates(monkeypatch, provider):
+    """Give the runner an FX service backed by `provider` instead of the default."""
+    monkeypatch.setattr(runner, "FxService", lambda session: FxService(session, provider))
+    return provider
+
+
+def test_sync_converts_into_the_companys_base_currency(eur_company, monkeypatch):
+    _with_rates(monkeypatch, _StubRates())
+
+    summary = _summary(runner.run_sync())
+
+    assert summary["base_currency"] == "EUR"
+    with Session(eur_company) as s:
+        entry = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == "E1")).one()
+        assert entry.base_currency == "EUR"
+        assert entry.fx_rate == Decimal("0.13404826")  # 1 / 7.46
+        assert entry.base_debit_amount == Decimal("134.05")
+        assert entry.fx_rate_date == date(2025, 7, 15)
+        # The posting itself is untouched — it is the evidence, not a draft.
+        assert entry.currency == "DKK"
+        assert entry.debit_amount == Decimal("1000.00")
+
+
+def test_an_invoice_and_its_lines_convert_at_the_invoices_date(eur_company, monkeypatch):
+    _with_rates(monkeypatch, _StubRates())
+
+    runner.run_sync()
+
+    with Session(eur_company) as s:
+        invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
+        assert invoice.base_total == Decimal("167.56")  # 1250.00 / 7.46
+        assert invoice.base_tax == Decimal("33.51")
+        assert invoice.fx_rate_date == date(2025, 7, 15)
+
+        line = s.exec(select(InvoiceLine).where(InvoiceLine.invoice_id == invoice.id)).one()
+        # A line has no date of its own: it must land on its invoice's rate.
+        assert line.fx_rate == invoice.fx_rate
+        assert line.fx_rate_date == invoice.fx_rate_date
+        assert line.base_amount == Decimal("134.05")
+
+
+def test_a_date_costs_one_rate_lookup_however_many_rows_share_it(eur_company, monkeypatch):
+    provider = _with_rates(monkeypatch, _StubRates())
+
+    runner.run_sync()
+
+    # Six entries, two invoices and two lines span exactly two accounting dates.
+    assert sorted(provider.calls) == [date(2025, 7, 15), date(2025, 8, 3)]
+
+
+def test_a_posting_with_no_accounting_date_is_left_unconverted(eur_company, monkeypatch):
+    _with_rates(monkeypatch, _StubRates())
+
+    runner.run_sync()
+
+    with Session(eur_company) as s:
+        payment = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == "E7")).one()
+        assert payment.accounting_date is None
+        assert payment.base_debit_amount is None
+        assert payment.base_currency is None
+        # Still fully persisted, and still carrying what the ERP posted.
+        assert payment.debit_amount == Decimal("1250.00")
+
+
+def test_a_currency_the_source_does_not_publish_is_left_unconverted(eur_company, monkeypatch):
+    _with_rates(monkeypatch, _StubRates(rates={"EUR": Decimal("1"), "USD": Decimal("1.085")}))
+
+    summary = _summary(runner.run_sync())
+
+    assert summary["fx"]["converted"] == 0
+    with Session(eur_company) as s:
+        assert all(e.base_debit_amount is None for e in s.exec(select(ErpEntry)).all())
+        assert all(e.debit_amount is not None or e.credit_amount is not None
+                   for e in s.exec(select(ErpEntry)).all())
+
+
+def test_a_dead_rate_provider_does_not_fail_the_sync(eur_company, monkeypatch):
+    _with_rates(monkeypatch, _StubRates(fail=True))
+
+    result = runner.run_sync()
+
+    # Ledger data is not held hostage to FX: the integration still succeeds…
+    summary = _summary(result)
+    assert summary["entries"] == 8
+    assert summary["fx"]["unconverted"] > 0
+    with Session(eur_company) as s:
+        # …the watermark still advances, so the next run is not stuck…
+        assert s.exec(select(SyncState)).one().last_invoice_date == date(2025, 8, 3)
+        # …and every row is there, simply unconverted.
+        assert s.exec(select(func.count()).select_from(ErpEntry)).one() == 8
+        assert all(e.base_currency is None for e in s.exec(select(ErpEntry)).all())
+
+
+def test_a_later_run_fills_in_what_the_outage_missed(eur_company, monkeypatch):
+    _with_rates(monkeypatch, _StubRates(fail=True))
+    runner.run_sync()
+
+    _with_rates(monkeypatch, _StubRates())
+    runner.run_sync()
+
+    with Session(eur_company) as s:
+        entry = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == "E1")).one()
+        assert entry.base_debit_amount == Decimal("134.05")
+
+
+def test_a_resync_reconverts_nothing(eur_company, monkeypatch):
+    _with_rates(monkeypatch, _StubRates())
+    runner.run_sync()
+    with Session(eur_company) as s:
+        before = {
+            e.erp_entry_id: (e.base_debit_amount, e.fx_rate, e.fx_rate_date)
+            for e in s.exec(select(ErpEntry)).all()
+        }
+
+    second = _with_rates(monkeypatch, _StubRates())
+    summary = _summary(runner.run_sync())
+
+    assert second.calls == []           # nothing re-fetched
+    assert summary["fx"]["converted"] == 0
+    assert summary["fx"]["unchanged"] > 0
+    with Session(eur_company) as s:
+        after = {
+            e.erp_entry_id: (e.base_debit_amount, e.fx_rate, e.fx_rate_date)
+            for e in s.exec(select(ErpEntry)).all()
+        }
+    assert after == before
+
+
+def test_the_runner_never_sets_the_base_currency(eur_company, monkeypatch):
+    _with_rates(monkeypatch, _StubRates())
+
+    runner.run_sync()
+
+    with Session(eur_company) as s:
+        assert s.exec(select(Company)).one().base_currency == "EUR"

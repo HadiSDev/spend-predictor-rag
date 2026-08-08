@@ -11,16 +11,23 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session, select
 
-from web_api.db.models import ErpAccount, ErpCredential, ErpIntegration
-from ..connectors import available_connectors, get_connector
+from web_api.db.models import ErpAccount, ErpCredential, ErpIntegration, User
+from ..connectors import connector_catalog, get_connector
 from ..credentials import decrypt_config, encrypt_config
 from ..deps import (
     TenantScope,
+    current_user,
     get_managed_company,
     get_managed_integration,
     get_session,
     require_management,
     tenant_scope,
+)
+from ..integrations import (
+    IntegrationSpec,
+    integration_read,
+    provision_integration,
+    validate_credentials,
 )
 from ..schemas import (
     ConnectionTestResult,
@@ -29,6 +36,7 @@ from ..schemas import (
     ErpIntegrationCreate,
     ErpIntegrationRead,
     ErpIntegrationUpdate,
+    ErpTypeRead,
     RefreshAccountsResult,
 )
 
@@ -39,16 +47,34 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _read(integration: ErpIntegration) -> ErpIntegrationRead:
-    data = ErpIntegrationRead.model_validate(integration)
-    data.has_credentials = integration.credential is not None
-    return data
+#: Non-secret view of an integration; shared with the company-create path.
+_read = integration_read
 
 
 def _connector_config(integration: ErpIntegration) -> dict:
     """Decrypt the integration's stored credentials (empty dict if none)."""
     cred = integration.credential
     return decrypt_config(cred.encrypted_config) if cred is not None else {}
+
+
+# -- Connector catalog -------------------------------------------------------
+
+
+@router.get("/erp-types", response_model=list[ErpTypeRead], tags=["erp-types"])
+def list_erp_types(_: User = Depends(current_user)) -> list[ErpTypeRead]:
+    """The ERP systems this deployment can connect to.
+
+    Authenticated but not management-gated: it exposes no tenant data and no
+    secret values, only which connectors are registered and what each needs.
+    """
+    return [
+        ErpTypeRead(
+            erp_type=name,
+            label=cls.label(),
+            credential_fields=list(cls.credential_fields),
+        )
+        for name, cls in connector_catalog()
+    ]
 
 
 # -- Integrations ------------------------------------------------------------
@@ -94,27 +120,15 @@ def create_integration(
     session: Session = Depends(get_session),
 ) -> ErpIntegrationRead:
     get_managed_company(session, scope, body.company_id)  # 404 if out of scope
-    if body.erp_type not in available_connectors():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Unknown erp_type {body.erp_type!r}. Available: {', '.join(available_connectors())}",
-        )
-    integration = ErpIntegration(
-        company_id=body.company_id,
-        erp_type=body.erp_type,
-        label=body.label,
-        connected_at=_now(),
+    integration = provision_integration(
+        session,
+        body.company_id,
+        IntegrationSpec(
+            erp_type=body.erp_type, label=body.label, credentials=body.credentials
+        ),
     )
-    session.add(integration)
     session.commit()
     session.refresh(integration)
-    if body.credentials:
-        session.add(ErpCredential(
-            erp_integration_id=integration.id,
-            encrypted_config=encrypt_config(body.credentials),
-        ))
-        session.commit()
-        session.refresh(integration)
     return _read(integration)
 
 
@@ -130,6 +144,8 @@ def update_integration(
         integration.label = body.label
         session.add(integration)
     if body.credentials is not None:
+        # Same field rules as creation — a typo'd key must not be stored here either.
+        validate_credentials(integration.erp_type, body.credentials)
         cred = integration.credential
         if cred is None:
             cred = ErpCredential(erp_integration_id=integration.id,
@@ -210,17 +226,22 @@ def refresh_accounts(
     for acc in accounts:
         row = existing.get(acc.erp_account_code)
         if row is None:
-            # New account: default our selection to enabled.
+            # New account: our sync selection defaults to enabled, and the ERP's
+            # VAT value is the best available starting assumption. Both are ours
+            # from here on.
             row = ErpAccount(erp_integration_id=integration.id,
-                             erp_account_code=acc.erp_account_code)
+                             erp_account_code=acc.erp_account_code,
+                             with_vat=acc.with_vat)
             session.add(row)
             added += 1
-        # Refresh metadata; preserve sync_enabled (never reset by a refresh).
+        # Refresh only what the ERP owns. `sync_enabled` and `with_vat` are
+        # customer settings — a refresh that reset either would silently discard
+        # a decision someone made. The ERP's own value stays recoverable in
+        # `raw_json`.
         row.erp_account_name = acc.erp_account_name
         row.erp_account_type = acc.erp_account_type
         row.parent_code = acc.parent_code
         row.is_active = acc.is_active
-        row.with_vat = acc.with_vat
         row.raw_json = acc.raw
     session.commit()
     return RefreshAccountsResult(seen=len(accounts), added=added)

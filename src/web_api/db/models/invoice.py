@@ -22,6 +22,19 @@ class Invoice(SQLModel, table=True):
     total: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
     tax: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
 
+    # Conversion into the company's base currency, at the rate in force on
+    # `invoice_date`. `currency`/`total`/`tax` above stay exactly as posted —
+    # they are the evidence these are derived from. Null base fields mean "not
+    # converted", never "converted to zero".
+    base_currency: Optional[str] = Field(sa_type=String(3), nullable=True)
+    base_total: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
+    base_tax: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
+    # Units of base currency per 1 unit of `currency`: base = amount * fx_rate.
+    fx_rate: Optional[Decimal] = Field(sa_type=Numeric(18, 8), nullable=True)
+    # The publication date the rate was taken from — not necessarily
+    # `invoice_date`, since a weekend resolves back to the prior business day.
+    fx_rate_date: Optional[date] = Field(sa_type=Date, nullable=True)
+
     status: InvoiceStatus = Field(sa_type=String, nullable=False, default=InvoiceStatus.UNCATEGORIZED)
     error_message: Optional[str] = Field(sa_type=String, nullable=True)
 

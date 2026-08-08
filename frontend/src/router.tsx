@@ -26,4 +26,10 @@ declare module '@tanstack/react-router' {
   interface Register {
     router: ReturnType<typeof getRouter>
   }
+
+  /** Per-route metadata read by the app shell (see `components/app-shell.tsx`). */
+  interface StaticDataRouteOption {
+    /** Heading shown in the topbar while this route is matched. */
+    title?: string
+  }
 }

@@ -25,3 +25,6 @@ data/template_drafts/
 
 # Brainstorming visual companion scratch
 .superpowers/
+
+# Stray vitest cache written at the repo root
+node_modules/

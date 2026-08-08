@@ -68,29 +68,43 @@ def seed(engine):
         s.add(org_a)
         s.add(org_b)
         s.commit()
-        comp_a = Company(organization_id=org_a.id, name="Acme A")
-        comp_b = Company(organization_id=org_b.id, name="Beta B")
+        # Both report in DKK, which is what their seeded invoices are posted in.
+        comp_a = Company(organization_id=org_a.id, name="Acme A", base_currency="DKK")
+        comp_b = Company(organization_id=org_b.id, name="Beta B", base_currency="DKK")
         s.add(comp_a)
         s.add(comp_b)
         s.commit()
+        # DKK invoices for DKK-reporting companies: converted at rate 1, the
+        # ordinary case, so base-currency reads and reports have data to work on.
         inv_a = Invoice(company_id=comp_a.id, invoice_number="A1",
                         invoice_date=date(2025, 7, 1), currency="DKK",
-                        total=Decimal("100.00"), status="uncategorized")
+                        total=Decimal("100.00"), status="uncategorized",
+                        base_currency="DKK", base_total=Decimal("100.00"),
+                        fx_rate=Decimal("1"), fx_rate_date=date(2025, 7, 1))
         inv_b = Invoice(company_id=comp_b.id, invoice_number="B1",
                         invoice_date=date(2025, 8, 1), currency="DKK",
-                        total=Decimal("50.00"), status="uncategorized")
+                        total=Decimal("50.00"), status="uncategorized",
+                        base_currency="DKK", base_total=Decimal("50.00"),
+                        fx_rate=Decimal("1"), fx_rate_date=date(2025, 8, 1))
         s.add(inv_a)
         s.add(inv_b)
         s.commit()
+        converted = {"base_currency": "DKK", "fx_rate": Decimal("1")}
         line_a1 = InvoiceLine(company_id=comp_a.id, invoice_id=inv_a.id, description="Cloud server",
-                              amount=Decimal("80.00"), status="uncategorized")
+                              amount=Decimal("80.00"), status="uncategorized",
+                              base_amount=Decimal("80.00"),
+                              fx_rate_date=date(2025, 7, 1), **converted)
         line_a2 = InvoiceLine(company_id=comp_a.id, invoice_id=inv_a.id, description="Support",
                               amount=Decimal("20.00"), status="ai_categorized",
                               level_2="Technology", account_code="6010",
                               account_name="Cloud Hosting & Infrastructure",
-                              confidence=Decimal("0.900"), rationale="matched")
+                              confidence=Decimal("0.900"), rationale="matched",
+                              base_amount=Decimal("20.00"),
+                              fx_rate_date=date(2025, 7, 1), **converted)
         line_b1 = InvoiceLine(company_id=comp_b.id, invoice_id=inv_b.id, description="Legal retainer",
-                              amount=Decimal("50.00"), status="uncategorized")
+                              amount=Decimal("50.00"), status="uncategorized",
+                              base_amount=Decimal("50.00"),
+                              fx_rate_date=date(2025, 8, 1), **converted)
         s.add(line_a1)
         s.add(line_a2)
         s.add(line_b1)

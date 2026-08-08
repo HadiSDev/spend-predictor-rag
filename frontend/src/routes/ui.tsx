@@ -42,6 +42,14 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -68,6 +76,14 @@ import {
   Progress,
   RadioGroup,
   RadioItem,
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxGroupLabel,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
   Select,
   SelectContent,
   SelectItem,
@@ -98,6 +114,13 @@ import {
 } from '#/components/ui'
 
 export const Route = createFileRoute('/ui')({ component: UiShowcase })
+
+const VENDORS = ['Acme A/S', 'Bolt Industries', 'Contoso ApS', 'Danfoss', 'Elkjøp Erhverv']
+
+const CATEGORY_GROUPS = [
+  { value: 'Technology', items: ['Cloud hosting', 'Laptops', 'Software licences'] },
+  { value: 'Facilities', items: ['Cleaning', 'Electricity', 'Office supplies'] },
+]
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -306,6 +329,73 @@ function UiShowcase() {
           </div>
         </Section>
 
+        <Section title="Combobox (searchable select)">
+          <div className="grid w-full gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel>Vendor</FieldLabel>
+              <Combobox items={VENDORS}>
+                <ComboboxInput placeholder="Search vendors…" />
+                <ComboboxContent>
+                  <ComboboxEmpty>No vendors found.</ComboboxEmpty>
+                  <ComboboxList>
+                    {(vendor: string) => (
+                      <ComboboxItem key={vendor} value={vendor}>
+                        {vendor}
+                      </ComboboxItem>
+                    )}
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
+            </Field>
+            <Field>
+              <FieldLabel>Category (grouped)</FieldLabel>
+              <Combobox items={CATEGORY_GROUPS}>
+                <ComboboxInput placeholder="Search categories…" />
+                <ComboboxContent>
+                  <ComboboxEmpty>No categories found.</ComboboxEmpty>
+                  <ComboboxList>
+                    {(group: (typeof CATEGORY_GROUPS)[number]) => (
+                      <ComboboxGroup key={group.value} items={group.items}>
+                        <ComboboxGroupLabel>{group.value}</ComboboxGroupLabel>
+                        {group.items.map((item) => (
+                          <ComboboxItem key={item} value={item}>
+                            {item}
+                          </ComboboxItem>
+                        ))}
+                      </ComboboxGroup>
+                    )}
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
+            </Field>
+            <Field>
+              <FieldLabel>Disabled</FieldLabel>
+              <Combobox items={VENDORS} disabled defaultValue="Acme A/S">
+                <ComboboxInput placeholder="Search vendors…" />
+              </Combobox>
+            </Field>
+            <Field>
+              <FieldLabel>Loading</FieldLabel>
+              <Combobox items={[]}>
+                <ComboboxInput placeholder="Search vendors…" />
+                <ComboboxContent loading>
+                  <ComboboxList />
+                </ComboboxContent>
+              </Combobox>
+            </Field>
+            <Field>
+              <FieldLabel>Empty (no options)</FieldLabel>
+              <Combobox items={[]}>
+                <ComboboxInput placeholder="Search vendors…" />
+                <ComboboxContent>
+                  <ComboboxEmpty>Nothing to pick yet.</ComboboxEmpty>
+                  <ComboboxList />
+                </ComboboxContent>
+              </Combobox>
+            </Field>
+          </div>
+        </Section>
+
         <Section title="Number & date">
           <div className="grid w-full gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
@@ -345,6 +435,21 @@ function UiShowcase() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          <Drawer>
+            <DrawerTrigger render={<Button variant="outline">Open drawer</Button>} />
+            <DrawerContent>
+              <DrawerHeader>
+                <DrawerTitle>Entry detail</DrawerTitle>
+                <DrawerDescription>
+                  A side panel for record detail, so the table behind it stays in place.
+                </DrawerDescription>
+              </DrawerHeader>
+              <DrawerFooter>
+                <DrawerClose render={<Button variant="ghost">Close</Button>} />
+              </DrawerFooter>
+            </DrawerContent>
+          </Drawer>
 
           <AlertDialog>
             <AlertDialogTrigger render={<Button variant="destructive">Delete</Button>} />

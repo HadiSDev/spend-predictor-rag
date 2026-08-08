@@ -6,11 +6,11 @@ import type { CategorySpendRow, EntrySummaryRow } from '#/lib/types'
 describe('DashboardBody', () => {
   it('renders stat cards and the category table from report data', () => {
     const entryRows: Array<EntrySummaryRow> = [
-      { entry_type: 'invoice', currency: 'DKK', debit_total: '1000', credit_total: '0', net: '1000', count: 3 },
-      { entry_type: 'credit_note', currency: 'DKK', debit_total: '0', credit_total: '250', net: '-250', count: 1 },
+      { entry_type: 'invoice', currency: 'DKK', debit_total: '1000', credit_total: '0', net: '1000', count: 3, unconverted_count: 0 },
+      { entry_type: 'credit_note', currency: 'DKK', debit_total: '0', credit_total: '250', net: '-250', count: 1, unconverted_count: 0 },
     ]
     const categoryRows: Array<CategorySpendRow> = [
-      { level_2: 'Technology', level_3: null, currency: 'DKK', amount_total: '750', count: 2 },
+      { level_2: 'Technology', level_3: null, currency: 'DKK', amount_total: '750', count: 2, unconverted_count: 0 },
     ]
 
     render(<DashboardBody entryRows={entryRows} categoryRows={categoryRows} />)

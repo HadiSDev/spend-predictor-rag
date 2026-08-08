@@ -61,10 +61,14 @@ a single class-merge utility, so it composes without re-styling.
 The library SHALL provide, and export from `frontend/src/components/ui/`, at least: Button,
 IconButton, Input, NumberInput (`react-number-format`), Textarea, Select,
 Checkbox, Radio, Switch, Field/Label/Error, Form (`react-hook-form`), Calendar +
-DatePicker (`react-day-picker`), Dialog, AlertDialog, DropdownMenu, Tabs, Tooltip, Popover,
+DatePicker (`react-day-picker`), Dialog, AlertDialog, Drawer, DropdownMenu, Tabs, Tooltip, Popover,
 Toast, Avatar, Badge, Card (incl. a stat card), Separator, Skeleton, Progress,
 Pagination, Table, a sortable+paginated DataTable (`@tanstack/react-table`), and a
 reusable AppShell (sidebar + topbar).
+
+The Drawer SHALL be a side-anchored panel built on the same Base UI dialog
+primitive as Dialog, so it inherits focus trapping, escape dismissal, and scroll
+locking, and SHALL support anchoring to either side.
 
 #### Scenario: Single import surface
 
@@ -82,15 +86,39 @@ reusable AppShell (sidebar + topbar).
 - **THEN** the field's error message renders (label associated, control marked
   `aria-invalid`) and, once valid, the error clears and submission proceeds
 
+#### Scenario: Drawer opens from a side and dismisses
+
+- **WHEN** a Drawer is opened
+- **THEN** it enters from its anchored side with focus moved inside it, and
+  escape or its close control dismisses it and returns focus to the trigger
+
 ### Requirement: Light and dark theming
 
 The library SHALL support light (default) and dark themes via a token set toggled
 by a `.dark` class on the document root, with a provider that persists the choice.
+The persisted choice SHALL be a *preference* of light, dark, or **system**; when
+it is `system` the provider SHALL resolve the applied theme from the operating
+system's colour-scheme setting and SHALL follow that setting while it remains
+`system`. Consumers SHALL be able to read both the resolved theme and the stored
+preference, so a control can show what the user actually chose rather than what
+is currently displayed.
 
 #### Scenario: Dark mode swaps tokens
 
 - **WHEN** the dark theme is active
 - **THEN** canvas/surface/ink tokens invert while the accent stays consistent
+
+#### Scenario: System preference follows the OS
+
+- **WHEN** the stored preference is `system`
+- **THEN** the applied theme matches the operating system's colour scheme, and it
+  changes with the OS setting without a reload
+
+#### Scenario: Preference survives a reload
+
+- **WHEN** the user picks a preference and reloads
+- **THEN** the same preference is in effect, and a `system` preference is not
+  flattened into the light or dark value it happened to resolve to
 
 ### Requirement: Kitchen-sink verification route
 
@@ -101,3 +129,4 @@ the theme and component states can be verified visually.
 
 - **WHEN** `/ui` is opened
 - **THEN** each component in the library is rendered with its key variants/states
+

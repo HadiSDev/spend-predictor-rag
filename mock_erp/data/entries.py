@@ -2,10 +2,11 @@
 
 Real ERPs expose the ledger as **entries** — individual debit/credit postings —
 not as invoices. Each entry carries the ``voucherId`` of the posting it belongs
-to. One posted purchase invoice becomes several entries (a net debit per expense
-account, an input-VAT debit, and an accounts-payable credit) that reconcile to
-the invoice's net + VAT. Some vouchers (payments, journal entries) have no invoice
-scan at all — they exist to prove that entries can be unlinked.
+to. One posted purchase invoice becomes several entries — **one debit per invoice
+line**, carrying that line's description, plus an input-VAT debit and an
+accounts-payable credit — that reconcile to the invoice's net + VAT. Some
+vouchers (payments, journal entries) have no invoice scan at all — they exist to
+prove that entries can be unlinked.
 
 Entries are derived from the already-generated invoices so the two datasets stay
 mutually reconcilable.
@@ -50,7 +51,8 @@ def generate(invoices: list[dict], seed: int = 42) -> list[dict]:
     entry_no = [9000]
 
     def _emit(voucher: int, account: int, debit: float, credit: float,
-              d: str, currency: str, entry_type: str, description: str) -> None:
+              d: str, currency: str, entry_type: str, description: str,
+              line_number: int | None = None) -> None:
         entry_no[0] += 1
         entries.append({
             "entryNumber": entry_no[0],
@@ -62,6 +64,10 @@ def generate(invoices: list[dict], seed: int = 42) -> list[dict]:
             "debit": round(debit, 2),
             "credit": round(credit, 2),
             "currency": currency,
+            # The invoice line this posting came from, when there is one. Input
+            # VAT and the payable are properties of the whole invoice, so they
+            # carry none — and a consumer must not read that as a defect.
+            "lineNumber": line_number,
         })
 
     for inv in invoices:
@@ -70,18 +76,25 @@ def generate(invoices: list[dict], seed: int = 42) -> list[dict]:
         currency = inv.get("currency", "DKK")
         vendor_name = inv.get("supplier", {}).get("name", "")
 
-        # Net debit per distinct expense account (sum of that account's lines).
-        net_by_account: dict[int, float] = {}
+        # One debit posting per invoice line, carrying that line's own text.
+        #
+        # This is what a real ERP does, and the text is the point: an expense
+        # posting's description is the line it came from, which is what lets a
+        # ledger row be read against the invoice and tied back to the
+        # `InvoiceLine` the categorizer worked on. Netting the lines per account
+        # — the earlier shape — threw that text away and, since every line of an
+        # invoice shares one account here, collapsed each invoice to a single
+        # anonymous "Vendor — Account name" posting.
         for ln in inv.get("lines", []):
             acct = ln.get("account", {}).get("accountNumber")
             if acct is None:
                 continue
-            net_by_account[acct] = net_by_account.get(acct, 0.0) + ln.get("netAmount", 0.0)
-
-        for acct, net in net_by_account.items():
-            _emit(voucher, acct, debit=net, credit=0.0, d=d, currency=currency,
-                  entry_type="purchase_invoice",
-                  description=f"{vendor_name} — {_account_name(acct)}")
+            _emit(voucher, acct, debit=ln.get("netAmount", 0.0), credit=0.0, d=d,
+                  currency=currency, entry_type="purchase_invoice",
+                  # A line without text still has to say something a human can
+                  # read, so fall back to the account it posted to.
+                  description=ln.get("description") or f"{vendor_name} — {_account_name(acct)}",
+                  line_number=ln.get("lineNumber"))
 
         # Input VAT debit.
         vat = inv.get("vatAmount", 0.0)

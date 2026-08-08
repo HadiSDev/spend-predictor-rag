@@ -15,6 +15,7 @@ from .. import reporting
 from ..deps import TenantScope, get_session, resolve_company_ids, tenant_scope
 from ..schemas import (
     CategorySpendRow,
+    CurrencyMode,
     EntryAccountRow,
     EntrySummaryRow,
     Report,
@@ -30,12 +31,14 @@ def entries_summary(
     entry_type: str | None = Query(default=None),
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
+    currency_mode: CurrencyMode = Query(default="base"),
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> Report:
     company_ids = resolve_company_ids(scope, company_id)
     rows = reporting.entries_summary(
-        session, company_ids, entry_type=entry_type, from_date=from_date, to_date=to_date
+        session, company_ids, entry_type=entry_type, from_date=from_date, to_date=to_date,
+        currency_mode=currency_mode,
     )
     return Report(rows=rows)
 
@@ -46,12 +49,14 @@ def entries_by_account(
     entry_type: str | None = Query(default=None),
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
+    currency_mode: CurrencyMode = Query(default="base"),
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> Report:
     company_ids = resolve_company_ids(scope, company_id)
     rows = reporting.entries_by_account(
-        session, company_ids, entry_type=entry_type, from_date=from_date, to_date=to_date
+        session, company_ids, entry_type=entry_type, from_date=from_date, to_date=to_date,
+        currency_mode=currency_mode,
     )
     return Report(rows=rows)
 
@@ -62,12 +67,14 @@ def spend_by_category(
     level: str = Query(default="level_2", pattern="^(level_2|level_3)$"),
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
+    currency_mode: CurrencyMode = Query(default="base"),
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> Report:
     company_ids = resolve_company_ids(scope, company_id)
     rows = reporting.spend_by_category(
-        session, company_ids, level=level, from_date=from_date, to_date=to_date
+        session, company_ids, level=level, from_date=from_date, to_date=to_date,
+        currency_mode=currency_mode,
     )
     return Report(rows=rows)
 
@@ -77,11 +84,13 @@ def spend_by_vendor(
     company_id: str | None = Query(default=None),
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
+    currency_mode: CurrencyMode = Query(default="base"),
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> Report:
     company_ids = resolve_company_ids(scope, company_id)
     rows = reporting.spend_by_vendor(
-        session, company_ids, from_date=from_date, to_date=to_date
+        session, company_ids, from_date=from_date, to_date=to_date,
+        currency_mode=currency_mode,
     )
     return Report(rows=rows)

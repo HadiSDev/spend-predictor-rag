@@ -73,8 +73,14 @@ return the user to `/sign-in`.
 
 The frontend SHALL call the web API through a typed client that attaches the
 Clerk session token as a Bearer credential and targets `VITE_API_BASE_URL`,
-using TanStack Query for caching and request state. Non-2xx responses SHALL raise
-a typed error the UI can render.
+using TanStack Query for caching and request state. The client SHALL support
+reads (`GET`) and authenticated writes (`POST`, `PATCH`, `DELETE`) with JSON
+request bodies, sending `Content-Type: application/json` when a body is present.
+Non-2xx responses SHALL raise a typed error the UI can render, carrying the HTTP
+status and, when the response body contains FastAPI's `detail`, that message —
+so a caller can show the API's own explanation rather than a generic failure
+string. A `204 No Content` response SHALL resolve without attempting to parse a
+body.
 
 #### Scenario: Requests carry the session token
 
@@ -86,6 +92,19 @@ a typed error the UI can render.
 - **WHEN** the web API returns a non-2xx response
 - **THEN** the client raises a typed error and the calling UI shows an error
   state rather than crashing
+
+#### Scenario: A write is performed
+
+- **WHEN** the UI submits a create or update through the client
+- **THEN** the request uses the corresponding method with a JSON body and the
+  session token, and the parsed response is returned to the caller
+
+#### Scenario: Error detail is preserved
+
+- **WHEN** the web API rejects a write with a status and a `detail` message (for
+  example 403 for an insufficient role or 409 for a duplicate slug)
+- **THEN** the typed error exposes both the status and that message, and the UI
+  can present the message to the user
 
 ### Requirement: Current principal available to the app
 
@@ -103,6 +122,46 @@ it available to descendants, exposing at least `email`, `name`, `role`,
 - **WHEN** the principal is available
 - **THEN** an `isSystemAdmin` flag and a reusable system-admin guard are exposed
   for future `/admin/*` routes, without any `/admin/*` page existing yet
+
+### Requirement: Persistent application shell across authenticated routes
+
+The themed application shell SHALL be owned by the authenticated layout rather
+than by any single page — sidebar, navigation, topbar, theme toggle, and user
+menu — so every authenticated route renders inside it and the shell is not
+remounted when navigating between routes. Sidebar navigation entries SHALL be
+router links that navigate on activation, and the entry matching the current
+route SHALL be rendered as active. Entries for pages that do not exist yet SHALL
+remain visibly disabled.
+
+The navigation SHALL offer an **Entries** entry linking to the `/entries` route.
+It replaces the previous disabled **Invoices** placeholder: entries are what the
+ERP sync actually produces, and one spend event is several entries, so the entry
+is the unit the navigation leads with. No Invoices entry SHALL be shown until an
+invoice review page exists.
+
+#### Scenario: Shell is shared by every authenticated page
+
+- **WHEN** a signed-in user navigates from the dashboard to another
+  authenticated route
+- **THEN** the same shell persists, with the page content swapping inside it
+
+#### Scenario: Active route is highlighted
+
+- **WHEN** an authenticated route is open
+- **THEN** the sidebar entry corresponding to it is marked active and the others
+  are not
+
+#### Scenario: Navigation happens through the router
+
+- **WHEN** the user activates an enabled sidebar entry
+- **THEN** the router navigates to that route and the URL updates, without a full
+  page load
+
+#### Scenario: Entries is a working navigation entry
+
+- **WHEN** a signed-in user activates the Entries entry
+- **THEN** the router navigates to `/entries`, the entry is marked active, and no
+  disabled Invoices entry is present
 
 ### Requirement: Dashboard renders live reporting data
 
@@ -133,3 +192,4 @@ be presented grouped by currency and never summed across currencies.
 
 - **WHEN** entries or spend span multiple currencies
 - **THEN** totals are shown per currency and are not combined into a single sum
+

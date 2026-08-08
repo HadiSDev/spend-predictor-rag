@@ -1,10 +1,21 @@
 import * as React from 'react'
 import { cn } from './cn'
 
+/**
+ * A framed data table. The frame is what gives rows something to sit inside —
+ * without it, hairline row dividers read as loose text on the card behind them.
+ *
+ * `--shadow-panel` is deliberately shallower than the card's own shadow so the
+ * table reads as one step nested, not as a second card floating on the first.
+ */
 export const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (
-    <div className="w-full overflow-x-auto">
-      <table ref={ref} className={cn('w-full caption-bottom text-sm', className)} {...props} />
+    <div className="w-full overflow-hidden rounded-xl border border-border bg-card shadow-panel">
+      {/* Scrolling lives inside the frame, so the border stays put while wide
+          tables scroll under it. */}
+      <div className="w-full overflow-x-auto">
+        <table ref={ref} className={cn('w-full caption-bottom text-sm', className)} {...props} />
+      </div>
     </div>
   ),
 )
@@ -13,7 +24,15 @@ Table.displayName = 'Table'
 export const TableHeader = React.forwardRef<
   HTMLTableSectionElement,
   React.HTMLAttributes<HTMLTableSectionElement>
->(({ className, ...props }, ref) => <thead ref={ref} className={cn('[&_tr]:border-b [&_tr]:border-border', className)} {...props} />)
+>(({ className, ...props }, ref) => (
+  <thead
+    ref={ref}
+    // A tinted band separates the header from the data without needing a
+    // heavier rule; the divider below it can then stay a hairline.
+    className={cn('bg-muted/60 [&_tr]:border-b [&_tr]:border-border', className)}
+    {...props}
+  />
+))
 TableHeader.displayName = 'TableHeader'
 
 export const TableBody = React.forwardRef<
@@ -43,7 +62,7 @@ export const TableHead = React.forwardRef<
   <th
     ref={ref}
     className={cn(
-      'h-11 px-4 text-left align-middle text-xs font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0',
+      'h-10 px-4 text-left align-middle text-xs font-semibold uppercase tracking-wider text-muted-foreground [&:has([role=checkbox])]:pr-0',
       className,
     )}
     {...props}

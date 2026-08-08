@@ -1,8 +1,10 @@
 import * as React from 'react'
 import { Outlet, createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useAuth, useOrganizationList } from '@clerk/tanstack-react-start'
+import { useAuth } from '@clerk/tanstack-react-start'
 import { LoadingScreen } from '#/components/ui'
+import { AppLayout } from '#/components/app-shell'
 import { AuthProvider } from '#/lib/auth'
+import { useOrgMemberships } from '#/lib/orgs'
 
 export const Route = createFileRoute('/_authed')({ component: AuthedLayout })
 
@@ -24,8 +26,7 @@ function FullScreen({ children }: { children: React.ReactNode }) {
 function AuthedLayout() {
   const { isLoaded, isSignedIn, orgId } = useAuth({ treatPendingAsSignedOut: false })
   const navigate = useNavigate()
-  const orgList = useOrganizationList({ userMemberships: true })
-  const memberships = orgList.userMemberships?.data
+  const { isLoaded: orgsLoaded, memberships, setActive } = useOrgMemberships()
   const activating = React.useRef(false)
 
   // Truly signed out → sign-in.
@@ -37,20 +38,20 @@ function AuthedLayout() {
   // membership once. This resolves the pending session into an active one.
   React.useEffect(() => {
     if (!isSignedIn || orgId || activating.current) return
-    if (!orgList.isLoaded || !orgList.setActive) return
-    const first = memberships?.[0]
+    if (!orgsLoaded || !setActive) return
+    const first = memberships.at(0)
     if (first) {
       activating.current = true
-      void orgList.setActive({ organization: first.organization.id })
+      void setActive({ organization: first.id })
     }
-  }, [isSignedIn, orgId, orgList.isLoaded, orgList.setActive, memberships])
+  }, [isSignedIn, orgId, orgsLoaded, setActive, memberships])
 
   if (!isLoaded) return <LoadingScreen />
   if (!isSignedIn) return <LoadingScreen message="Redirecting…" />
 
   // Pending: signed in but no active organization yet.
   if (!orgId) {
-    if (orgList.isLoaded && memberships && memberships.length === 0) {
+    if (orgsLoaded && memberships.length === 0) {
       return (
         <FullScreen>
           <h1 className="font-display text-lg font-semibold text-foreground">No organization</h1>
@@ -64,9 +65,13 @@ function AuthedLayout() {
     return <LoadingScreen message="Preparing your workspace…" />
   }
 
+  // The shell lives here, not in a page, so it mounts once for every
+  // authenticated route and survives navigation between them.
   return (
     <AuthProvider>
-      <Outlet />
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
     </AuthProvider>
   )
 }
