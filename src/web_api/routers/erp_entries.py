@@ -556,10 +556,12 @@ def _voucher_audit(session: Session, detail: VoucherDetailRead) -> list[VoucherA
         select(AuditLog)
         .where(AuditLog.entity_id.in_(list(labels)))
         .where(AuditLog.entity_type.in_(["invoice", "invoice_line"]))
-        # Newest first. `id` is only a tiebreak for the (now rare — see
-        # `record_audit`) case of two rows sharing a `created_at`; it keeps the
-        # order stable across requests even then, rather than reordering.
-        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        # Newest first, by true insertion order. Not `created_at`: on
+        # PostgreSQL that column is constant for the whole transaction, so
+        # rows written together (e.g. two lines verified in one request)
+        # always tie on it — `seq` is monotonic per row, so no tiebreak
+        # column is needed on top of it.
+        .order_by(AuditLog.seq.desc())
     ).all()
     return [
         VoucherAuditRead(

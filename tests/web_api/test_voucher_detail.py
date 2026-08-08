@@ -160,21 +160,27 @@ def test_voucher_audit_unknown_voucher_is_404(client, voucher_seed):
     assert res.status_code == 404
 
 
-def test_voucher_audit_tiebreak_is_deterministic_across_requests(client, engine, voucher_seed):
-    """Several audit rows can share a `created_at` (one transaction writing more
-    than one row). Fabricate that tie directly rather than hoping two HTTP
-    requests land in different microseconds, and prove the order the feed picks
-    is the same on every request rather than shuffling."""
+def test_voucher_audit_orders_by_seq_not_created_at(client, engine, voucher_seed):
+    """Two rows written in the same PostgreSQL transaction share `created_at`
+    exactly — it is constant for the whole transaction there, not merely
+    coarse-grained — so `created_at` alone carries no ordering information for
+    them. `seq` (a true, monotonic insertion-order column) is what the feed
+    must order by instead; this fabricates that tie directly and proves the
+    feed's order is real and stable, not a coincidence of `created_at`."""
     tied = datetime(2025, 7, 10, 12, 0, 0, tzinfo=timezone.utc)
     with Session(engine) as s:
         row1 = AuditLog(entity_type="invoice_line", entity_id=voucher_seed["line_a1"],
                         action="ai_categorize", actor="system", changes=[], created_at=tied)
+        s.add(row1)
+        s.commit()
         row2 = AuditLog(entity_type="invoice_line", entity_id=voucher_seed["line_a2"],
                         action="ai_categorize", actor="system", changes=[], created_at=tied)
-        s.add(row1)
         s.add(row2)
         s.commit()
-        expected_order = [row1.id, row2.id] if row1.id > row2.id else [row2.id, row1.id]
+        # The tie is real, and seq still tells them apart in write order.
+        assert row1.created_at == row2.created_at
+        assert row1.seq < row2.seq
+        expected_order = [row2.id, row1.id]  # newest (highest seq) first
 
     first = client.get(f"/api/v1/erp-entries/vouchers/{voucher_seed['voucher']}/audit",
                        headers=auth("tokA")).json()
