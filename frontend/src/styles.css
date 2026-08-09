@@ -231,6 +231,26 @@ h4 {
   animation: ep-loading-glow 4s ease-in-out infinite;
 }
 
+/*
+ * Activity-feed entrance stagger (transform/opacity only — GPU-safe). Applied
+ * only on first paint (see `voucher-activity-tab.tsx`) and only once already
+ * per-row-delayed via inline `animation-delay`, so this runs once per row
+ * rather than looping.
+ */
+@keyframes ep-activity-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.ep-activity-row {
+  animation: ep-activity-row-in 240ms ease-out both;
+}
+
 /* Accessibility: honour reduced-motion for the whole app. */
 @media (prefers-reduced-motion: reduce) {
   *,
