@@ -84,6 +84,41 @@ describe('VoucherDetailsTab', () => {
     expect(screen.getByText(/pdf extraction/i)).toBeTruthy()
   })
 
+  it('tracks the invoice prop rather than only its value at mount', () => {
+    // A drawer that stays mounted while the selected voucher changes must not
+    // leave a parsed header showing the previous invoice's values.
+    const invoiceA = invoice({
+      id: 'inv-a',
+      source: 'pdf_extraction',
+      invoice_number: 'INV-A',
+    })
+    const invoiceB = invoice({
+      id: 'inv-b',
+      source: 'pdf_extraction',
+      invoice_number: 'INV-B',
+    })
+
+    const { rerender } = render(
+      <VoucherDetailsTab invoice={invoiceA} onVerifyLine={vi.fn()} />,
+    )
+    expect(screen.getByLabelText<HTMLInputElement>(/invoice number/i).value).toBe('INV-A')
+
+    rerender(<VoucherDetailsTab invoice={invoiceB} onVerifyLine={vi.fn()} />)
+    expect(screen.getByLabelText<HTMLInputElement>(/invoice number/i).value).toBe('INV-B')
+  })
+
+  it('does not resend a level reverted back to its original value', async () => {
+    const onVerifyLine = vi.fn().mockResolvedValue(undefined)
+    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} />)
+
+    const level2 = screen.getByLabelText<HTMLInputElement>(/level 2/i)
+    fireEvent.change(level2, { target: { value: 'Office supplies' } })
+    fireEvent.change(level2, { target: { value: 'Furniture' } }) // back to the original value
+    fireEvent.click(screen.getByRole('button', { name: /accept/i }))
+
+    await waitFor(() => expect(onVerifyLine).toHaveBeenCalledWith('l2', {}))
+  })
+
   it('submits a corrected category and shows the confidence being judged', async () => {
     const onVerifyLine = vi.fn().mockResolvedValue(undefined)
     render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} />)

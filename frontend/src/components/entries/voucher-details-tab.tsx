@@ -67,6 +67,57 @@ function headerValuesFrom(invoice: InvoiceDetailRead): HeaderValues {
 }
 
 /**
+ * The correctable (`pdf_extraction`) header fields. Rendered by the parent
+ * with `key={invoice.id}` — the same discipline `LineCategoryEditor` uses for
+ * its own local edit state: a *different* invoice is a different identity,
+ * not a prop update to react to, so a key forces a remount and a fresh
+ * `useState` initializer rather than carrying edit state from the previous
+ * invoice forward. A `useEffect` that resets state on prop change would work
+ * too, but only after an extra render showing the stale value — the key
+ * avoids that render entirely.
+ */
+function EditableInvoiceHeader({ invoice }: { invoice: InvoiceDetailRead }) {
+  const [header, setHeader] = React.useState<HeaderValues>(() => headerValuesFrom(invoice))
+
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <Field>
+        <FieldLabel>Invoice number</FieldLabel>
+        <FieldControl
+          value={header.invoice_number}
+          onChange={(event) =>
+            setHeader((current) => ({ ...current, invoice_number: event.target.value }))
+          }
+        />
+      </Field>
+      <Field>
+        <FieldLabel>Invoice date</FieldLabel>
+        <FieldControl
+          value={header.invoice_date}
+          onChange={(event) =>
+            setHeader((current) => ({ ...current, invoice_date: event.target.value }))
+          }
+        />
+      </Field>
+      <Field>
+        <FieldLabel>Total</FieldLabel>
+        <FieldControl
+          value={header.total}
+          onChange={(event) => setHeader((current) => ({ ...current, total: event.target.value }))}
+        />
+      </Field>
+      <Field>
+        <FieldLabel>Tax</FieldLabel>
+        <FieldControl
+          value={header.tax}
+          onChange={(event) => setHeader((current) => ({ ...current, tax: event.target.value }))}
+        />
+      </Field>
+    </div>
+  )
+}
+
+/**
  * The Details tab: the invoice header and the per-line categorization
  * editors. Provenance decides affordance throughout — an ERP-posted header is
  * evidence (flat text, tinted surface); a PDF-parsed header is correctable
@@ -75,7 +126,6 @@ function headerValuesFrom(invoice: InvoiceDetailRead): HeaderValues {
  */
 export function VoucherDetailsTab({ invoice, onVerifyLine }: VoucherDetailsTabProps) {
   const isErp = invoice.source === 'erp'
-  const [header, setHeader] = React.useState<HeaderValues>(() => headerValuesFrom(invoice))
 
   return (
     <div className="flex flex-col gap-6">
@@ -99,44 +149,7 @@ export function VoucherDetailsTab({ invoice, onVerifyLine }: VoucherDetailsTabPr
             />
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field>
-              <FieldLabel>Invoice number</FieldLabel>
-              <FieldControl
-                value={header.invoice_number}
-                onChange={(event) =>
-                  setHeader((current) => ({ ...current, invoice_number: event.target.value }))
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel>Invoice date</FieldLabel>
-              <FieldControl
-                value={header.invoice_date}
-                onChange={(event) =>
-                  setHeader((current) => ({ ...current, invoice_date: event.target.value }))
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel>Total</FieldLabel>
-              <FieldControl
-                value={header.total}
-                onChange={(event) =>
-                  setHeader((current) => ({ ...current, total: event.target.value }))
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel>Tax</FieldLabel>
-              <FieldControl
-                value={header.tax}
-                onChange={(event) =>
-                  setHeader((current) => ({ ...current, tax: event.target.value }))
-                }
-              />
-            </Field>
-          </div>
+          <EditableInvoiceHeader key={invoice.id} invoice={invoice} />
         )}
       </section>
 
