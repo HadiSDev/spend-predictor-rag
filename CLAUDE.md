@@ -35,6 +35,9 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 - Run PDF pipeline: `uv run main.py`
 - Run sync pipeline: `python -m ai_api.sync.runner` (syncs **every connected
   `ErpIntegration`**; see below)
+- Run document processing: `python -m ai_api.documents.runner` (reads each
+  pending invoice's attached scan into invoice lines; a **separate** process
+  from the sync — see below)
 - Run web API: `uvicorn web_api.app:app --reload`
 - Run dashboard: `streamlit run src/web_api/dashboard/app.py`
 - Test: `uv run pytest`
@@ -79,7 +82,10 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 - **Endpoints**: read — `GET /users/me` (current principal), `/users` (org member
   directory), `/vendors` (the org's referenced suppliers, `?q=`),
   `GET /companies` (`?include_inactive`; each carries its `base_currency`), `/invoices`,
-  `/invoices/{id}`, `/invoice-lines`, `/invoice-lines/{id}/audit`, `/erp-entries`
+  `/invoices/{id}`, `/invoice-lines` (filters: `status`/`company_id`/`vendor_id`/
+  `voucher_id`/`origin`/`from`/`to` — the last four resolve through the line's
+  invoice, since a line carries no date, supplier or voucher of its own),
+  `/invoice-lines/{id}/audit`, `/erp-entries`
   (filters: `company_id`/`entry_type`/`voucher_id`/`source_invoice_id`/`status`/
   `from`/`to`/`vendor_id` — `from`/`to` bound `accounting_date`, and `vendor_id`
   resolves through the entry's source invoice, so unlinked postings never match;
@@ -120,6 +126,8 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   `PATCH /companies/{id}`, `POST /companies/{id}/deactivate|activate`,
   `POST /companies/{id}/recompute-fx` (rewrite stored base amounts),
   `POST /invoice-lines/{id}/verify` (accept or correct the categorization),
+  `POST /invoices/{id}/reprocess` (queue the attached scan to be read again —
+  409 with no document or while `processing`; see Document processing),
   `PATCH /invoices/{id}` (correct the parsed header — **409 unless
   `Invoice.source == 'pdf_extraction'`**; see below),
   `PATCH /organization`. **ERP integrations** — `POST /erp-integrations` (with
@@ -165,6 +173,87 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 - **Ground truth is ai_api-only.** Synthetic `gt_*` values live in the
   ai_api-owned `line_ground_truth` store (`ai_api/persistence/`), never on the
   domain line. For real data, a `verified` line's values are treated as truth.
+- **Origin never changes categorization.** A `document_ai`, `erp` and
+  `entry_fallback` line all move through the same lifecycle and all count in the
+  reports. A stand-in line's spend is real spend, and withholding it pending a
+  document that may never arrive would leave most of the ledger uncategorized.
+
+## Invoice lines: the unit of spend
+
+- **The Entries page lists invoice lines, not postings.** A posting is what the
+  bookkeeper wrote; a line is what was bought, and only a line carries a
+  description, a category and a human's verification. Vouchers remain the
+  grouping and expand into their lines; the postings stay on the voucher panel's
+  **Postings tab** as ledger evidence.
+- **`InvoiceLine.origin`** is `document_ai` | `erp` | `entry_fallback`, in that
+  precedence. The document is the only source that knows what was bought; the
+  ERP's bill lines are its own statement of the voucher; a posting is the floor.
+  **An invoice holds exactly one origin at a time** — two would describe the same
+  spend twice and double its total. Stored, never inferred: a stand-in line and
+  an extracted line can be identical in every other field, and the difference is
+  whether anyone read the document.
+- **Stand-in lines.** When no better source produced one, the sync writes one
+  line per **expense** posting (`EXPENSE_ACCOUNT_TYPE` in `db/models/enums.py` —
+  the *same* constant the voucher's Total Spend is netted from, so the lines and
+  the figure above them count the same postings). VAT, the payable and the rest
+  never become lines: an invoice's lines would then sum to zero.
+- **`InvoiceLine.sequence`** is the position its source stated. The row id is a
+  random UUID, so ordering by it alone scrambles a document — invisible while the
+  page listed postings, wrong the moment it lists lines. `id` is the tiebreak.
+- **`GET /erp-entries/vouchers` carries each voucher's lines** (batched, one
+  query) plus its invoice's `doc_status`/`doc_error`. Additive only: grouping,
+  pagination and `_voucher_amount()` are untouched, and the group's figure stays
+  the net of its expense postings — never a sum of the lines, which may
+  legitimately differ.
+
+## Document processing (`ai_api/documents/`)
+
+- **A stage of its own**, not a step in the sync: `python -m ai_api.documents.runner`
+  (`--company-id` / `--invoice-id` / `--limit`). It discovers `doc_status='pending'`
+  invoices from the database exactly as the sync runner discovers integrations —
+  no tenant, no credentials as arguments — oldest `invoice_date` first. Extraction
+  is LLM-bound and fails for reasons unrelated to the ERP; inlining it would stall
+  the ledger behind a model outage.
+- **`Invoice.doc_status`** is `not_applicable` | `pending` | `processing` |
+  `processed` | `failed`, plus `doc_attempts` / `doc_error` / `doc_processed_at`.
+  **Distinct from `Invoice.status`**, the categorization rollup: one says whether
+  we read the document, the other whether the spend is categorized.
+  `not_applicable` (no scan) is the ordinary case, not a failure.
+- **Claim before work.** The stage commits `processing` before fetching, so two
+  overlapping runs cannot both take an invoice. `doc_processed_at` doubles as the
+  claim timestamp; a claim older than `DOC_STALE_CLAIM_MINUTES` is re-taken, so a
+  run that died holding one does not strand the invoice.
+- **The sync queues, never processes, and is not a retry.** A `processed`,
+  `processing` or `failed` invoice is left alone by a sync; only a *different*
+  document requeues a processed one. The way back from `failed` is
+  `POST /invoices/{id}/reprocess` (management), which also resets the attempt
+  count — the ceiling is what stopped the stage, and a human asking is new
+  information. It 409s with no document, or while `processing`.
+- **An extraction that does not reconcile is rejected**, not flagged. The lines
+  must sum to the invoice's `total` *or* its `total − tax` (documents state
+  either; `ErpAccount.with_vat` describes the account, not the document) within
+  `max(1% , 1.00)`. Lines that miss a line would be categorized, aggregated and
+  surfaced as a savings opportunity with nothing downstream able to tell they
+  were wrong. A rejection keeps the invoice's existing lines.
+- **Replacement is whole-invoice, in one transaction, and audited.** Every
+  removed line gets an `AuditLog` row (`superseded_by_extraction`, actor
+  `system`) carrying its categorization — the only record a human's verified
+  category ever existed. Verification is not yet a platform affordance that can
+  protect a line, so extraction wins and the audit row is the groundwork.
+- **Postings are unlinked by replacement.** An extracted line has no ERP line
+  identity, so relinking would mean matching on amount — the guessing the sync's
+  derived link refuses. A posting on an extracted invoice therefore shows no
+  spend category, which is acceptable only because the category moved to where
+  the reader looks.
+- **No bytes are persisted.** The scan is fetched live per run through
+  `web_api/documents.py::resolve_document_source` — the same rule
+  `GET /invoices/{id}/document` uses, shared so the two cannot disagree about
+  which voucher holds it. Dispatch is on the ERP's declared media type: a JPEG
+  receipt records a clean unsupported-media failure rather than "Invalid PDF
+  structure" over a perfectly good document. **A vision model is not yet wired
+  in**, so images and text-layerless PDFs fail cleanly and keep their stand-ins.
+- Env: `DOC_MAX_ATTEMPTS`, `DOC_RECONCILE_TOLERANCE_PCT`,
+  `DOC_RECONCILE_TOLERANCE_ABS`, `DOC_STALE_CLAIM_MINUTES`.
 
 ## Vendors (global supplier catalog)
 
@@ -404,6 +493,7 @@ src/
 │   ├── deps.py               auth dependency chain + JIT provisioning + tenant scope
 │   ├── schemas.py            Pydantic response models
 │   ├── audit.py              generic AuditLog helpers (diff + append)
+│   ├── documents.py          where an invoice's scan lives (route + AI stage share it)
 │   ├── rollup.py             Invoice.status rollup from its lines
 │   ├── fx/                   historical FX: rate provider + cache, convert,
 │   │                         recompute, backfill CLI
@@ -431,6 +521,8 @@ src/
     ├── persistence/          ai_api-owned store: line_ground_truth (synthetic gt_*)
     ├── sync/runner.py        pipeline orchestrator (discover→connect→fetch→persist→categorize)
     ├── sync/categorizer.py   deterministic keyword categorizer (stub for Qdrant+LLM)
+    ├── documents/            document→invoice lines stage: runner (discover→claim→
+    │                         fetch→extract→reconcile→replace), extractor, reconcile
     ├── aggregation/engine.py SQL rollups (stub)
     ├── redundancy/detector.py vendor overlap detection (stub)
     └── procurement_agent/recommender.py  savings suggestions (stub)

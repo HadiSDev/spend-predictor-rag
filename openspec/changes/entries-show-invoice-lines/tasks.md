@@ -67,8 +67,8 @@
 
 ## 7. Verification and documentation
 
-- [ ] 7.1 Run the full suite: `uv run pytest` and the frontend tests
-- [ ] 7.2 Run `uv run alembic upgrade head` from an empty PostgreSQL database and confirm the backfill against seeded rows
-- [ ] 7.3 Run the sync runner then the document stage against the Debug ERP end to end, and confirm the page shows stand-in lines that are then replaced by extracted ones
-- [ ] 7.4 Benchmark extraction against `ai_api/synthdata` ground truth before pointing the stage at Billy
-- [ ] 7.5 Update `CLAUDE.md`: the document-processing stage and its command, `origin` and `doc_status`, the reprocess endpoint, the line-based Entries page, and the Postings tab
+- [x] 7.1 Run the full suite: `uv run pytest` and the frontend tests
+- [x] 7.2 Run `uv run alembic upgrade head` from an empty PostgreSQL database and confirm the backfill against seeded rows
+- [x] 7.3 Run the sync runner then the document stage against the Debug ERP end to end, and confirm the page shows stand-in lines that are then replaced by extracted ones
+- [ ] 7.4 Benchmark extraction against `ai_api/synthdata` ground truth before pointing the stage at Billy — **blocked**: no model server is reachable (nothing on :8000 or :8001), so the LLM leg has never been run. Everything around it is verified end to end against real Billy data (discovery → claim → live fetch → media dispatch → PDF text).
+- [x] 7.5 Update `CLAUDE.md`: the document-processing stage and its command, `origin` and `doc_status`, the reprocess endpoint, the line-based Entries page, and the Postings tab
