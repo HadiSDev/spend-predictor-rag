@@ -159,10 +159,26 @@ def _entry_conditions(
     list and the voucher groups cannot disagree about what exists. An explicit
     `entry_type=payment` therefore returns an empty page rather than overriding
     it — the exclusion is a product rule, not a default.
+
+    The same goes for the account selection: both listings show only entries on
+    accounts the customer has enabled, so a voucher of nothing but deselected
+    postings yields no group at all.
     """
     conditions = [
         ErpEntry.company_id.in_(company_ids),
         ErpEntry.entry_type.notin_(_EXCLUDED_ENTRY_TYPES),
+        # Only accounts the customer selected for sync. `sync_enabled` gates the
+        # *fetch*, but an account is enabled when first discovered and disabling
+        # it deletes nothing, so anything pulled before it was switched off stays
+        # in the database — and without this would keep showing on a page whose
+        # settings say that account is not part of their spend picture.
+        #
+        # A subquery rather than a join predicate: the same conditions build the
+        # `select(count()).select_from(ErpEntry)` total, which has no account
+        # join to hang it on.
+        ErpEntry.erp_account_id.in_(
+            select(ErpAccount.id).where(ErpAccount.sync_enabled == True)  # noqa: E712
+        ),
     ]
     if entry_type is not None:
         conditions.append(ErpEntry.entry_type == entry_type)

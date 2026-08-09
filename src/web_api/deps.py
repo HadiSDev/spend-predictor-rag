@@ -116,7 +116,16 @@ class TenantScope:
     organization_id: str
     user_id: str
     role: str
+    #: Every company in the org, active or not. This is the **authorization**
+    #: set: what the caller may reach at all. A deactivated company is still
+    #: theirs — its detail page must load and it has to be reactivatable — so
+    #: this must never be narrowed to the active ones.
     company_ids: list[str]
+    #: The subset that is active. This is the **listing** set: what an
+    #: unfiltered "all companies" view covers. See `resolve_company_ids`.
+    #: Required rather than defaulted: forgetting it would silently empty every
+    #: listing in the API, which no test would obviously catch.
+    active_company_ids: list[str]
     is_system_admin: bool = False
 
 
@@ -124,14 +133,17 @@ def tenant_scope(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> TenantScope:
-    company_ids = session.exec(
-        select(Company.id).where(Company.organization_id == user.organization_id)
+    rows = session.exec(
+        select(Company.id, Company.is_active).where(
+            Company.organization_id == user.organization_id
+        )
     ).all()
     return TenantScope(
         organization_id=user.organization_id,
         user_id=user.id,
         role=user.role,
-        company_ids=list(company_ids),
+        company_ids=[company_id for company_id, _ in rows],
+        active_company_ids=[company_id for company_id, is_active in rows if is_active],
         is_system_admin=user.is_system_admin,
     )
 
@@ -141,9 +153,21 @@ def resolve_company_ids(scope: TenantScope, company_id: str | None) -> list[str]
 
     A ``company_id`` that is not in the caller's scope raises 404 — never a
     window into another tenant's data.
+
+    **Unfiltered means active companies only.** `GET /companies` already defaults
+    to the active ones, so a client's company picker offers only those — and a
+    deactivated company whose rows still appeared under "all companies" could not
+    be filtered out by any request the client could make. Deactivating a company
+    therefore takes it out of org-wide listings and report totals, which is what
+    deactivating it is for.
+
+    Asking for one **by id still works**, active or not: companies are
+    soft-deactivated and never hard-deleted, so their history is retained and an
+    explicit request for it is deliberate. Same shape as `GET /companies`, whose
+    `include_inactive` reaches them on request.
     """
     if company_id is None:
-        return scope.company_ids
+        return scope.active_company_ids
     if company_id not in scope.company_ids:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
     return [company_id]

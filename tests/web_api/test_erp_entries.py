@@ -118,6 +118,92 @@ def test_empty_scope_returns_empty_page(client, seed_entries):
     assert body == {"items": [], "page": 1, "page_size": 50, "total": 0}
 
 
+# --- Only accounts the customer selected --------------------------------------
+
+
+@pytest.fixture
+def seed_deselected_account(engine, seed, seed_entries):
+    """A voucher posted to an account the customer has switched off.
+
+    Accounts are enabled when first discovered and disabling one deletes
+    nothing, so this is what every tenant looks like after a customer narrows
+    their selection: rows already in the database on a now-deselected account.
+    """
+    with Session(engine) as s:
+        integration_id = s.exec(
+            select(ErpAccount.erp_integration_id).where(ErpAccount.erp_account_code == "6010")
+        ).one()
+        vat = ErpAccount(erp_integration_id=integration_id, erp_account_code="2200",
+                         erp_account_name="VAT Payable", erp_account_type="liability",
+                         sync_enabled=False)
+        s.add(vat)
+        s.commit()
+        row = ErpEntry(company_id=seed["comp_a"], erp_account_id=vat.id, voucher_id="V1",
+                       entry_type="purchase_invoice", source_invoice_id=seed["inv_a"],
+                       accounting_date=date(2025, 7, 15), debit_amount=Decimal("25.00"),
+                       currency="DKK", base_currency="DKK",
+                       base_debit_amount=Decimal("25.00"), fx_rate=Decimal("1"),
+                       status="pending")
+        s.add(row)
+        s.commit()
+        return {"account_id": vat.id, "entry_id": row.id}
+
+
+def test_a_deselected_accounts_entries_are_not_listed(client, seed_entries, seed_deselected_account):
+    body = client.get("/api/v1/erp-entries", headers=auth("tokA")).json()
+    assert seed_deselected_account["entry_id"] not in {e["id"] for e in body["items"]}
+    # The total counts what it returns, rather than the rows it withheld.
+    assert body["total"] == len(body["items"]) == 3
+
+
+def test_a_deselected_posting_is_absent_from_its_voucher_group(
+    client, seed_entries, seed_deselected_account
+):
+    """Otherwise the group's own totals would include a row it does not show."""
+    body = client.get("/api/v1/erp-entries/vouchers", headers=auth("tokA")).json()
+    group = next(g for g in body["items"] if g["voucher_id"] == "V1")
+    assert seed_deselected_account["entry_id"] not in {e["id"] for e in group["entries"]}
+    assert group["entry_count"] == 2
+
+
+def test_re_enabling_an_account_brings_its_entries_back(
+    client, engine, seed_entries, seed_deselected_account
+):
+    """The whole point of filtering rather than deleting: it is reversible."""
+    with Session(engine) as s:
+        account = s.get(ErpAccount, seed_deselected_account["account_id"])
+        account.sync_enabled = True
+        s.add(account)
+        s.commit()
+
+    body = client.get("/api/v1/erp-entries", headers=auth("tokA")).json()
+    assert seed_deselected_account["entry_id"] in {e["id"] for e in body["items"]}
+
+
+def test_a_voucher_of_only_deselected_postings_yields_no_group(
+    client, engine, seed, seed_entries, seed_deselected_account
+):
+    with Session(engine) as s:
+        s.add(ErpEntry(company_id=seed["comp_a"],
+                       erp_account_id=seed_deselected_account["account_id"],
+                       voucher_id="OFF1", entry_type="purchase_invoice",
+                       accounting_date=date(2025, 7, 21), debit_amount=Decimal("9.00"),
+                       currency="DKK", status="pending"))
+        s.commit()
+
+    body = client.get("/api/v1/erp-entries/vouchers", headers=auth("tokA")).json()
+    assert "OFF1" not in {g["voucher_id"] for g in body["items"]}
+
+
+def test_a_deselected_entry_is_still_fetchable_by_id(
+    client, seed_entries, seed_deselected_account
+):
+    """The rule governs listing, not lookup — same as the payment exclusion."""
+    r = client.get(f"/api/v1/erp-entries/{seed_deselected_account['entry_id']}",
+                   headers=auth("tokA"))
+    assert r.status_code == 200
+
+
 # --- The spend category, reached through the invoice line --------------------
 
 
@@ -737,3 +823,91 @@ def test_the_entry_detail_endpoint_carries_the_conversion(client, seed_entries):
     assert body["base_currency"] == "DKK"
     assert Decimal(body["base_debit_amount"]) == Decimal("80.00")
     assert Decimal(body["fx_rate"]) == Decimal("1")
+
+
+# -- Deactivated companies ---------------------------------------------------
+
+
+@pytest.fixture
+def deactivated_company(engine, seed, seed_entries):
+    """A second company in Org A, deactivated, carrying one entry of its own."""
+    from web_api.db.models import Company
+
+    with Session(engine) as s:
+        company = Company(organization_id=s.get(Company, seed["comp_a"]).organization_id,
+                          name="Retired Co", base_currency="DKK", is_active=False)
+        s.add(company)
+        s.commit()
+        integration = ErpIntegration(company_id=company.id, erp_type="mock")
+        s.add(integration)
+        s.commit()
+        account = ErpAccount(erp_integration_id=integration.id,
+                             erp_account_code="7010", erp_account_name="Old Costs")
+        s.add(account)
+        s.commit()
+        entry = ErpEntry(
+            company_id=company.id, erp_account_id=account.id, voucher_id="RET-1",
+            erp_entry_id="RET-1-1", entry_type="purchase_invoice",
+            accounting_date=date(2025, 7, 9), debit_amount=Decimal("999.00"),
+            currency="DKK", base_currency="DKK", base_debit_amount=Decimal("999.00"),
+            fx_rate=Decimal("1"), fx_rate_date=date(2025, 7, 9),
+        )
+        s.add(entry)
+        s.commit()
+        return {"company_id": company.id, "entry_id": entry.id, "voucher_id": "RET-1"}
+
+
+def test_all_companies_excludes_a_deactivated_company(client, deactivated_company):
+    """The company picker only offers active companies (`GET /companies` defaults
+    that way), so rows from a deactivated one could not be filtered out by any
+    request the client is able to make."""
+    body = client.get("/api/v1/erp-entries", headers=auth("tokA")).json()
+
+    assert deactivated_company["company_id"] not in {r["company_id"] for r in body["items"]}
+    assert body["items"], "the active company's entries must still be listed"
+
+
+def test_voucher_groups_agree_with_the_flat_list(client, deactivated_company):
+    body = client.get("/api/v1/erp-entries/vouchers", headers=auth("tokA")).json()
+    assert deactivated_company["voucher_id"] not in {g["voucher_id"] for g in body["items"]}
+
+
+def test_asking_for_the_deactivated_company_by_id_still_works(client, deactivated_company):
+    """Companies are soft-deactivated and never deleted, so their history is
+    retained and an explicit request for it is deliberate."""
+    body = client.get(
+        "/api/v1/erp-entries",
+        params={"company_id": deactivated_company["company_id"]},
+        headers=auth("tokA"),
+    ).json()
+
+    assert [r["company_id"] for r in body["items"]] == [deactivated_company["company_id"]]
+
+
+def test_a_single_entry_of_a_deactivated_company_is_still_readable(client, deactivated_company):
+    # A lookup, not a listing — the same reasoning that leaves `/erp-entries/{id}`
+    # ungated for excluded entry types.
+    r = client.get(f"/api/v1/erp-entries/{deactivated_company['entry_id']}",
+                   headers=auth("tokA"))
+    assert r.status_code == 200
+
+
+def test_reports_exclude_a_deactivated_company_too(client, seed, deactivated_company):
+    """Same resolution helper, so the entries page and the reports cannot
+    disagree about which companies "all" covers.
+
+    Asserted against the active company's own totals rather than by looking for
+    the deactivated 999.00: it would be *summed into* a currency row, not appear
+    as one, so a naive check passes whether the fix is in place or not.
+    """
+    def totals(**params):
+        rows = client.get("/api/v1/reports/entries-summary", params=params,
+                          headers=auth("tokA")).json()["rows"]
+        return {(r["entry_type"], r["currency"]): Decimal(str(r["debit_total"])) for r in rows}
+
+    org_wide = totals()
+    active_only = totals(company_id=seed["comp_a"])
+    retired = totals(company_id=deactivated_company["company_id"])
+
+    assert retired, "the deactivated company must have figures of its own to leak"
+    assert org_wide == active_only
