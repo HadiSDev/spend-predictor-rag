@@ -7,6 +7,7 @@ the same shape a human verification does. Append-only: helpers only ever add
 """
 from __future__ import annotations
 
+from datetime import date, datetime
 from enum import Enum
 from typing import Any
 
@@ -28,6 +29,16 @@ INVOICE_AUDIT_FIELDS = (
     "invoice_number", "invoice_date", "currency", "total", "tax", "vendor_id",
 )
 
+# The stored conversion, cleared by `update_invoice` whenever a correction
+# changes `currency`/`total`/`tax` (see routers/invoices.py). Included in the
+# same audit diff as the requested fields so the trail shows the whole effect
+# of a correction, not just the part the caller asked for — the same
+# precedent as `status` in `LINE_AUDIT_FIELDS`, which also changes as a side
+# effect of `verify` rather than something the caller set directly.
+INVOICE_BASE_FX_FIELDS = (
+    "base_currency", "base_total", "base_tax", "fx_rate", "fx_rate_date",
+)
+
 
 def _norm(value: Any) -> Any:
     """Normalize a value for diffing/JSON storage (Decimal → str, else as-is)."""
@@ -39,6 +50,9 @@ def _norm(value: Any) -> Any:
     # Decimal isn't JSON-serializable and compares awkwardly; store as a string.
     if value.__class__.__name__ == "Decimal":
         return str(value)
+    # date/datetime aren't JSON-serializable either; store as ISO 8601.
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
     return value
 
 

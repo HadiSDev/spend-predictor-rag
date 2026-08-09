@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from web_api.db.models import ErpAccount, ErpEntry, ErpIntegration, File, Invoice, InvoiceLine
 from web_api.connectors.base import ErpConnectionError
 from .. import integrations
-from ..audit import INVOICE_AUDIT_FIELDS, diff_changes, record_audit
+from ..audit import INVOICE_AUDIT_FIELDS, INVOICE_BASE_FX_FIELDS, diff_changes, record_audit
 from ..deps import TenantScope, get_session, require_management, resolve_company_ids, tenant_scope
 from ..schemas import InvoiceDetailRead, InvoiceLineRead, InvoiceRead, InvoiceUpdate, Page
 
@@ -112,16 +112,37 @@ def update_invoice(
                    "and cannot be edited. Only AI-parsed invoices are correctable.",
         )
 
-    before = {f: getattr(invoice, f) for f in INVOICE_AUDIT_FIELDS}
+    before = {f: getattr(invoice, f) for f in INVOICE_AUDIT_FIELDS + INVOICE_BASE_FX_FIELDS}
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(invoice, field, value)
+
+    # The base/FX columns were derived from the pre-correction
+    # currency/total/tax; once one of those changes, the derived figures no
+    # longer describe anything real. Per CLAUDE.md's currency-conversion
+    # rules — "no rate ⇒ stored unconverted, never converted at a substitute
+    # rate" and the base-currency-change precedent of leaving history
+    # "visibly stale, not silently wrong" — we null them out rather than
+    # recompute inline: this endpoint makes no network call, and an inline
+    # reconversion is exactly what that philosophy rejects. The row then
+    # reads honestly as "not converted" until an explicit recompute
+    # (`POST /companies/{id}/recompute-fx`) runs. Do not "fix" this by
+    # adding an inline FX call here.
+    if any(getattr(invoice, f) != before[f] for f in ("currency", "total", "tax")):
+        invoice.base_currency = None
+        invoice.base_total = None
+        invoice.base_tax = None
+        invoice.fx_rate = None
+        invoice.fx_rate_date = None
+
     session.add(invoice)
-    after = {f: getattr(invoice, f) for f in INVOICE_AUDIT_FIELDS}
+    after = {f: getattr(invoice, f) for f in INVOICE_AUDIT_FIELDS + INVOICE_BASE_FX_FIELDS}
 
     # "edit" only when a value actually moved; a PATCH that resubmits the
     # current value (or an empty body) is a "noop" — distinct from a real
     # correction so the audit feed never shows a change that didn't happen.
-    changes = diff_changes(before, after, INVOICE_AUDIT_FIELDS)
+    # The diff also covers the base/FX fields above, so a cleared conversion
+    # shows up in the trail even when the caller never asked for it directly.
+    changes = diff_changes(before, after, INVOICE_AUDIT_FIELDS + INVOICE_BASE_FX_FIELDS)
     record_audit(
         session, entity_type="invoice", entity_id=invoice.id,
         action="edit" if changes else "noop",

@@ -115,3 +115,56 @@ def test_patch_with_no_actual_change_records_a_noop_not_an_edit(client, seed, en
     assert len(rows) == 1
     assert rows[0].action == "noop"
     assert rows[0].changes == []
+
+
+def test_patch_correcting_total_clears_stale_base_amounts(client, seed, engine):
+    """The base/FX columns were derived from the pre-correction total. Once the
+    total changes, those derived figures no longer describe anything real and
+    must not be left in place pretending they still do."""
+    with Session(engine) as s:
+        inv = s.get(Invoice, seed["inv_a"])
+        inv.source = "pdf_extraction"
+        s.add(inv)
+        s.commit()
+        # Seeded with base_currency=DKK, base_total=100.00, fx_rate=1 — confirm
+        # the fixture actually gives us something to clear.
+        assert inv.base_total == Decimal("100.00")
+
+    res = client.patch(f"/api/v1/invoices/{seed['inv_a']}",
+                       json={"total": "150.00"}, headers=auth("tokA"))
+    assert res.status_code == 200
+    body = res.json()
+    assert body["total"] == "150.00"
+    assert body["base_currency"] is None
+    assert body["base_total"] is None
+    assert body["base_tax"] is None
+    assert body["fx_rate"] is None
+    assert body["fx_rate_date"] is None
+
+    with Session(engine) as s:
+        inv = s.get(Invoice, seed["inv_a"])
+        assert inv.base_total is None
+        assert inv.fx_rate is None
+
+
+def test_patch_correcting_only_invoice_number_leaves_base_amounts_intact(client, seed, engine):
+    """A correction that never touches currency/total/tax has no effect on the
+    stored conversion — it must not be cleared as a side effect of an
+    unrelated field edit."""
+    with Session(engine) as s:
+        inv = s.get(Invoice, seed["inv_a"])
+        inv.source = "pdf_extraction"
+        s.add(inv)
+        s.commit()
+
+    res = client.patch(f"/api/v1/invoices/{seed['inv_a']}",
+                       json={"invoice_number": "INV-9"}, headers=auth("tokA"))
+    assert res.status_code == 200
+    assert res.json()["invoice_number"] == "INV-9"
+
+    with Session(engine) as s:
+        inv = s.get(Invoice, seed["inv_a"])
+        assert inv.base_currency == "DKK"
+        assert inv.base_total == Decimal("100.00")
+        assert inv.fx_rate == Decimal("1")
+        assert inv.fx_rate_date == date(2025, 7, 1)
