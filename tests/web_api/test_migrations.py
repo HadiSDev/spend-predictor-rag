@@ -92,6 +92,39 @@ def _web_api_table_names() -> set[str]:
     }
 
 
+# Every engine this test builds gets a bounded connect timeout — see the
+# comment at its first use.
+_CONNECT_ARGS: dict = {"connect_args": {"connect_timeout": 5}}
+
+
+def _assert_subprocess_targets(env: dict[str, str], db_name: str) -> None:
+    """Refuse to migrate anything but the throwaway database.
+
+    The subprocess picks up its URL from ``web_api.config``, which calls
+    ``load_dotenv()``. That resolves to the ``DATABASE_URL`` we set here *only*
+    because ``load_dotenv``'s default is ``override=False``, so the real
+    environment beats ``.env``. Flip that one keyword to ``True`` — a plausible,
+    entirely unrelated edit — and this test would silently run ``alembic upgrade
+    head`` against the developer's live database instead. That failure mode is
+    destructive and invisible, so it gets a check rather than a comment: ask the
+    subprocess what URL it actually resolved, *before* anything is migrated.
+    """
+    probe = subprocess.run(
+        [sys.executable, "-c", "from web_api.config import DATABASE_URL; print(DATABASE_URL)"],
+        cwd=REPO_ROOT,
+        env={**env, "PYTHONPATH": str(REPO_ROOT / "src")},
+        capture_output=True,
+        text=True,
+    )
+    assert probe.returncode == 0, f"could not resolve the subprocess URL:\n{probe.stderr}"
+    resolved = make_url(probe.stdout.strip())
+    assert resolved.database == db_name, (
+        f"the migration subprocess would target {resolved.database!r}, not the "
+        f"throwaway {db_name!r} — refusing to run it. Has load_dotenv() been "
+        "switched to override=True in web_api/config.py?"
+    )
+
+
 def _postgres_admin_url() -> str | None:
     """URL of the ``postgres`` maintenance DB on the configured server, or None."""
     from web_api.config import DATABASE_URL
@@ -108,7 +141,13 @@ def test_upgrade_from_empty_database() -> None:
     if admin_url is None:
         pytest.skip("DATABASE_URL is not PostgreSQL; migrations target PostgreSQL only")
 
-    admin = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    # connect_timeout is what keeps "unreachable ⇒ skip" from becoming
+    # "unreachable ⇒ hang". A host that *refuses* the connection fails
+    # instantly, but one that silently drops packets — a firewalled CI runner,
+    # a stale host in DATABASE_URL — otherwise leaves libpq waiting on the OS
+    # TCP timeout, which is far longer than any sensible test budget. With this,
+    # the failure arrives in seconds and lands in the skip branch below.
+    admin = create_engine(admin_url, isolation_level="AUTOCOMMIT", **_CONNECT_ARGS)
     try:
         with admin.connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -126,6 +165,8 @@ def test_upgrade_from_empty_database() -> None:
         conn.execute(text(f'CREATE DATABASE "{db_name}"'))
     try:
         env = {**os.environ, "DATABASE_URL": target_url}
+        _assert_subprocess_targets(env, db_name)
+
         result = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
             cwd=REPO_ROOT,
@@ -138,8 +179,17 @@ def test_upgrade_from_empty_database() -> None:
             f"not runnable from base.\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
 
-        engine = create_engine(target_url)
+        engine = create_engine(target_url, **_CONNECT_ARGS)
         try:
+            # Belt and braces: the migration ran somewhere, and this proves
+            # where. Cheap, and it fails loudly instead of leaving a corrupted
+            # dev database to be discovered later.
+            with engine.connect() as conn:
+                actual_db = conn.execute(text("SELECT current_database()")).scalar()
+            assert actual_db == db_name, (
+                f"migrated {actual_db!r}, not the throwaway {db_name!r}"
+            )
+
             with engine.connect() as conn:
                 present = set(
                     conn.execute(
