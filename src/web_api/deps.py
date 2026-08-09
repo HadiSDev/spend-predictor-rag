@@ -7,6 +7,7 @@ a tenant identifier from the client that widens access.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Generator
 from dataclasses import dataclass
 
@@ -25,6 +26,42 @@ _UNAUTHORIZED = HTTPException(
     detail="Invalid or missing credentials",
     headers={"WWW-Authenticate": "Bearer"},
 )
+
+# Matches a Python repr/quoted span, e.g. the `'bad-token'` in
+# `f"unknown test token {token!r}"` — the idiomatic way a verifier embeds
+# "the bad value" in a message.
+_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
+# Matches anything JWT-shaped (three dot-separated base64url segments) that
+# made it into a message unquoted.
+_JWT_LIKE = re.compile(r"[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}")
+# Bounds worst-case exposure regardless of what slips past both patterns.
+_MAX_REASON_LENGTH = 200
+
+
+def _sanitize_reason(message: str) -> str:
+    """Scrub a verifier's failure message before it is logged.
+
+    ``get_principal`` logs *why* a token was rejected so an intermittent 401
+    is diagnosable — but the message text comes from whatever
+    ``TokenVerifier`` is configured, and nothing here controls what that
+    verifier puts in it. ``ClerkJwtVerifier`` today never embeds token text
+    (its messages are static strings or ``str()`` of a PyJWT exception,
+    neither of which echoes the input), but that is a property of *that*
+    verifier's implementation, not of this logging call — a different or
+    future verifier (or the test suite's own ``FakeVerifier``, which raises
+    ``f"unknown test token {token!r}"``) could embed one. Treat the message
+    as untrusted input rather than relying on every verifier to be careful:
+    redact quoted spans (where "the bad value" idiomatically lives, keeping
+    the surrounding words — that is where the actual classification is),
+    redact anything JWT-shaped that slipped through unquoted, then cap the
+    length. Ordinary PyJWT messages ("Signature has expired", "Invalid
+    audience", ...) contain neither pattern and pass through unchanged, so
+    the expired/bad-signature/unknown-kid distinction an operator needs
+    survives.
+    """
+    scrubbed = _QUOTED.sub("'[redacted]'", message)
+    scrubbed = _JWT_LIKE.sub("[redacted]", scrubbed)
+    return scrubbed[:_MAX_REASON_LENGTH]
 
 
 def get_verifier() -> TokenVerifier:
@@ -51,8 +88,11 @@ def get_principal(
     except TokenVerificationError as exc:
         # Generic 401 — do not leak which check failed to the client. The reason
         # (expired, bad signature, unknown key, ...) is still worth having, so
-        # it is logged server-side only — never put it in the response.
-        logger.warning("Token verification failed: %s", exc)
+        # it is logged server-side only — never put it in the response. The
+        # message is untrusted (see `_sanitize_reason`): scrub it before it
+        # ever reaches the log, rather than trusting the verifier not to have
+        # embedded the token itself.
+        logger.warning("Token verification failed: %s", _sanitize_reason(str(exc)))
         raise _UNAUTHORIZED
 
 

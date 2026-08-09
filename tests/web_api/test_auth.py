@@ -165,13 +165,41 @@ def test_invalid_token_reason_is_logged_server_side_but_not_returned(client, cap
     assert resp.json() == {"detail": "Invalid or missing credentials"}
     assert "bad-token" not in resp.text
 
-    # The reason is on the server log instead, where it is actually diagnosable.
+    # The reason is on the server log instead, where it is actually diagnosable —
+    # but the log itself must not carry the raw token either. `FakeVerifier`
+    # raises `f"unknown test token {token!r}"`, embedding it directly, so this
+    # doubles as the adversarial input for that: a verifier that puts a token
+    # in its message must not be able to get it into the log through this path.
     warnings = [r for r in caplog.records if r.name == "web_api.deps"]
     assert len(warnings) == 1
     assert warnings[0].levelno == logging.WARNING
     message = warnings[0].getMessage()
-    assert "bad-token" in message
+    assert "bad-token" not in message
     assert "unknown test token" in message
+
+
+def test_sanitize_reason_redacts_quoted_and_jwt_shaped_content():
+    """Direct unit test of the scrubber `get_principal` logs through.
+
+    Covers both redaction passes: a quoted embedded value (the FakeVerifier
+    shape) and a raw JWT-shaped string with no quotes at all — while proving
+    ordinary PyJWT-style messages, which carry the actual diagnosis, survive
+    untouched.
+    """
+    from web_api.deps import _sanitize_reason
+
+    quoted = _sanitize_reason("unknown test token 'super-secret-value'")
+    assert "super-secret-value" not in quoted
+    assert "unknown test token" in quoted
+
+    jwt_like = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyXzEifQ.c2lnbmF0dXJlLWJ5dGVzLWhlcmU"
+    unquoted = _sanitize_reason(f"token rejected: {jwt_like}")
+    assert jwt_like not in unquoted
+    assert "token rejected" in unquoted
+
+    # Legitimate, non-sensitive diagnostic text is left alone.
+    assert _sanitize_reason("Signature has expired") == "Signature has expired"
+    assert _sanitize_reason("Invalid audience") == "Invalid audience"
 
 
 def test_health_is_unauthenticated(client):
