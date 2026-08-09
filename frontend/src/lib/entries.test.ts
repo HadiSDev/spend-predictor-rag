@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
-import { entriesKey, entryQueryOptions, voucherGroupsQueryOptions } from './entries'
+import {
+  entriesKey,
+  entryQueryOptions,
+  invoiceDocumentQueryOptions,
+  voucherAuditQueryOptions,
+  voucherDetailQueryOptions,
+  voucherGroupsQueryOptions,
+} from './entries'
 import { vendorsQueryOptions } from './vendors'
 import type { ApiClient } from './api-client'
 
 function fakeApi() {
   const get = vi.fn().mockResolvedValue({ items: [], page: 1, page_size: 25, total: 0 })
-  return { api: { get } as unknown as ApiClient, get }
+  const getBlob = vi.fn().mockResolvedValue(new Blob())
+  return { api: { get, getBlob } as unknown as ApiClient, get, getBlob }
 }
 
 describe('voucherGroupsQueryOptions', () => {
@@ -68,6 +76,84 @@ describe('entryQueryOptions', () => {
     const { api } = fakeApi()
     expect(entryQueryOptions(api, null).enabled).toBe(false)
     expect(entryQueryOptions(api, 'e1').enabled).toBe(true)
+  })
+})
+
+describe('voucherDetailQueryOptions', () => {
+  it('addresses a real voucher by id', () => {
+    const { api } = fakeApi()
+    expect(voucherDetailQueryOptions(api, { voucher: '4821' }).queryKey).toContain('4821')
+  })
+
+  it('is disabled when nothing is selected', () => {
+    const { api } = fakeApi()
+    expect(voucherDetailQueryOptions(api, {}).enabled).toBe(false)
+  })
+
+  it('fetches by voucher id when one is given', async () => {
+    const { api, get } = fakeApi()
+
+    await voucherDetailQueryOptions(api, { voucher: '4821' }).queryFn!({} as never)
+
+    expect(get.mock.calls[0][0]).toBe('/api/v1/erp-entries/vouchers/4821')
+  })
+
+  it('falls back to the entry id when there is no voucher id', async () => {
+    const { api, get } = fakeApi()
+
+    await voucherDetailQueryOptions(api, { entry: 'e1' }).queryFn!({} as never)
+
+    expect(get.mock.calls[0][0]).toBe('/api/v1/erp-entries/vouchers/by-entry/e1')
+    expect(voucherDetailQueryOptions(api, { entry: 'e1' }).enabled).toBe(true)
+  })
+
+  it('prefers the voucher id over the entry id when both are given', async () => {
+    const { api, get } = fakeApi()
+
+    await voucherDetailQueryOptions(api, { voucher: '4821', entry: 'e1' }).queryFn!({} as never)
+
+    expect(get.mock.calls[0][0]).toBe('/api/v1/erp-entries/vouchers/4821')
+  })
+})
+
+describe('voucherAuditQueryOptions', () => {
+  it('fetches the audit feed for a voucher id', async () => {
+    const { api, get } = fakeApi()
+
+    await voucherAuditQueryOptions(api, { voucher: '4821' }).queryFn!({} as never)
+
+    expect(get.mock.calls[0][0]).toBe('/api/v1/erp-entries/vouchers/4821/audit')
+  })
+
+  it('fetches the audit feed by entry id when there is no voucher id', async () => {
+    const { api, get } = fakeApi()
+
+    await voucherAuditQueryOptions(api, { entry: 'e1' }).queryFn!({} as never)
+
+    expect(get.mock.calls[0][0]).toBe('/api/v1/erp-entries/vouchers/by-entry/e1/audit')
+  })
+
+  it('is disabled when nothing is selected', () => {
+    const { api } = fakeApi()
+    expect(voucherAuditQueryOptions(api, {}).enabled).toBe(false)
+  })
+})
+
+describe('invoiceDocumentQueryOptions', () => {
+  it('fetches the invoice document as a blob', async () => {
+    const { api, getBlob } = fakeApi()
+
+    await invoiceDocumentQueryOptions(api, 'inv1').queryFn!({} as never)
+
+    expect(getBlob.mock.calls[0][0]).toBe('/api/v1/invoices/inv1/document')
+  })
+
+  it('is disabled with no invoice id, never refetches, and never retries', () => {
+    const { api } = fakeApi()
+    expect(invoiceDocumentQueryOptions(api, null).enabled).toBe(false)
+    expect(invoiceDocumentQueryOptions(api, 'inv1').enabled).toBe(true)
+    expect(invoiceDocumentQueryOptions(api, 'inv1').staleTime).toBe(Infinity)
+    expect(invoiceDocumentQueryOptions(api, 'inv1').retry).toBe(false)
   })
 })
 
