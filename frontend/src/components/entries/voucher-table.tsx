@@ -168,6 +168,45 @@ export function ProvenanceMark({ origin }: { origin: LineOrigin }) {
 }
 
 /**
+ * The supplier's invoice number, preferring the one read off the document.
+ *
+ * The as-posted value is frequently not an invoice number at all: Billy's
+ * `suppliersInvoiceNo` is user-entered and often null and `voucherNo` is blank
+ * at least as often, so the connector falls back to the bill id — an internal
+ * identifier sitting where the reader expects the supplier's number.
+ *
+ * When the two exist and disagree, the posted one stays reachable rather than
+ * being silently discarded: a disagreement means the ERP's number is wrong, or
+ * the scan belongs to a different invoice, and both are worth knowing.
+ */
+function InvoiceNumber({ group }: { group: VoucherGroupRead }) {
+  const printed = group.document_invoice_number
+  const posted = group.invoice_number
+  const shown = printed ?? posted
+
+  if (!shown) return <span className="text-muted-foreground">—</span>
+  if (!printed || !posted || printed === posted) {
+    return <span className="tabular-nums">{shown}</span>
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            tabIndex={0}
+            aria-label={`${printed}, read from the document. The ERP posted ${posted}.`}
+            className="cursor-help tabular-nums underline decoration-dotted underline-offset-4"
+          />
+        }
+      >
+        {printed}
+      </TooltipTrigger>
+      <TooltipContent>Read from the document. The ERP posted {posted}.</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
  * Column headers for the lines a group expands to.
  *
  * The table's own header describes *vouchers*, so without this the description
@@ -184,7 +223,11 @@ function LineHeaderRow() {
     <TableRow className="bg-muted/25 hover:bg-transparent">
       <TableHead className="h-8" />
       <TableHead className="h-8 pl-8">Description</TableHead>
-      <TableHead className="h-8">Quantity</TableHead>
+      <TableHead className="h-8 text-right">Quantity</TableHead>
+      {/* Its own column, not appended to the quantity: the quantity is a
+          right-aligned tabular figure meant to be scanned down a column, and a
+          unit inside that cell breaks the alignment on every row that has one. */}
+      <TableHead className="h-8">Unit</TableHead>
       <TableHead className="h-8">Spend category</TableHead>
       <TableHead className="h-8 text-right">Amount</TableHead>
     </TableRow>
@@ -206,8 +249,13 @@ function LineRow({ line, onSelect }: { line: InvoiceLineRead; onSelect: () => vo
         </button>{' '}
         <ProvenanceMark origin={line.origin} />
       </TableCell>
-      <TableCell className="tabular-nums text-muted-foreground">
+      <TableCell className="text-right tabular-nums text-muted-foreground">
         {line.quantity === null ? '—' : formatQuantity(line.quantity)}
+      </TableCell>
+      <TableCell className="text-muted-foreground">
+        {/* No default substituted: "pcs" assumed over an hourly consulting line
+            is a wrong figure presented with confidence. */}
+        {line.unit ?? '—'}
       </TableCell>
       <TableCell>
         <SpendCategory line={line} />
@@ -258,6 +306,9 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
         <TableRow>
           <TableHead className="w-10" />
           <TableHead>Voucher</TableHead>
+          {/* The supplier's own number, which is what a human reconciles
+              against — not the ERP's voucher sequence beside it. */}
+          <TableHead>Invoice no.</TableHead>
           <TableHead>Supplier</TableHead>
           <TableHead>Date</TableHead>
           {/* No Type column. Payments are excluded server-side, so what is left
@@ -323,6 +374,9 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
                       failed
                     </Badge>
                   ) : null}
+                </TableCell>
+                <TableCell>
+                  <InvoiceNumber group={group} />
                 </TableCell>
                 <TableCell>{group.vendor_name ?? <span className="text-muted-foreground">—</span>}</TableCell>
                 <TableCell className="whitespace-nowrap">{formatDate(group.accounting_date)}</TableCell>

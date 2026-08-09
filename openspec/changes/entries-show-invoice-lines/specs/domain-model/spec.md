@@ -63,6 +63,77 @@ source stated it in, and every reader SHALL order an invoice's lines by it.
 - **WHEN** two lines share a `sequence`
 - **THEN** they are still returned in a stable order on every request
 
+### Requirement: InvoiceLine records the unit its quantity is counted in
+
+`InvoiceLine` SHALL carry a nullable `unit` — the unit of measure the line's
+`quantity` is expressed in (`pcs`, `hours`, `kg`, `months`).
+
+- A bare quantity is ambiguous: `12` against "Consulting" is twelve hours or
+  twelve days or twelve engagements, and a spend tool that compares unit prices
+  across suppliers cannot compare them without it.
+- It SHALL be taken from whichever source stated it, and SHALL be null when none
+  did. Null is the ordinary case: an ERP's bill line states an account and an
+  amount, not a unit of measure — Billy's carries `quantity` with no unit field
+  at all — and a posting has neither. Only the document reliably names one.
+- It SHALL NOT be inferred from the description, and no default SHALL be
+  substituted. "pcs" assumed over an hourly consulting line is a wrong figure
+  presented with confidence.
+
+#### Scenario: An extracted line carries its unit
+
+- **WHEN** a document states "12 hours" on a line and it is extracted
+- **THEN** the line's `quantity` is 12 and its `unit` is `hours`
+
+#### Scenario: An ERP line that names no unit stores none
+
+- **WHEN** a Billy bill line with `quantity: 1` and no unit field is synced
+- **THEN** the line's `unit` is null rather than a substituted default
+
+#### Scenario: A stand-in line has no unit
+
+- **WHEN** a posting stands in for a line
+- **THEN** its `unit` is null
+
+### Requirement: Invoice records the number printed on the document
+
+`Invoice` SHALL carry a nullable `document_invoice_number` — the supplier's
+invoice number as read from the attached document — **beside** the as-posted
+`invoice_number`, which SHALL NEVER be rewritten by extraction.
+
+- The as-posted value is frequently not an invoice number at all. Billy's
+  `suppliersInvoiceNo` is user-entered and often null, and `voucherNo` is blank
+  at least as often, so the connector falls back to the **bill id** — an
+  internal identifier presented in a field the reader takes for the supplier's
+  number. The number printed on the invoice is the one a human reconciles
+  against, and only the document has it.
+- The two SHALL be stored separately for the same reason `base_total` sits
+  beside `total` rather than replacing it: the as-posted column is the evidence,
+  and overwriting it would destroy the record of what the ERP actually holds and
+  make the two impossible to compare.
+- A reader SHALL be shown the document's number in preference to the as-posted
+  one, and SHALL be able to see both when they disagree — a disagreement is
+  information (the ERP's is wrong, or the scan is of a different invoice), not
+  noise to resolve silently.
+- Extraction SHALL leave it null rather than guess when the document states no
+  number.
+
+#### Scenario: The printed number is stored beside the posted one
+
+- **WHEN** a bill whose `invoice_number` fell back to the bill id is extracted
+  and the document reads "2026-0412"
+- **THEN** `document_invoice_number` is "2026-0412" and `invoice_number` still
+  holds the bill id
+
+#### Scenario: Extraction never rewrites the posted number
+
+- **WHEN** an invoice is extracted
+- **THEN** its `invoice_number` is exactly what it was before
+
+#### Scenario: A document that states no number stores none
+
+- **WHEN** the extraction yields no invoice number
+- **THEN** `document_invoice_number` is null
+
 ### Requirement: Invoice records its document-processing state
 
 `Invoice` SHALL carry `doc_status`, `doc_attempts`, `doc_error` and

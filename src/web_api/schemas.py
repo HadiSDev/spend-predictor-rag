@@ -153,6 +153,9 @@ class InvoiceLineRead(BaseModel):
     company_id: str
     description: str | None = None
     quantity: Decimal | None = None
+    # What `quantity` counts ('pcs', 'hours'). Null is the ordinary case — an
+    # ERP bill line states no unit — and is never filled with a default.
+    unit: str | None = None
     unit_price: Decimal | None = None
     amount: Decimal | None = None
     native_account_code: str | None = None
@@ -346,6 +349,10 @@ class VoucherGroupRead(BaseModel):
     # the voucher has no source invoice at all.
     doc_status: str | None = None
     doc_error: str | None = None
+    # The voucher's invoice number, both as posted and as read off the scan, so
+    # the table can prefer the printed one and still show a disagreement.
+    invoice_number: str | None = None
+    document_invoice_number: str | None = None
 
 
 class InvoiceRead(BaseModel):
@@ -355,6 +362,11 @@ class InvoiceRead(BaseModel):
     company_id: str
     vendor_id: str | None = None
     invoice_number: str | None = None
+    # The number printed on the scan, beside the as-posted one above rather than
+    # over it. The as-posted value is often a fallback identifier (Billy uses the
+    # bill id when the customer left the field blank), so the two disagreeing is
+    # information, not noise.
+    document_invoice_number: str | None = None
     invoice_date: date | None = None
     currency: str | None = None
     total: Decimal | None = None

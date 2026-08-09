@@ -197,11 +197,29 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   the *same* constant the voucher's Total Spend is netted from, so the lines and
   the figure above them count the same postings). VAT, the payable and the rest
   never become lines: an invoice's lines would then sum to zero.
+- **`InvoiceLine.unit`** is what `quantity` counts (`pcs`, `hours`). A bare
+  quantity is ambiguous — `12` against "Consulting" is twelve hours or twelve
+  days — and unit prices cannot be compared across suppliers without it. Null is
+  the ordinary case and is **never defaulted**: a Billy bill line carries a
+  quantity and no unit field at all, and a posting has neither, so in practice
+  only the document states one.
+- **`Invoice.document_invoice_number`** is the supplier's number as read off the
+  scan, stored **beside** the as-posted `invoice_number`, which extraction never
+  rewrites — the same rule that keeps `base_total` beside `total`. Load-bearing
+  because the as-posted value is frequently not an invoice number at all:
+  Billy's `suppliersInvoiceNo` is user-entered and often null and `voucherNo` is
+  blank at least as often, so `_map_bill` falls back to the bill id (on the dev
+  org the stored numbers are Billy's own voucher sequence — `29`, `18`, `16`).
+  The Entries table prefers the printed number and keeps the posted one reachable
+  when they disagree, because a disagreement means the ERP's is wrong or the scan
+  belongs to another invoice.
 - **`InvoiceLine.sequence`** is the position its source stated. The row id is a
   random UUID, so ordering by it alone scrambles a document — invisible while the
   page listed postings, wrong the moment it lists lines. `id` is the tiebreak.
 - **`GET /erp-entries/vouchers` carries each voucher's lines** (batched, one
-  query) plus its invoice's `doc_status`/`doc_error`. Additive only: grouping,
+  query) plus its invoice's `doc_status`/`doc_error` and **both** invoice
+  numbers — which to show is presentation, and collapsing them server-side would
+  throw away the disagreement. Additive only: grouping,
   pagination and `_voucher_amount()` are untouched, and the group's figure stays
   the net of its expense postings — never a sum of the lines, which may
   legitimately differ.

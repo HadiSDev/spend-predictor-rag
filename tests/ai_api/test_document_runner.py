@@ -477,3 +477,74 @@ def test_doc_status_does_not_disturb_the_categorization_rollup(engine, synced):
     invoice = _invoice(engine)
     assert invoice.doc_status == DocStatus.FAILED
     assert invoice.status == before
+
+
+# -- Unit of measure, and the number printed on the document -----------------
+
+
+def _extractor_with(lines, *, invoice_number: str | None = None):
+    def _extract(payload: DocumentPayload) -> ExtractedLines:
+        return ExtractedLines(lines=lines, invoice_number=invoice_number)
+
+    return _extract
+
+
+def test_a_lines_unit_is_taken_from_the_document(engine, synced):
+    """A bare quantity is ambiguous: 12 against "Consulting" is hours or days."""
+    extract = _extractor_with(
+        [LineItem(description='Consulting', quantity=12.0, unit_type='hours', amount=1000.0)]
+    )
+
+    docs.run_documents(extract=extract)
+
+    (line,) = _lines(engine)
+    assert line.quantity == Decimal('12.0000')
+    assert line.unit == 'hours'
+
+
+def test_a_line_the_document_gave_no_unit_for_stores_none(engine, synced):
+    """Never defaulted: "pcs" assumed over an hourly line is confidently wrong."""
+    extract = _extractor_with(
+        [LineItem(description='Consulting', quantity=12.0, amount=1000.0)]
+    )
+
+    docs.run_documents(extract=extract)
+
+    assert _lines(engine)[0].unit is None
+
+
+def test_a_blank_unit_is_stored_as_none(engine, synced):
+    extract = _extractor_with(
+        [LineItem(description='Consulting', quantity=12.0, unit_type='  ', amount=1000.0)]
+    )
+
+    docs.run_documents(extract=extract)
+
+    assert _lines(engine)[0].unit is None
+
+
+def test_the_printed_invoice_number_lands_beside_the_posted_one(engine, synced):
+    """Billy's posted number is often the bill id — the real one is on the scan."""
+    posted = _invoice(engine).invoice_number
+    extract = _extractor_with(
+        [LineItem(description='x', amount=1000.0)], invoice_number='2026-0412'
+    )
+
+    docs.run_documents(extract=extract)
+
+    invoice = _invoice(engine)
+    assert invoice.document_invoice_number == '2026-0412'
+    assert invoice.invoice_number == posted, (
+        "the as-posted number is evidence of what the ERP holds and is never "
+        "rewritten — the same rule that keeps `total` beside `base_total`"
+    )
+
+
+def test_a_document_stating_no_number_stores_none(engine, synced):
+    """Not filled from the posted value: that would make "read from the
+    document" indistinguishable from "copied from the ledger"."""
+    extract = _extractor_with([LineItem(description='x', amount=1000.0)])
+
+    docs.run_documents(extract=extract)
+
+    assert _invoice(engine).document_invoice_number is None

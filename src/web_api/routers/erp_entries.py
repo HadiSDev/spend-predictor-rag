@@ -356,7 +356,7 @@ def list_voucher_groups(
     }
     invoice_ids = {inv for inv in group_invoices.values() if inv is not None}
     lines_by_invoice = _invoice_lines_for(session, invoice_ids)
-    doc_state_by_invoice = _invoice_doc_state(session, invoice_ids)
+    header_by_invoice = _invoice_header_state(session, invoice_ids)
 
     items = []
     for company, key in order:
@@ -366,7 +366,7 @@ def list_voucher_groups(
                 company, key, last_dates[(company, key)],
                 buckets[(company, key)], currency_mode,
                 lines=lines_by_invoice.get(invoice_id) if invoice_id else None,
-                doc_state=doc_state_by_invoice.get(invoice_id) if invoice_id else None,
+                header=header_by_invoice.get(invoice_id) if invoice_id else None,
             )
         )
     return Page(items=items, page=page, page_size=page_size, total=total)
@@ -507,16 +507,33 @@ def _line_read(line: InvoiceLine, currency: str | None) -> InvoiceLineRead:
     )
 
 
-def _invoice_doc_state(session: Session, invoice_ids: set[str]) -> dict[str, tuple[str, str | None]]:
-    """`{invoice_id: (doc_status, doc_error)}`, in one round-trip."""
+#: What a voucher shows from its invoice's header, batched into one round-trip:
+#: `(doc_status, doc_error, invoice_number, document_invoice_number)`.
+InvoiceHeaderState = tuple[str, str | None, str | None, str | None]
+
+
+def _invoice_header_state(
+    session: Session, invoice_ids: set[str]
+) -> dict[str, InvoiceHeaderState]:
+    """`{invoice_id: InvoiceHeaderState}`, in one round-trip.
+
+    Both invoice numbers travel, not one resolved value: which to *show* is the
+    client's presentation choice, and collapsing them here would throw away the
+    disagreement — which is exactly the case worth seeing, since the as-posted
+    number is often a fallback identifier rather than the supplier's.
+    """
     if not invoice_ids:
         return {}
     rows = session.exec(
-        select(Invoice.id, Invoice.doc_status, Invoice.doc_error).where(
-            Invoice.id.in_(invoice_ids)  # type: ignore[union-attr]
-        )
+        select(
+            Invoice.id,
+            Invoice.doc_status,
+            Invoice.doc_error,
+            Invoice.invoice_number,
+            Invoice.document_invoice_number,
+        ).where(Invoice.id.in_(invoice_ids))  # type: ignore[union-attr]
     ).all()
-    return {row[0]: (str(row[1]), row[2]) for row in rows}
+    return {row[0]: (str(row[1]), row[2], row[3], row[4]) for row in rows}
 
 
 def _group_invoice_id(rows: list) -> str | None:
@@ -536,7 +553,7 @@ def _voucher_group(
     rows: list,
     mode: str = "base",
     lines: list[InvoiceLineRead] | None = None,
-    doc_state: tuple[str, str | None] | None = None,
+    header: InvoiceHeaderState | None = None,
 ) -> VoucherGroupRead:
     entries = [r[0] for r in rows]
     voucher_id = entries[0].voucher_id if entries else None
@@ -557,8 +574,10 @@ def _voucher_group(
         unconverted_count=unconverted_count,
         entries=[_entry_read(r) for r in rows],
         lines=lines or [],
-        doc_status=doc_state[0] if doc_state is not None else None,
-        doc_error=doc_state[1] if doc_state is not None else None,
+        doc_status=header[0] if header is not None else None,
+        doc_error=header[1] if header is not None else None,
+        invoice_number=header[2] if header is not None else None,
+        document_invoice_number=header[3] if header is not None else None,
     )
 
 

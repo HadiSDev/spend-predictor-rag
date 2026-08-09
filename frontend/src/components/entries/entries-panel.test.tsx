@@ -103,6 +103,7 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     company_id: 'c1',
     description: 'Figma Organization, 12 seats',
     quantity: '12.0000',
+    unit: 'pcs',
     unit_price: '100.0000',
     amount: '1200.00',
     native_account_code: '6200',
@@ -143,6 +144,8 @@ const VOUCHER: VoucherGroupRead = {
   lines: [line()],
   doc_status: 'processed',
   doc_error: null,
+  invoice_number: 'INV-2026-0412',
+  document_invoice_number: 'INV-2026-0412',
   entries: [
     entry({ id: 'e1', erp_account_code: '6200', erp_account_name: 'Software' }),
     entry({ id: 'e2', erp_account_code: '2610', erp_account_name: 'Input VAT',
@@ -203,6 +206,8 @@ const LONE: VoucherGroupRead = {
   lines: [],
   doc_status: null,
   doc_error: null,
+  invoice_number: null,
+  document_invoice_number: null,
   entries: [
     entry({
       id: 'e9',
@@ -241,6 +246,7 @@ function invoiceDetail(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetai
     company_id: 'c1',
     vendor_id: 'v1',
     invoice_number: 'INV-2026-0412',
+    document_invoice_number: null,
     invoice_date: '2026-07-02',
     currency: 'DKK',
     total: '1200.00',
@@ -501,6 +507,90 @@ describe('EntriesPanel — voucher rows', () => {
     // The group states its net spend, computed server-side from the *postings*
     // — which is exactly why the column is not called Total.
     expect(screen.getByText('DKK 900.00')).toBeTruthy()
+  })
+
+  it('states the unit a line’s quantity is counted in', async () => {
+    const hourly: VoucherGroupRead = {
+      ...VOUCHER,
+      lines: [line({ description: 'Consulting', quantity: '12', unit: 'hours' })],
+    }
+    setup({ result: { items: [hourly], page: 1, page_size: 25, total: 1 } })
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
+    await screen.findByText('Consulting')
+
+    // A bare 12 against "Consulting" is twelve hours or twelve days.
+    const unit = screen.getByRole('columnheader', { name: 'Unit' })
+    const index = [...(unit.closest('tr')?.children ?? [])].indexOf(unit)
+    const row = screen.getByText('Consulting').closest('tr')
+    expect(row?.children[index]?.textContent).toBe('hours')
+  })
+
+  it('substitutes no unit where the source stated none', async () => {
+    // "pcs" assumed over an hourly line is a wrong figure stated confidently.
+    const unitless: VoucherGroupRead = {
+      ...VOUCHER,
+      lines: [line({ description: 'Consulting', quantity: '12', unit: null })],
+    }
+    setup({ result: { items: [unitless], page: 1, page_size: 25, total: 1 } })
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
+    await screen.findByText('Consulting')
+
+    const unit = screen.getByRole('columnheader', { name: 'Unit' })
+    const index = [...(unit.closest('tr')?.children ?? [])].indexOf(unit)
+    const row = screen.getByText('Consulting').closest('tr')
+    expect(row?.children[index]?.textContent).toBe('—')
+  })
+
+  it('prefers the invoice number read from the document', () => {
+    // The ERP posted the bill id, which is not an invoice number at all.
+    setup({
+      result: {
+        items: [{ ...VOUCHER, invoice_number: '615d7cd6b6e9528db0b9b3',
+                  document_invoice_number: '2026-0412' }],
+        page: 1, page_size: 25, total: 1,
+      },
+    })
+
+    expect(screen.getByText('2026-0412')).toBeTruthy()
+  })
+
+  it('keeps the posted number reachable when the two disagree', () => {
+    setup({
+      result: {
+        items: [{ ...VOUCHER, invoice_number: '615d7cd6b6e9528db0b9b3',
+                  document_invoice_number: '2026-0412' }],
+        page: 1, page_size: 25, total: 1,
+      },
+    })
+
+    // A disagreement means the ERP's number is wrong or the scan belongs to
+    // another invoice — either is worth seeing, so it is not discarded.
+    const cell = screen.getByLabelText(/read from the document/i)
+    expect(cell.getAttribute('aria-label')).toContain('615d7cd6b6e9528db0b9b3')
+    expect(cell.getAttribute('tabindex')).toBe('0')
+  })
+
+  it('falls back to the posted number before the document has been read', () => {
+    setup({
+      result: {
+        items: [{ ...VOUCHER, invoice_number: 'INV-77', document_invoice_number: null }],
+        page: 1, page_size: 25, total: 1,
+      },
+    })
+
+    expect(screen.getByText('INV-77')).toBeTruthy()
+    expect(screen.queryByLabelText(/read from the document/i)).toBeNull()
+  })
+
+  it('shows no invoice number where neither exists', () => {
+    setup({
+      result: {
+        items: [{ ...VOUCHER, invoice_number: null, document_invoice_number: null }],
+        page: 1, page_size: 25, total: 1,
+      },
+    })
+
+    expect(screen.queryByLabelText(/read from the document/i)).toBeNull()
   })
 
   it('marks a line that stands in for a posting', async () => {

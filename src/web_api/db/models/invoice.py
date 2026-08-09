@@ -17,6 +17,17 @@ class Invoice(SQLModel, table=True):
     vendor_id: Optional[str] = Field(sa_type=String, foreign_key="vendors.id", nullable=True)
     file_id: Optional[str] = Field(sa_type=String, foreign_key="files.id", nullable=True)
     invoice_number: Optional[str] = Field(sa_type=String, nullable=True)
+    # The supplier's invoice number as read from the attached document, beside
+    # the as-posted `invoice_number` above — which extraction never rewrites,
+    # exactly as `base_total` sits beside `total` rather than replacing it.
+    #
+    # Load-bearing because the as-posted value is frequently not an invoice
+    # number at all: Billy's `suppliersInvoiceNo` is user-entered and often
+    # null and `voucherNo` is blank at least as often, so the connector falls
+    # back to the *bill id* — an internal identifier sitting in a field the
+    # reader takes for the supplier's number. The number printed on the invoice
+    # is the one a human reconciles against, and only the document has it.
+    document_invoice_number: Optional[str] = Field(sa_type=String, nullable=True)
     invoice_date: Optional[date] = Field(sa_type=Date, nullable=True)
     currency: Optional[str] = Field(sa_type=String, nullable=True)
     total: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)

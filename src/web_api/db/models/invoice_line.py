@@ -17,6 +17,14 @@ class InvoiceLine(SQLModel, table=True):
     invoice_id: str = Field(sa_type=String, foreign_key="invoices.id", nullable=False)
     description: Optional[str] = Field(sa_type=String, nullable=True)
     quantity: Optional[Decimal] = Field(sa_type=Numeric(12, 4), nullable=True)
+    # The unit `quantity` is counted in ('pcs', 'hours', 'kg', 'months'). A bare
+    # quantity is ambiguous — 12 against "Consulting" is twelve hours or twelve
+    # days — and unit prices cannot be compared across suppliers without it.
+    # Null is the ordinary case: an ERP bill line states an account and an
+    # amount, not a unit of measure, and a posting has neither. Never inferred
+    # from the description and never defaulted: "pcs" assumed over an hourly
+    # line is a wrong figure presented with confidence.
+    unit: Optional[str] = Field(sa_type=String, nullable=True)
     unit_price: Optional[Decimal] = Field(sa_type=Numeric(12, 4), nullable=True)
     amount: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
     native_account_code: Optional[str] = Field(sa_type=String, nullable=True)

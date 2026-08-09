@@ -168,7 +168,7 @@ def process_invoice(
     base_currency = company.base_currency if company is not None else None
     fx = FxService(session)
     n_removed, n_written = replace_invoice_lines(
-        session, invoice, extracted.lines, fx=fx, base_currency=base_currency
+        session, invoice, extracted, fx=fx, base_currency=base_currency
     )
     session.commit()
     logger.info(

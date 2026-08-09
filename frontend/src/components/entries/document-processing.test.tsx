@@ -9,6 +9,7 @@ function invoice(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetailRead 
     company_id: 'c1',
     vendor_id: 'v1',
     invoice_number: 'INV-2026-0412',
+    document_invoice_number: null,
     invoice_date: '2026-07-02',
     currency: 'DKK',
     total: '1200.00',

@@ -25,9 +25,18 @@ The app SHALL expose an authenticated `/entries` route that lists the organizati
 - The table SHALL NOT carry an entry-type column. Entry type SHALL remain
   available as a filter and on the voucher panel.
 - An expanded group SHALL render its own column headers above its lines —
-  **Description**, **Quantity**, **Spend category**, **Amount** — because the
-  table's header names the columns of a *voucher* row, not a line's. The line
-  figure SHALL be headed **Amount**, not Total Spend.
+  **Description**, **Quantity**, **Unit**, **Spend category**, **Amount** —
+  because the table's header names the columns of a *voucher* row, not a line's.
+  The line figure SHALL be headed **Amount**, not Total Spend.
+- **Unit** SHALL be its own column beside Quantity, not appended to the quantity
+  cell: the quantity is a right-aligned tabular figure meant to be scanned down,
+  and a unit inside that cell breaks the alignment on every row that has one. An
+  empty Unit cell SHALL read as empty rather than as a substituted default.
+- The voucher row SHALL carry an **Invoice no.** column, showing the number read
+  from the document in preference to the as-posted one. Where the two exist and
+  disagree, both SHALL be reachable — a disagreement means the ERP's number is
+  wrong or the scan belongs to another invoice, and either is worth seeing.
+  Where neither exists, the cell SHALL be empty.
 - Each line SHALL show its spend category as the **full path**
   (`Indirect › Legal › Professional Services`), with the leaf emphasised over the
   levels above it.
@@ -73,8 +82,34 @@ The app SHALL expose an authenticated `/entries` route that lists the organizati
 #### Scenario: Expanded lines carry their own column headers
 
 - **WHEN** a voucher is expanded
-- **THEN** Description, Quantity, Spend category and Amount headers are shown
-  above its lines
+- **THEN** Description, Quantity, Unit, Spend category and Amount headers are
+  shown above its lines
+
+#### Scenario: A line states the unit its quantity is counted in
+
+- **WHEN** a line reads 12 with a unit of `hours`
+- **THEN** the Quantity cell reads 12 and the Unit cell reads `hours`
+
+#### Scenario: A line with no unit shows none
+
+- **WHEN** a line has no unit
+- **THEN** its Unit cell is empty, with no default substituted
+
+#### Scenario: The number printed on the document is preferred
+
+- **WHEN** a voucher's invoice was posted with the bill id as its number and the
+  document reads "2026-0412"
+- **THEN** the Invoice no. column reads "2026-0412"
+
+#### Scenario: A disagreement between the two numbers is reachable
+
+- **WHEN** the posted number and the document's number differ
+- **THEN** both are available to the reader rather than one silently winning
+
+#### Scenario: An invoice with no number anywhere shows none
+
+- **WHEN** neither number exists
+- **THEN** the Invoice no. cell is empty
 
 #### Scenario: A categorized line shows its full category path
 

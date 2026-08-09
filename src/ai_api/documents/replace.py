@@ -34,7 +34,7 @@ from web_api.db.models.audit_log import SYSTEM_ACTOR
 from web_api.fx import FxService
 from web_api.rollup import recompute_invoice_status
 
-from ..models import LineItem
+from .extractor import ExtractedLines
 
 logger = logging.getLogger("ai_api.documents")
 
@@ -58,7 +58,7 @@ def _dec(value) -> Decimal | None:
 def replace_invoice_lines(
     session: Session,
     invoice: Invoice,
-    lines: list[LineItem],
+    extracted: ExtractedLines,
     *,
     fx: FxService,
     base_currency: str | None,
@@ -70,6 +70,7 @@ def replace_invoice_lines(
     at all — a half-applied replacement is an invoice that describes its spend
     twice.
     """
+    lines = extracted.lines
     existing = list(
         session.exec(
             select(InvoiceLine)
@@ -112,6 +113,10 @@ def replace_invoice_lines(
             sequence=seq,
             description=item.description,
             quantity=_dec(item.quantity),
+            # What the quantity counts. Only the document reliably states this —
+            # an ERP bill line carries a quantity and no unit at all — which is
+            # most of the value of reading it.
+            unit=(item.unit_type or "").strip() or None,
             unit_price=_dec(item.unit_price),
             amount=_dec(item.amount),
             # Left uncategorized on purpose: the categorizer categorizes, on its
@@ -136,6 +141,14 @@ def replace_invoice_lines(
 
     session.flush()
     recompute_invoice_status(session, invoice.id)
+
+    # Stored beside the as-posted number, never over it: `invoice_number` is
+    # the evidence of what the ERP holds, and the two disagreeing is itself
+    # information — the ERP's is a fallback identifier, or the scan belongs to
+    # another invoice. Left null when the document stated none rather than
+    # falling back to the posted value, which would make "read from the
+    # document" indistinguishable from "copied from the ledger".
+    invoice.document_invoice_number = extracted.invoice_number
 
     invoice.doc_status = DocStatus.PROCESSED
     invoice.doc_processed_at = datetime.now(timezone.utc)

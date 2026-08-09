@@ -33,6 +33,10 @@ class ErpInvoiceLineData(BaseModel):
     line_erp_id: str | None = None
     description: str
     quantity: float | None = None
+    # What `quantity` counts, when the ERP says. Most do not — Billy's bill line
+    # carries a quantity and no unit field at all — so None is the norm and is
+    # never to be filled with a default.
+    unit: str | None = None
     unit_price: float | None = None
     amount: float
     native_account_code: str | None = None

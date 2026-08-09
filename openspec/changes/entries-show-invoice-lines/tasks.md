@@ -72,3 +72,14 @@
 - [x] 7.3 Run the sync runner then the document stage against the Debug ERP end to end, and confirm the page shows stand-in lines that are then replaced by extracted ones
 - [ ] 7.4 Benchmark extraction against `ai_api/synthdata` ground truth before pointing the stage at Billy — **blocked**: no model server is reachable (nothing on :8000 or :8001), so the LLM leg has never been run. Everything around it is verified end to end against real Billy data (discovery → claim → live fetch → media dispatch → PDF text).
 - [x] 7.5 Update `CLAUDE.md`: the document-processing stage and its command, `origin` and `doc_status`, the reprocess endpoint, the line-based Entries page, and the Postings tab
+
+## 8. Line unit and the printed invoice number
+
+- [x] 8.1 Add `InvoiceLine.unit` and `Invoice.document_invoice_number` (migration `0003_line_unit_and_doc_number` — the revision id must stay under 32 chars, the width of `alembic_version.version_num`)
+- [x] 8.2 Add `unit` to `ErpInvoiceLineData` so a connector that states one can supply it; the sync writes it through. Billy states none, so it stays null
+- [x] 8.3 Map `LineItem.unit_type` → `InvoiceLine.unit` and `ExtractedInvoice.invoice_number` → `Invoice.document_invoice_number` on replacement; blank strings become null
+- [x] 8.4 Never rewrite the as-posted `invoice_number`, and never fall back to it — "read from the document" must stay distinguishable from "copied from the ledger"
+- [x] 8.5 Carry `unit` on `InvoiceLineRead`, and both numbers on `InvoiceRead` and `VoucherGroupRead`
+- [x] 8.6 Add a **Unit** column beside Quantity on the line rows and an **Invoice no.** column on the voucher rows, keeping every row 6 columns wide
+- [x] 8.7 Prefer the printed number, keep the posted one reachable when the two disagree, and show nothing when neither exists
+- [x] 8.8 Tests: unit stored/absent/blank, the printed number stored beside the posted one, the posted one never rewritten, and each UI case

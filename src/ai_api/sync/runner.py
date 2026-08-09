@@ -377,6 +377,7 @@ def _persist_invoices(
             lrow.sequence = idx
             lrow.description = line.description
             lrow.quantity = _dec(line.quantity)
+            lrow.unit = line.unit
             lrow.unit_price = _dec(line.unit_price)
             lrow.amount = _dec(line.amount)
             lrow.native_account_code = line.native_account_code

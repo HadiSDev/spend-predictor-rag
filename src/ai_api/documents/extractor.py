@@ -46,6 +46,11 @@ class ExtractedLines(BaseModel):
     #: The document's own stated currency, when it named one. Never used to
     #: overwrite the ledger's — the ERP posted that — only to report on.
     currency: str | None = None
+    #: The supplier's invoice number as printed. Stored beside the as-posted
+    #: one rather than over it: the ERP's is frequently a fallback identifier
+    #: (Billy's is the bill id when the customer left the field blank), and this
+    #: is the number a human reconciles against.
+    invoice_number: str | None = None
 
 
 def document_text(payload: DocumentPayload) -> str:
@@ -81,7 +86,13 @@ def extract_lines(payload: DocumentPayload, *, kickoff=None) -> ExtractedLines:
         "Extract the structured invoice data from the following invoice text. "
         "Leave any missing field null.\n\n" + text
     )
-    return ExtractedLines(lines=list(extracted.line_items), currency=extracted.currency)
+    return ExtractedLines(
+        lines=list(extracted.line_items),
+        currency=extracted.currency,
+        # Blank is not a number. An empty string would read as "the document
+        # states its number is ''" rather than "it states none".
+        invoice_number=(extracted.invoice_number or "").strip() or None,
+    )
 
 
 def _kickoff_extractor(prompt: str) -> ExtractedInvoice:

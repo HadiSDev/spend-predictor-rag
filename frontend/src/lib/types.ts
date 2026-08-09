@@ -305,6 +305,13 @@ export interface VoucherGroupRead {
    *  source invoice. See `DocStatus`. */
   doc_status: DocStatus | null
   doc_error: string | null
+  /** The invoice's number as the ERP posted it. Often a fallback identifier
+   *  rather than the supplier's — Billy uses the bill id when the customer left
+   *  the field blank. */
+  invoice_number: string | null
+  /** The number printed on the scan. Preferred for display; the two disagreeing
+   *  is information, not noise to resolve silently. */
+  document_invoice_number: string | null
 }
 
 /**
@@ -391,6 +398,9 @@ export interface InvoiceLineRead {
   company_id: string
   description: string | null
   quantity: Money | null
+  /** What `quantity` counts — `pcs`, `hours`. Null is the ordinary case: an ERP
+   *  bill line states no unit, and none is ever substituted. */
+  unit: string | null
   unit_price: Money | null
   amount: Money | null
   native_account_code: string | null
@@ -427,6 +437,9 @@ export interface InvoiceRead {
   company_id: string
   vendor_id: string | null
   invoice_number: string | null
+  /** The number printed on the scan, beside the as-posted one rather than over
+   *  it — extraction never rewrites the ERP's value. */
+  document_invoice_number: string | null
   invoice_date: string | null
   currency: string | null
   total: Money | null
