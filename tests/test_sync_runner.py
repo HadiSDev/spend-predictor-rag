@@ -267,6 +267,31 @@ def test_invoice_has_file_and_no_voucher_column(sqlite_engine):
         assert file.file_type == "invoice_pdf"
 
 
+def test_a_document_renamed_in_the_erp_keeps_its_file_row(sqlite_engine, monkeypatch):
+    """The File's identity is the ERP's `file_ref`, not the label beside it.
+
+    Keying on the name instead would mint a second row and orphan the first
+    every time a customer renamed a file — or, as Billy did, the moment a
+    connector started reporting a name it had previously left blank.
+    """
+    runner.run_sync()
+    with Session(sqlite_engine) as s:
+        before = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
+        original_file_id = before.file_id
+        assert s.exec(select(func.count()).select_from(File)).one() == 2
+
+    # `_SCANS` is shared module state; monkeypatch restores it after the test.
+    monkeypatch.setattr(_SCANS["V1"], "file_name", "renamed-by-the-customer.pdf")
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        after = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
+        assert after.file_id == original_file_id
+        assert s.get(File, original_file_id).filename == "renamed-by-the-customer.pdf"
+        # Renamed, not duplicated: still one File per invoice scan.
+        assert s.exec(select(func.count()).select_from(File)).one() == 2
+
+
 def test_entries_link_to_invoice_via_voucher(sqlite_engine):
     runner.run_sync()
 
@@ -599,3 +624,49 @@ def test_the_runner_never_sets_the_base_currency(eur_company, monkeypatch):
 
     with Session(eur_company) as s:
         assert s.exec(select(Company)).one().base_currency == "EUR"
+
+
+# -- The two account writers must agree on identity --------------------------
+
+
+def test_the_runner_adopts_accounts_the_refresh_endpoint_created(sqlite_engine):
+    """`refresh-accounts` and the runner both write this table.
+
+    They used to disagree about identity — the endpoint keys on
+    `(integration, code)` with an ordinary random id, the runner looked up a
+    deterministic id by primary key — so a sync after a refresh inserted a
+    second copy of the entire chart, and the two copies then drifted as each
+    writer updated only its own.
+    """
+    with Session(sqlite_engine) as s:
+        integration = s.exec(select(ErpIntegration)).one()
+        # Exactly what the endpoint writes: natural key, random id, and a
+        # customer setting the runner must not touch.
+        s.add(ErpAccount(erp_integration_id=integration.id, erp_account_code="6010",
+                         erp_account_name="Stale name", sync_enabled=False))
+        s.commit()
+        integration_id = integration.id
+
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        rows = s.exec(
+            select(ErpAccount).where(
+                ErpAccount.erp_integration_id == integration_id,
+                ErpAccount.erp_account_code == "6010",
+            )
+        ).all()
+        assert len(rows) == 1, "the runner duplicated an account the endpoint created"
+        # It adopted the existing row: ERP metadata refreshed, the customer's
+        # selection left alone.
+        assert rows[0].erp_account_name != "Stale name"
+        assert rows[0].sync_enabled is False
+
+
+def test_running_the_sync_twice_does_not_duplicate_accounts(sqlite_engine):
+    runner.run_sync()
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        codes = [a.erp_account_code for a in s.exec(select(ErpAccount)).all()]
+        assert len(codes) == len(set(codes)), f"duplicate accounts: {codes}"

@@ -154,19 +154,39 @@ def _resolve_since(state: SyncState, override: date | None) -> date | None:
 def _persist_accounts(
     session: Session, integration_id: str, accounts: list[ErpAccountData]
 ) -> dict[str, str]:
-    """Upsert ERP accounts. Returns {erp_account_code: erp_account_id} for entry linking."""
+    """Upsert ERP accounts. Returns {erp_account_code: erp_account_id} for entry linking.
+
+    Identity is `(erp_integration_id, erp_account_code)` — the natural key — and
+    **not** a deterministic id looked up by primary key. It used to be the
+    latter, which silently duplicated the whole chart:
+    `POST /erp-integrations/{id}/refresh-accounts` writes these same rows with
+    ordinary random ids, so `session.get(ErpAccount, deterministic_id)` never
+    found them and inserted a second copy of every account. The pairs then
+    drifted, because each writer only ever updated its own.
+
+    Two writers share this table and only one rule may define identity. This is
+    the rule the refresh endpoint already follows, so they now agree.
+    """
     mapping: dict[str, str] = {}
+    existing = {
+        row.erp_account_code: row
+        for row in session.exec(
+            select(ErpAccount).where(ErpAccount.erp_integration_id == integration_id)
+        ).all()
+    }
     for acc in accounts:
-        acc_id = _det_id("erp_account", integration_id, acc.erp_account_code)
-        row = session.get(ErpAccount, acc_id)
+        row = existing.get(acc.erp_account_code)
         if row is None:
             # New account: our sync selection defaults to enabled, and the ERP's
             # VAT value seeds the assumption. Existing rows keep whatever the
             # customer set — never reset from the ERP.
-            row = ErpAccount(id=acc_id, erp_integration_id=integration_id,
+            row = ErpAccount(erp_integration_id=integration_id,
                              erp_account_code=acc.erp_account_code,
                              with_vat=acc.with_vat)
             session.add(row)
+            # Not flushed: `id` has a client-side default so it is readable now,
+            # and inserting here would precede the NOT NULL name set below.
+            existing[acc.erp_account_code] = row
         # ERP-owned metadata only. `sync_enabled` and `with_vat` are the
         # customer's; this is the second writer that must respect that, and the
         # one whose clobbering would look like the setting resetting at random.
@@ -175,7 +195,7 @@ def _persist_accounts(
         row.parent_code = acc.parent_code
         row.is_active = acc.is_active
         row.raw_json = acc.raw
-        mapping[acc.erp_account_code] = acc_id
+        mapping[acc.erp_account_code] = row.id
     session.commit()
     return mapping
 
@@ -237,7 +257,11 @@ def _persist_file(
     """
     if not inv.file_name and not inv.file_ref:
         return None
-    file_id = _det_id("file", invoice_id, inv.file_name or inv.file_ref or "")
+    # Keyed on `file_ref` in preference to `file_name`: the ref is the ERP's own
+    # identity for the document, while the name is a label a customer can change
+    # — and a connector that starts reporting a name it previously left blank
+    # would otherwise mint a second File row and orphan the first.
+    file_id = _det_id("file", invoice_id, inv.file_ref or inv.file_name or "")
     row = session.get(File, file_id)
     if row is None:
         row = File(id=file_id, company_id=company_id, filename=inv.file_name or "scan.pdf",
