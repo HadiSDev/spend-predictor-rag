@@ -23,15 +23,28 @@ upgrading failed just as fast on ``DuplicateColumn``. No one could stand up a
 new database from the migrations. After this squash ``alembic upgrade head``
 works from an empty database, which is the point.
 
-**Existing databases must be stamped, not upgraded.** A database already at
-``0020_erp_account_natural_key`` (the dev database, and any deployed one) already
-*has* this schema — running ``upgrade`` there would try to create tables that
-exist. Bring it across with::
+**Existing databases must be stamped with ``--purge``, not upgraded.** A database
+already at ``0020_erp_account_natural_key`` (the dev database, and any deployed
+one) already *has* this schema — running ``upgrade`` there would try to create
+tables that exist. Bring it across with::
 
-    uv run alembic stamp 0001_baseline_schema
+    uv run alembic stamp 0001_baseline_schema --purge
 
 which only rewrites ``alembic_version``. Only a genuinely empty database should
 ever run ``upgrade`` on this revision.
+
+``--purge`` is required, not optional, and a plain ``stamp`` **will fail on every
+existing database**::
+
+    FAILED: Can't locate revision identified by '0020_erp_account_natural_key'
+
+The reason is inherent to squashing: before writing the new version, ``stamp``
+resolves the revision the database is *currently* at — and that revision's script
+is one of the twenty this migration deleted, so Alembic cannot find it. ``--purge``
+clears ``alembic_version`` outright instead of trying to interpret what is in it,
+which is exactly right here: the old value names history that no longer exists.
+(Empirically confirmed — the plain command was run against a real database at
+``0020`` and failed with the error above.)
 
 **Two things ``create_all``/autogenerate cannot express are hand-added below**,
 and both are load-bearing:

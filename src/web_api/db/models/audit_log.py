@@ -52,8 +52,9 @@ class AuditLog(SQLModel, table=True):
     # A feed that needs "what happened, in order" needs this column, not those
     # two.
     #
-    # PostgreSQL fills it itself from a real sequence (see the
-    # `0019_audit_log_seq` migration) — atomic, so it stays correct under
+    # PostgreSQL fills it itself from a real sequence (created by the
+    # `0001_baseline_schema` migration; originally by `0019_audit_log_seq`,
+    # which that squash replaced) — atomic, so it stays correct under
     # concurrent writers on multiple app instances. `nullable=False` here
     # matches what that migration leaves the database in (do not drift).
     #
