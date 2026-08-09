@@ -476,10 +476,15 @@ describe('EntriesPanel — voucher rows', () => {
         0,
       )
     const voucherHeader = document.querySelector('thead tr')
+    // The voucher *body* row too, not only its header: a line row carries one
+    // more column than a voucher row, and widening the header alone would leave
+    // every group total sitting one column left of the amounts beneath it.
+    const voucherRow = screen.getByText('V-1042').closest('tr')
     const lineHeader = screen.getByRole('columnheader', { name: 'Quantity' }).closest('tr')
     const lineRow = screen.getByText('Figma Organization, 12 seats').closest('tr')
 
     expect(width(voucherHeader)).toBeGreaterThan(0)
+    expect(width(voucherRow)).toBe(width(voucherHeader))
     expect(width(lineHeader)).toBe(width(voucherHeader))
     expect(width(lineRow)).toBe(width(voucherHeader))
   })
@@ -507,6 +512,37 @@ describe('EntriesPanel — voucher rows', () => {
     // The group states its net spend, computed server-side from the *postings*
     // — which is exactly why the column is not called Total.
     expect(screen.getByText('DKK 900.00')).toBeTruthy()
+  })
+
+  it('states a line’s unit price as it was stated, currency and all', async () => {
+    const priced: VoucherGroupRead = {
+      ...VOUCHER,
+      lines: [line({ description: 'Monitors', quantity: '2', unit_price: '1600.00' })],
+    }
+    setup({ result: { items: [priced], page: 1, page_size: 25, total: 1 } })
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
+    await screen.findByText('Monitors')
+
+    const header = screen.getByRole('columnheader', { name: 'Unit price' })
+    const index = [...(header.closest('tr')?.children ?? [])].indexOf(header)
+    const row = screen.getByText('Monitors').closest('tr')
+    expect(row?.children[index]?.textContent).toContain('1,600.00')
+  })
+
+  it('shows no unit price where the source stated none', async () => {
+    // Billy states an amount and no unit price at all, so this is the norm.
+    const unpriced: VoucherGroupRead = {
+      ...VOUCHER,
+      lines: [line({ description: 'Monitors', unit_price: null })],
+    }
+    setup({ result: { items: [unpriced], page: 1, page_size: 25, total: 1 } })
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
+    await screen.findByText('Monitors')
+
+    const header = screen.getByRole('columnheader', { name: 'Unit price' })
+    const index = [...(header.closest('tr')?.children ?? [])].indexOf(header)
+    const row = screen.getByText('Monitors').closest('tr')
+    expect(row?.children[index]?.textContent).toBe('—')
   })
 
   it('states the unit a line’s quantity is counted in', async () => {

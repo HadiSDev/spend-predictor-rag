@@ -25,13 +25,22 @@ The app SHALL expose an authenticated `/entries` route that lists the organizati
 - The table SHALL NOT carry an entry-type column. Entry type SHALL remain
   available as a filter and on the voucher panel.
 - An expanded group SHALL render its own column headers above its lines —
-  **Description**, **Quantity**, **Unit**, **Spend category**, **Amount** —
+  **Description**, **Quantity**, **Unit**, **Unit price**, **Spend category**,
+  **Amount** —
   because the table's header names the columns of a *voucher* row, not a line's.
   The line figure SHALL be headed **Amount**, not Total Spend.
 - **Unit** SHALL be its own column beside Quantity, not appended to the quantity
   cell: the quantity is a right-aligned tabular figure meant to be scanned down,
   and a unit inside that cell breaks the alignment on every row that has one. An
   empty Unit cell SHALL read as empty rather than as a substituted default.
+- **Unit price** SHALL be shown as its source stated it, in that source's own
+  currency, and SHALL NOT be converted. Only the line's *amount* carries a
+  stored base figure; deriving a base unit price at render time would make the
+  table the one place in the app that converts money client-side.
+- A line row carries one more column than a voucher row, so a voucher row's
+  cells SHALL span the difference. The **Amount** column and the **Total Spend**
+  column SHALL remain the same column: a line figure one column right of the
+  total it belongs to is read against the wrong header.
 - The voucher row SHALL carry an **Invoice no.** column, showing the number read
   from the document in preference to the as-posted one. Where the two exist and
   disagree, both SHALL be reachable — a disagreement means the ERP's number is
@@ -82,8 +91,19 @@ The app SHALL expose an authenticated `/entries` route that lists the organizati
 #### Scenario: Expanded lines carry their own column headers
 
 - **WHEN** a voucher is expanded
-- **THEN** Description, Quantity, Unit, Spend category and Amount headers are
-  shown above its lines
+- **THEN** Description, Quantity, Unit, Unit price, Spend category and Amount
+  headers are shown above its lines
+
+#### Scenario: A line states its unit price as stated
+
+- **WHEN** a line was stated at 1.600,00 per unit
+- **THEN** the Unit price cell reads that figure, unconverted
+
+#### Scenario: A line with no unit price shows none
+
+- **WHEN** the source stated an amount and no unit price — the ordinary case
+  for an ERP bill line
+- **THEN** the Unit price cell is empty
 
 #### Scenario: A line states the unit its quantity is counted in
 
@@ -129,8 +149,9 @@ The app SHALL expose an authenticated `/entries` route that lists the organizati
 #### Scenario: Every row aligns to the same width
 
 - **WHEN** a voucher is expanded
-- **THEN** the voucher header row, the line header row and each line row span
-  the same column count, so a line's figure sits under Amount
+- **THEN** the voucher header row, the voucher row, the line header row and each
+  line row span the same column count, so a line's figure sits under Amount and
+  Amount sits under Total Spend
 
 #### Scenario: A voucherless entry is shown plainly
 

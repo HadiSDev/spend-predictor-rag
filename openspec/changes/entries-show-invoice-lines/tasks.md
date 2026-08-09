@@ -83,3 +83,4 @@
 - [x] 8.6 Add a **Unit** column beside Quantity on the line rows and an **Invoice no.** column on the voucher rows, keeping every row 6 columns wide
 - [x] 8.7 Prefer the printed number, keep the posted one reachable when the two disagree, and show nothing when neither exists
 - [x] 8.8 Tests: unit stored/absent/blank, the printed number stored beside the posted one, the posted one never rewritten, and each UI case
+- [x] 8.9 Add a **Unit price** column to the line rows, shown as stated and unconverted; the voucher row spans the difference so Amount stays under Total Spend
