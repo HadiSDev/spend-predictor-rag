@@ -687,6 +687,25 @@ describe('EntriesPanel — filters', () => {
     expect(props.onVendorSearch).toHaveBeenCalledWith('cont', expect.anything())
   })
 
+  it('lines every company option up on one left edge', async () => {
+    // The flag and the label sit inside Base UI's `ItemText`, not the item's
+    // own flex container — so an inline spacer collapses to nothing and "All
+    // companies" ends up a flag's width left of every company beneath it.
+    setup()
+
+    fireEvent.click(screen.getByRole('combobox', { name: /company/i }))
+    const all = await screen.findByRole('option', { name: 'All companies' })
+    const acme = screen.getByRole('option', { name: /Acme/ })
+
+    const leading = (option: HTMLElement) =>
+      option.querySelector('span > span:first-child')?.className ?? ''
+
+    // Both rows open with a box of the same size: a flag, or a spacer standing
+    // in for one.
+    expect(leading(all)).toContain('size-5')
+    expect(leading(acme)).toContain('size-5')
+  })
+
   it('offers filter options by their display name, never a raw key', async () => {
     setup({ entryTypes: ['purchase_invoice', 'journal_entry'] })
 

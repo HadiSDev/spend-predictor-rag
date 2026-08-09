@@ -91,9 +91,13 @@ export const SelectItem = React.forwardRef<
       // second line rather than being clipped. The popup is only as wide as the
       // control that anchors it, and every filter's options are user data —
       // company and supplier names — so there is no width at which clipping is
-      // safe. `items-start` keeps the check mark aligned with the first line of
-      // a wrapped label instead of floating at its vertical centre.
-      'relative flex cursor-default items-start gap-2 rounded-md py-1.5 pr-8 pl-3 text-sm whitespace-normal outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-muted',
+      // safe. `pr-8` keeps a wrapped line clear of the check mark.
+      //
+      // No `gap` here: `children` go inside Base UI's `ItemText`, so this
+      // container holds one in-flow child and the gap would reach nothing. An
+      // item that needs a row of its own — an icon beside a label — has to make
+      // that row itself (see `CompanyOption` in the entries filter bar).
+      'relative flex cursor-default items-start rounded-md py-1.5 pr-8 pl-3 text-sm whitespace-normal outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-muted',
       className,
     )}
     {...props}

@@ -46,20 +46,34 @@ const ORIGIN_OPTIONS = LINE_ORIGINS.map((value) => ({
 
 
 /**
- * A company's country, as the flag coin the settings pickers already use.
+ * One row of the company picker: its country's flag, then its name.
  *
- * Reused rather than reinvented for the reason that component documents: emoji
- * flags are the obvious route and the wrong one, because Windows ships no flag
- * glyphs and renders 🇩🇰 as two boxed capitals. It falls back to the lettered
- * coin for a country we hold no artwork for, so a row is never blank.
+ * The flag is the coin the settings pickers already use, reused rather than
+ * reinvented for the reason that component documents — emoji flags are the
+ * obvious route and the wrong one, because Windows ships no flag glyphs and
+ * renders 🇩🇰 as two boxed capitals. It falls back to a lettered coin for a
+ * country we hold no artwork for, so a row is never blank.
  *
- * A company with no country keeps the coin's footprint as a spacer, so the
- * names below it stay in one column instead of stepping left on the rows that
- * have no flag.
+ * **This has to be its own flex row.** `SelectItem` puts its children inside
+ * Base UI's `ItemText`, which is not the item's flex container — so the item's
+ * own `gap-2` never reaches these two, and a bare `size-5` spacer is an inline
+ * element whose width is ignored and which therefore collapses to nothing. That
+ * is what left "All companies" sitting a flag's width to the left of every
+ * company under it.
  */
-function CompanyFlag({ country }: { country: string | null }) {
-  if (!country) return <span aria-hidden className="size-5 shrink-0" />
-  return <CountryFlag country={country} className="mt-px" />
+function CompanyOption({ country, children }: { country: string | null; children: React.ReactNode }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      {country ? (
+        <CountryFlag country={country} />
+      ) : (
+        // Keeps the coin's footprint so the names stay in one column rather
+        // than stepping left on the rows that have no flag.
+        <span aria-hidden className="block size-5 shrink-0" />
+      )}
+      <span className="min-w-0">{children}</span>
+    </span>
+  )
 }
 
 /** The domain's fixed set. Kept explicit so a status with no rows yet — the
@@ -144,20 +158,14 @@ export function FilterBar({
             />
           </SelectTrigger>
           <SelectContent>
-            {/* The icon sits on every row, the "all" option included: give it
-                only to the real companies and their names indent past a row
-                that has none, which reads as a rendering fault rather than a
-                distinction. */}
-            {/* The "all" row takes the same footprint as a flag, so the names
-                below it stay in one column rather than indenting past it. */}
+            {/* The "all" row takes the same footprint as a flag, so every name
+                in the list shares one left edge. */}
             <SelectItem value={ALL}>
-              <CompanyFlag country={null} />
-              All companies
+              <CompanyOption country={null}>All companies</CompanyOption>
             </SelectItem>
             {companies.map((company) => (
               <SelectItem key={company.id} value={company.id}>
-                <CompanyFlag country={company.country_code} />
-                {company.name}
+                <CompanyOption country={company.country_code}>{company.name}</CompanyOption>
               </SelectItem>
             ))}
           </SelectContent>
