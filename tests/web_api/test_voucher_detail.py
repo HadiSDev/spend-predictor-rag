@@ -5,12 +5,14 @@ connected ERP integration, one account, a `File`-linked Org A invoice, and
 three postings on voucher "4821" (a purchase-invoice entry, a payment entry,
 and — separately — a lone journal entry with no voucher at all).
 """
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 
+import pytest
 from sqlmodel import Session
 
 from web_api.audit import record_audit
-from web_api.db.models import AuditLog
+from web_api.db.models import AuditLog, ErpAccount, ErpEntry
 
 from .conftest import auth
 
@@ -210,3 +212,134 @@ def test_record_audit_twice_in_one_flush_assigns_distinct_seq(engine, voucher_se
         assert row2.seq is not None
         assert row1.seq != row2.seq
         assert row1.seq < row2.seq
+
+
+# -- Deselected accounts are hidden from voucher lookups too ------------------
+#
+# Task 7b: the human developer ruled that `sync_enabled` should gate the
+# voucher-detail endpoints exactly as it gates the listings, not only the
+# listings. Two consequences of that ruling are exercised below rather than
+# treated as bugs: a voucher entirely on deselected accounts 404s (it is
+# indistinguishable from a voucher that never existed), and a
+# partially-deselected voucher shows a total its visible postings alone do not
+# sum to, because the hidden posting still moved money.
+
+
+@pytest.fixture
+def deselected_posting(engine, voucher_seed):
+    """A second posting on voucher "4821", on an account switched off from
+    sync. `voucher_seed`'s own postings stay on the enabled "6200" account, so
+    this fixture turns "4821" partially — not entirely — deselected."""
+    with Session(engine) as s:
+        disabled = ErpAccount(
+            erp_integration_id=voucher_seed["integration_a"],
+            erp_account_code="6300", erp_account_name="Deselected Software",
+            erp_account_type="expense", sync_enabled=False,
+        )
+        s.add(disabled)
+        s.commit()
+        entry = ErpEntry(
+            company_id=voucher_seed["comp_a"], erp_account_id=disabled.id,
+            voucher_id="4821", entry_type="credit_note",
+            accounting_date=date(2025, 7, 3),
+            debit_amount=Decimal("15.00"), currency="DKK",
+        )
+        s.add(entry)
+        s.commit()
+        return {"account_id": disabled.id, "entry_id": entry.id}
+
+
+@pytest.fixture
+def all_deselected_voucher(engine, voucher_seed):
+    """A voucher whose only posting is on a deselected account — nothing about
+    it is visible once `sync_enabled` is honoured."""
+    with Session(engine) as s:
+        disabled = ErpAccount(
+            erp_integration_id=voucher_seed["integration_a"],
+            erp_account_code="6400", erp_account_name="Fully Deselected",
+            erp_account_type="expense", sync_enabled=False,
+        )
+        s.add(disabled)
+        s.commit()
+        entry = ErpEntry(
+            company_id=voucher_seed["comp_a"], erp_account_id=disabled.id,
+            voucher_id="OFF1", entry_type="purchase_invoice",
+            accounting_date=date(2025, 7, 4),
+            debit_amount=Decimal("30.00"), currency="DKK",
+        )
+        s.add(entry)
+        s.commit()
+        return {"voucher_id": "OFF1", "entry_id": entry.id}
+
+
+def test_voucher_detail_hides_a_deselected_accounts_posting(
+    client, voucher_seed, deselected_posting
+):
+    body = client.get("/api/v1/erp-entries/vouchers/4821", headers=auth("tokA")).json()
+
+    assert body["entry_count"] == 2
+    assert deselected_posting["entry_id"] not in {e["id"] for e in body["entries"]}
+
+
+def test_voucher_of_only_deselected_postings_is_404(
+    client, voucher_seed, all_deselected_voucher
+):
+    res = client.get(
+        f"/api/v1/erp-entries/vouchers/{all_deselected_voucher['voucher_id']}",
+        headers=auth("tokA"),
+    )
+    assert res.status_code == 404
+
+
+def test_by_entry_addressed_at_a_deselected_posting_is_404(
+    client, voucher_seed, deselected_posting
+):
+    """Naming the deselected posting directly does not fall back to resolving
+    its (otherwise-visible) voucher — the posting itself is not there."""
+    res = client.get(
+        f"/api/v1/erp-entries/vouchers/by-entry/{deselected_posting['entry_id']}",
+        headers=auth("tokA"),
+    )
+    assert res.status_code == 404
+
+
+def test_by_entry_at_the_only_posting_of_an_all_deselected_voucher_is_404(
+    client, voucher_seed, all_deselected_voucher
+):
+    res = client.get(
+        f"/api/v1/erp-entries/vouchers/by-entry/{all_deselected_voucher['entry_id']}",
+        headers=auth("tokA"),
+    )
+    assert res.status_code == 404
+
+
+def test_voucher_audit_of_only_deselected_postings_is_404(
+    client, voucher_seed, all_deselected_voucher
+):
+    res = client.get(
+        f"/api/v1/erp-entries/vouchers/{all_deselected_voucher['voucher_id']}/audit",
+        headers=auth("tokA"),
+    )
+    assert res.status_code == 404
+
+
+def test_voucher_audit_by_entry_of_a_deselected_posting_is_404(
+    client, voucher_seed, deselected_posting
+):
+    res = client.get(
+        f"/api/v1/erp-entries/vouchers/by-entry/{deselected_posting['entry_id']}/audit",
+        headers=auth("tokA"),
+    )
+    assert res.status_code == 404
+
+
+def test_voucher_on_enabled_accounts_is_unaffected_by_a_sibling_deselection(
+    client, voucher_seed, deselected_posting
+):
+    """The presence of an unrelated deselected posting elsewhere must not leak
+    into a voucher that itself has none — a regression check on the filter's
+    scope, not just its existence."""
+    res = client.get("/api/v1/erp-entries/vouchers/by-entry/"
+                     f"{voucher_seed['entry_unvouchered']}", headers=auth("tokA"))
+    assert res.status_code == 200
+    assert res.json()["entry_count"] == 1

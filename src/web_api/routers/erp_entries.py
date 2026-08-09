@@ -56,6 +56,29 @@ _GROUP_KEY = func.coalesce(
 _EXCLUDED_ENTRY_TYPES = ("payment",)
 
 
+def _sync_enabled_condition():
+    """A posting is visible only if its account is still selected for sync.
+
+    Task 7b: the human developer ruled that `sync_enabled` gates voucher
+    lookups exactly as it gates the listings, not only the listings — a
+    deselected account is not part of the customer's spend picture regardless
+    of how the row is reached. Two consequences follow and are accepted, not
+    bugs: a voucher whose postings are *all* on deselected accounts 404s from
+    the detail endpoints (indistinguishable from a voucher that never
+    existed), and a partially-deselected voucher shows a total its visible
+    postings alone do not sum to, because the hidden posting still moved
+    money.
+
+    Deliberately standalone rather than routed through `_entry_conditions()`:
+    that function carries its own separate, not-yet-committed `sync_enabled`
+    filter for the listing endpoints. This predicate depends on nothing but
+    the `ErpAccount.sync_enabled` column so the two additions don't collide.
+    """
+    return ErpEntry.erp_account_id.in_(
+        select(ErpAccount.id).where(ErpAccount.sync_enabled == True)  # noqa: E712
+    )
+
+
 def _entry_select():
     """Base select yielding `(entry, account_code, account_name, vendor_id,
     vendor_name, account_type, level_1, level_2, level_3)`.
@@ -478,7 +501,9 @@ def get_voucher_by_entry(
     """
     rows = session.exec(
         _entry_select().where(
-            ErpEntry.id == entry_id, ErpEntry.company_id.in_(scope.company_ids)
+            ErpEntry.id == entry_id,
+            ErpEntry.company_id.in_(scope.company_ids),
+            _sync_enabled_condition(),
         )
     ).all()
     if not rows:
@@ -501,7 +526,9 @@ def get_voucher_detail(
     rows = session.exec(
         _entry_select()
         .where(
-            ErpEntry.voucher_id == voucher_id, ErpEntry.company_id.in_(scope.company_ids)
+            ErpEntry.voucher_id == voucher_id,
+            ErpEntry.company_id.in_(scope.company_ids),
+            _sync_enabled_condition(),
         )
         .order_by(ErpEntry.id)
     ).all()
