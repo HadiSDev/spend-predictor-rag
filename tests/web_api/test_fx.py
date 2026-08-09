@@ -287,6 +287,56 @@ def test_an_already_converted_row_is_left_alone(session, company):
     assert second.calls == []
 
 
+def test_changed_posted_amounts_are_reconverted_not_frozen(session, company):
+    """A row is upserted in place, so its posted amounts can change under a
+    conversion that was correct for the old ones.
+
+    Trusting the mere presence of a rate froze the old base amounts onto the new
+    posting, and the entries table then showed a figure belonging to an entirely
+    different row.
+    """
+    entry = ErpEntry(company_id=company, erp_account_id="a1", entry_type="purchase_invoice",
+                     currency="USD", accounting_date=FRIDAY, debit_amount=Decimal("100.00"))
+    session.add(entry)
+    FxService(session, StubProvider()).convert_entry(entry, "DKK")
+    assert entry.base_debit_amount == Decimal("687.56")  # 100 * 6.8756
+
+    # The ERP re-posts the same entry id with a different amount.
+    entry.debit_amount = Decimal("250.00")
+    assert FxService(session, StubProvider()).convert_entry(entry, "DKK") == CONVERTED
+
+    assert entry.base_debit_amount == Decimal("1718.89")  # 250 * 6.8756, not 687.56
+
+
+def test_a_posting_that_swaps_sides_does_not_keep_the_old_side(session, company):
+    """The sign inversion this bug produced on screen: an old credit-side base
+    amount surviving onto a row that now posts a debit."""
+    entry = ErpEntry(company_id=company, erp_account_id="a1", entry_type="purchase_invoice",
+                     currency="USD", accounting_date=FRIDAY, credit_amount=Decimal("100.00"))
+    session.add(entry)
+    FxService(session, StubProvider()).convert_entry(entry, "DKK")
+    assert entry.base_credit_amount == Decimal("687.56")
+
+    entry.credit_amount = None
+    entry.debit_amount = Decimal("100.00")
+    assert FxService(session, StubProvider()).convert_entry(entry, "DKK") == CONVERTED
+
+    assert entry.base_debit_amount == Decimal("687.56")
+    assert entry.base_credit_amount is None
+
+
+def test_an_untouched_row_still_costs_no_rate_lookup(session, company):
+    """The check has to stay cheap: it must not reintroduce a provider call."""
+    entry = ErpEntry(company_id=company, erp_account_id="a1", entry_type="purchase_invoice",
+                     currency="USD", accounting_date=FRIDAY, debit_amount=Decimal("100.00"))
+    session.add(entry)
+    FxService(session, StubProvider()).convert_entry(entry, "DKK")
+
+    second = StubProvider()
+    assert FxService(session, second).convert_entry(entry, "DKK") == UNCHANGED
+    assert second.calls == []
+
+
 def test_a_changed_base_currency_makes_a_row_convertible_again(session, company):
     invoice = Invoice(company_id=company, currency="USD", invoice_date=FRIDAY,
                       total=Decimal("100.00"), status="uncategorized")

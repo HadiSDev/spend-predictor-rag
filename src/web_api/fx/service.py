@@ -172,11 +172,27 @@ class FxService:
     ) -> str:
         """Write a row's base amounts, rate and rate date. Returns the outcome.
 
-        A row that already carries a rate for the same base currency is left
-        exactly as it is — that is what makes a re-sync free of both rate
-        lookups and write churn.
+        A row is left exactly as it is when its conversion is already the one we
+        would write — that is what makes a re-sync free of write churn.
+
+        "Already the one we would write" means the stored base amounts are still
+        *reproducible* from the posted amounts at the stored rate, not merely
+        that some rate is present. A row is upserted in place by a deterministic
+        id, so its posted amounts can change under a conversion that was correct
+        for the old ones; trusting the mere presence of a rate froze the base
+        amounts of an earlier posting onto the new one, which then rendered as a
+        figure from an unrelated row — even with the sign inverted, when the old
+        posting used the other side of the ledger.
         """
-        if row.fx_rate is not None and row.base_currency == base_currency:
+        amount_fields = tuple(amount_fields)
+        if (
+            row.fx_rate is not None
+            and row.base_currency == base_currency
+            and all(
+                getattr(row, base_field) == convert(getattr(row, source_field), row.fx_rate)
+                for source_field, base_field in amount_fields
+            )
+        ):
             return UNCHANGED
 
         resolved = self.get_rate(source_currency, base_currency, on_date)
