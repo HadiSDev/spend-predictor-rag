@@ -21,6 +21,13 @@ LINE_AUDIT_FIELDS = (
     "confidence", "rationale", "spend_category_id", "status",
 )
 
+# Auditable fields on an AI-parsed invoice header, in a stable order for
+# deterministic diffs. Deliberately the same set `InvoiceUpdate` accepts —
+# never a field the ERP posts, since those rows are never reachable here.
+INVOICE_AUDIT_FIELDS = (
+    "invoice_number", "invoice_date", "currency", "total", "tax", "vendor_id",
+)
+
 
 def _norm(value: Any) -> Any:
     """Normalize a value for diffing/JSON storage (Decimal → str, else as-is)."""

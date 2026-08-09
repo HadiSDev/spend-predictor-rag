@@ -195,6 +195,18 @@ class InvoiceLineVerify(BaseModel):
     spend_category_id: str | None = None
 
 
+class InvoiceUpdate(BaseModel):
+    """Corrections to an AI-parsed invoice header. Only fields the extraction
+    produced — never a field the ERP posted."""
+
+    invoice_number: str | None = None
+    invoice_date: date | None = None
+    currency: str | None = None
+    total: Decimal | None = None
+    tax: Decimal | None = None
+    vendor_id: str | None = None
+
+
 class AuditLogRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

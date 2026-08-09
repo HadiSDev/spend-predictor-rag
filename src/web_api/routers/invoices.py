@@ -10,8 +10,9 @@ from sqlmodel import Session, select
 from web_api.db.models import ErpAccount, ErpEntry, ErpIntegration, File, Invoice, InvoiceLine
 from web_api.connectors.base import ErpConnectionError
 from .. import integrations
-from ..deps import TenantScope, get_session, resolve_company_ids, tenant_scope
-from ..schemas import InvoiceDetailRead, InvoiceLineRead, InvoiceRead, Page
+from ..audit import INVOICE_AUDIT_FIELDS, diff_changes, record_audit
+from ..deps import TenantScope, get_session, require_management, resolve_company_ids, tenant_scope
+from ..schemas import InvoiceDetailRead, InvoiceLineRead, InvoiceRead, InvoiceUpdate, Page
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,49 @@ def get_invoice(
     detail = _invoice_read(invoice, file).model_dump()
     detail["lines"] = [InvoiceLineRead.model_validate(line) for line in lines]
     return InvoiceDetailRead.model_validate(detail)
+
+
+@router.patch("/invoices/{invoice_id}", response_model=InvoiceRead)
+def update_invoice(
+    invoice_id: str,
+    body: InvoiceUpdate,
+    scope: TenantScope = Depends(require_management),
+    session: Session = Depends(get_session),
+) -> Invoice:
+    """Correct an AI-parsed invoice header (management only).
+
+    409 for an ERP-sourced invoice: those values are evidence, and the only
+    honest answer to a request to rewrite them is that they are not ours to
+    rewrite.
+    """
+    invoice = session.get(Invoice, invoice_id)
+    if invoice is None or invoice.company_id not in scope.company_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    if invoice.source != "pdf_extraction":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This invoice came from the ERP; its posted values are evidence "
+                   "and cannot be edited. Only AI-parsed invoices are correctable.",
+        )
+
+    before = {f: getattr(invoice, f) for f in INVOICE_AUDIT_FIELDS}
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(invoice, field, value)
+    session.add(invoice)
+    after = {f: getattr(invoice, f) for f in INVOICE_AUDIT_FIELDS}
+
+    # "edit" only when a value actually moved; a PATCH that resubmits the
+    # current value (or an empty body) is a "noop" — distinct from a real
+    # correction so the audit feed never shows a change that didn't happen.
+    changes = diff_changes(before, after, INVOICE_AUDIT_FIELDS)
+    record_audit(
+        session, entity_type="invoice", entity_id=invoice.id,
+        action="edit" if changes else "noop",
+        actor=scope.user_id, changes=changes,
+    )
+    session.commit()
+    session.refresh(invoice)
+    return invoice
 
 
 def _resolve_document_source(session: Session, invoice: Invoice) -> tuple[ErpIntegration, str]:
