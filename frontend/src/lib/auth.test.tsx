@@ -102,6 +102,21 @@ describe('AuthProvider failure states', () => {
 
     await waitFor(() => expect(screen.getByText('Couldn’t load your account')).toBeTruthy())
   })
+
+  it('offers a working retry control that refetches the principal', async () => {
+    renderWithError(new ApiError(500, 'failed', undefined))
+
+    await waitFor(() => expect(screen.getByText('Couldn’t load your account')).toBeTruthy())
+    expect(get).toHaveBeenCalledTimes(1)
+
+    screen.getByRole('button', { name: 'Try again' }).click()
+
+    // `activeOrgId` is shared module state; the org-scope test above may have
+    // already switched it. What matters here is that retry re-fetches and the
+    // failure clears, not which org happens to be active.
+    await waitFor(() => expect(screen.getByTestId('org').textContent).toBe(activeOrgId))
+    expect(get).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('role gates', () => {

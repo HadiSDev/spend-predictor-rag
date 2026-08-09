@@ -9,12 +9,17 @@ import { meQueryOptions } from './users'
 import type { UserRead } from './types'
 
 /**
- * An authenticated web-API client bound to the current Clerk session. The token
- * is fetched per request via Clerk's `getToken` (Clerk caches it).
+ * An authenticated web-API client bound to the current Clerk session. The
+ * token is fetched per request via Clerk's `getToken`, which normally serves
+ * a cached token; `api-client.ts`'s retry-on-401 seam calls back in with
+ * `{ skipCache: true }` to mint a fresh one after a stale cached token is
+ * rejected (e.g. a tab left idle past the session token's short lifetime).
+ * This is the one place that knows the token getter is backed by Clerk —
+ * `api-client.ts` itself stays framework-agnostic and never imports Clerk.
  */
 export function useApi(): ApiClient {
   const { getToken } = useAuth()
-  return React.useMemo(() => createApiClient(() => getToken()), [getToken])
+  return React.useMemo(() => createApiClient((options) => getToken(options)), [getToken])
 }
 
 /** The current principal, shaped for the UI. */
@@ -143,6 +148,9 @@ function PrincipalProvider({ children }: { children: React.ReactNode }) {
         <p className="mt-2 text-sm text-muted-foreground">
           Something went wrong loading your profile. Please try again.
         </p>
+        <Button className="mt-6" variant="secondary" onClick={() => void meQuery.refetch()}>
+          Try again
+        </Button>
       </Notice>
     )
   }

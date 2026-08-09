@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 
 import jwt
 import pytest
@@ -153,6 +154,24 @@ def test_malformed_authorization_header_is_401(client):
 
 def test_invalid_token_is_401(client):
     assert client.get("/api/v1/companies", headers=auth("bad-token")).status_code == 401
+
+
+def test_invalid_token_reason_is_logged_server_side_but_not_returned(client, caplog):
+    with caplog.at_level(logging.WARNING, logger="web_api.deps"):
+        resp = client.get("/api/v1/companies", headers=auth("bad-token"))
+
+    # Client response stays generic — reveals nothing about which check failed.
+    assert resp.status_code == 401
+    assert resp.json() == {"detail": "Invalid or missing credentials"}
+    assert "bad-token" not in resp.text
+
+    # The reason is on the server log instead, where it is actually diagnosable.
+    warnings = [r for r in caplog.records if r.name == "web_api.deps"]
+    assert len(warnings) == 1
+    assert warnings[0].levelno == logging.WARNING
+    message = warnings[0].getMessage()
+    assert "bad-token" in message
+    assert "unknown test token" in message
 
 
 def test_health_is_unauthenticated(client):

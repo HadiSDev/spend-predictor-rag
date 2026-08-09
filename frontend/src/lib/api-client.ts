@@ -1,7 +1,18 @@
 import { API_BASE_URL } from './env'
 
+/**
+ * Options a caller can pass through to the token getter. Narrow and
+ * framework-agnostic on purpose — this file must not import Clerk; `useApi`
+ * in `auth.tsx` is the only place that knows the getter is backed by Clerk's
+ * `getToken`, which accepts the same `skipCache` field among others.
+ */
+export interface TokenGetterOptions {
+  /** Bypass any cache and mint a freshly-signed token. */
+  skipCache?: boolean
+}
+
 /** Returns the current Clerk session token, or null when signed out. */
-export type TokenGetter = () => Promise<string | null>
+export type TokenGetter = (options?: TokenGetterOptions) => Promise<string | null>
 
 /** Query-string values accepted by the client. `undefined` keys are dropped. */
 export type QueryParams = Record<string, string | number | boolean | undefined>
@@ -76,14 +87,45 @@ function withQuery(path: string, params?: QueryParams): string {
 
 /** Build a client that attaches `Authorization: Bearer <token>` to each request. */
 export function createApiClient(getToken: TokenGetter): ApiClient {
+  /**
+   * Runs one attempt via `buildInit`, and on a 401 mints a freshly-bypassed
+   * token and retries exactly once — a cached token can be stale (idle tab,
+   * near-expiry) and a fresh one clears that. A second 401 is a real auth
+   * failure and is returned as-is, same as any other status (in particular a
+   * 403, which is a permission answer, not a stale token, and is never
+   * retried). `buildInit` is called once per attempt so the body — always a
+   * JSON string, never a stream — is rebuilt fresh each time; nothing here
+   * reuses an already-consumed request.
+   */
+  async function fetchWithRetry(
+    url: string,
+    buildInit: (token: string | null) => RequestInit,
+  ): Promise<Response> {
+    const token = await getToken()
+    const res = await fetch(url, buildInit(token))
+    if (res.status !== 401) return res
+    const freshToken = await getToken({ skipCache: true })
+    return fetch(url, buildInit(freshToken))
+  }
+
+  async function toApiError(path: string, res: Response): Promise<ApiError> {
+    let body: unknown
+    try {
+      body = await res.json()
+    } catch {
+      // non-JSON error body; leave undefined
+    }
+    return new ApiError(res.status, `Request to ${path} failed with ${res.status}`, body)
+  }
+
   async function request<T>(
     method: string,
     path: string,
     options: { body?: unknown; params?: QueryParams } = {},
   ): Promise<T> {
-    const token = await getToken()
     const hasBody = options.body !== undefined
-    const res = await fetch(`${API_BASE_URL}${withQuery(path, options.params)}`, {
+    const url = `${API_BASE_URL}${withQuery(path, options.params)}`
+    const res = await fetchWithRetry(url, (token) => ({
       method,
       headers: {
         Accept: 'application/json',
@@ -91,16 +133,8 @@ export function createApiClient(getToken: TokenGetter): ApiClient {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
-    })
-    if (!res.ok) {
-      let body: unknown
-      try {
-        body = await res.json()
-      } catch {
-        // non-JSON error body; leave undefined
-      }
-      throw new ApiError(res.status, `Request to ${path} failed with ${res.status}`, body)
-    }
+    }))
+    if (!res.ok) throw await toApiError(path, res)
     // 204 carries no body — parsing it would throw.
     if (res.status === 204) return undefined as T
     return (await res.json()) as T
@@ -112,22 +146,14 @@ export function createApiClient(getToken: TokenGetter): ApiClient {
     patch: (path, body, params) => request('PATCH', path, { body, params }),
     del: (path, params) => request('DELETE', path, { params }),
     getBlob: async (path, params) => {
-      const token = await getToken()
-      const res = await fetch(`${API_BASE_URL}${withQuery(path, params)}`, {
+      const url = `${API_BASE_URL}${withQuery(path, params)}`
+      const res = await fetchWithRetry(url, (token) => ({
         headers: {
           Accept: 'application/pdf',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-      })
-      if (!res.ok) {
-        let body: unknown
-        try {
-          body = await res.json()
-        } catch {
-          // non-JSON error body; leave undefined
-        }
-        throw new ApiError(res.status, `Request to ${path} failed with ${res.status}`, body)
-      }
+      }))
+      if (!res.ok) throw await toApiError(path, res)
       return res.blob()
     },
   }

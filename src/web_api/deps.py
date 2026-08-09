@@ -6,6 +6,7 @@ a tenant identifier from the client that widens access.
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Generator
 from dataclasses import dataclass
 
@@ -16,6 +17,8 @@ from web_api.db.models import Company, ErpIntegration, Organization, User
 from web_api.db.session import engine
 from .auth import ClerkPrincipal, TokenVerifier, TokenVerificationError, default_verifier
 from .clerk_sync import provision_user
+
+logger = logging.getLogger(__name__)
 
 _UNAUTHORIZED = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -45,8 +48,11 @@ def get_principal(
         raise _UNAUTHORIZED
     try:
         return verifier.verify(token)
-    except TokenVerificationError:
-        # Generic 401 — do not leak which check failed.
+    except TokenVerificationError as exc:
+        # Generic 401 — do not leak which check failed to the client. The reason
+        # (expired, bad signature, unknown key, ...) is still worth having, so
+        # it is logged server-side only — never put it in the response.
+        logger.warning("Token verification failed: %s", exc)
         raise _UNAUTHORIZED
 
 
