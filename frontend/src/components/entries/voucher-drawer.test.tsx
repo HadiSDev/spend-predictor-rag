@@ -127,12 +127,22 @@ function invoice(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetailRead 
   }
 }
 
-/** A purchase voucher with its PDF attached — the wide-layout case. */
+/** A purchase voucher with its PDF attached — the wide-layout case.
+ *
+ * `amount`/`currency` are deliberately set to a figure that does *not* match
+ * what summing `entries` client-side would produce (1,200.00, the sum of the
+ * as-posted DKK postings below). The server computes the total — including
+ * currency conversion for a voucher posted in a non-base currency — and the
+ * drawer must render exactly that figure, never its own recomputation from
+ * the postings. If the header ever starts reading the postings instead of
+ * `detail.amount`, the assertions below fail loudly rather than by
+ * coincidentally landing on the same number. */
 const withInvoice: VoucherDetailRead = {
   voucher_id: 'V-1042',
   company_id: 'c1',
   accounting_date: '2026-07-02',
   currency: 'DKK',
+  amount: '746.00',
   entry_count: 2,
   entries: [entry(), PAYABLE],
   invoice: invoice(),
@@ -145,6 +155,7 @@ const journalOnly: VoucherDetailRead = {
   company_id: 'c1',
   accounting_date: '2026-07-03',
   currency: 'DKK',
+  amount: '50.00',
   entry_count: 1,
   entries: [
     entry({
@@ -239,8 +250,22 @@ describe('VoucherDrawer — header', () => {
     expect(header.getByText(/Contoso ApS/)).toBeTruthy()
     expect(header.getByText(/2026-07-02/)).toBeTruthy()
     expect(header.getByText(/2 postings/)).toBeTruthy()
-    // Net spend: the expense posting only (1,200.00), not the balanced 0.
-    expect(header.getByText(/DKK 1,200\.00/)).toBeTruthy()
+    expect(header.getByText(/DKK 746\.00/)).toBeTruthy()
+  })
+
+  it('renders the server-computed total, never a client-side recomputation from the postings', () => {
+    // Regression: the drawer used to sum `entries` itself, in their as-posted
+    // currency. For a voucher posted in a non-base currency that showed a
+    // different figure, in a different currency, than the same voucher's row
+    // in the table (which base-converts). `withInvoice.amount`/`currency`
+    // deliberately disagree with what the as-posted DKK postings sum to
+    // (1,200.00) — if the header ever shows that instead of the payload's
+    // 746.00, the client math is back.
+    render(<VoucherDrawer {...props({ detail: withInvoice })} />)
+    const header = within(screen.getByText('V-1042').closest('div')!)
+
+    expect(header.getByText(/DKK 746\.00/)).toBeTruthy()
+    expect(header.queryByText(/1,200\.00/)).toBeNull()
   })
 
   it('labels a voucher with no id as "No voucher"', () => {

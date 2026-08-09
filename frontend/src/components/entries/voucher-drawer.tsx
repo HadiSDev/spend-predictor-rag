@@ -20,7 +20,6 @@ import {
   TabsTab,
   cn,
 } from '#/components/ui'
-import { postingAmount } from '#/lib/entry-amount'
 import { formatMoney } from '#/lib/format'
 import type { ErpEntryRead, VoucherAuditRead, VoucherDetailRead, VoucherTab } from '#/lib/types'
 import { InvoiceDocument } from './invoice-document'
@@ -54,25 +53,19 @@ function voucherVendor(entries: Array<ErpEntryRead>): string | null {
   return names.size === 1 ? [...names][0] : null
 }
 
-/**
- * Net spend across the voucher's expense postings, in its as-posted currency —
- * the same rule the server uses for `VoucherGroupRead.amount`. `null` when the
- * postings disagree on currency (nothing to sum) or none of them is spend (a
- * payment voucher), so the header never prints a false zero.
- */
-function voucherTotal(detail: VoucherDetailRead): number | null {
-  if (detail.currency === null) return null
-  const spend = detail.entries.filter((entry) => entry.erp_account_type === 'expense')
-  if (spend.length === 0) return null
-  return spend.reduce((sum, entry) => sum + postingAmount(entry), 0)
-}
-
 function VoucherHeader({ detail }: { detail: VoucherDetailRead }) {
   const vendor = voucherVendor(detail.entries)
-  const total = voucherTotal(detail)
   const postingsLabel = `${detail.entry_count} posting${detail.entry_count === 1 ? '' : 's'}`
+  // `amount`/`currency` come straight off the payload — computed server-side
+  // by the same rule `/erp-entries/vouchers` uses, so this figure always
+  // agrees with the table row the drawer was opened from. Never recomputed
+  // here: two implementations of "what a voucher totals" is how they drift.
   const totalLabel =
-    total !== null ? formatMoney(total, detail.currency) : detail.currency === null ? 'Mixed currencies' : '—'
+    detail.amount !== null
+      ? formatMoney(detail.amount, detail.currency)
+      : detail.currency === null
+        ? 'Mixed currencies'
+        : '—'
 
   return (
     <DrawerHeader>

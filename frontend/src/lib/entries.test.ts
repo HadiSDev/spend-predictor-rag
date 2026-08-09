@@ -114,6 +114,18 @@ describe('voucherDetailQueryOptions', () => {
 
     expect(get.mock.calls[0][0]).toBe('/api/v1/erp-entries/vouchers/4821')
   })
+
+  it('asks for base mode, same as the voucher groups the drawer is opened from', async () => {
+    // The drawer renders `amount`/`currency` straight off this payload — if
+    // this ever silently fetched `original` (or the server's default
+    // changed), the header would show a different figure than the table row
+    // it was opened from.
+    const { api, get } = fakeApi()
+
+    await voucherDetailQueryOptions(api, { voucher: '4821' }).queryFn!({} as never)
+
+    expect(get.mock.calls[0][1]).toEqual({ currency_mode: 'base' })
+  })
 })
 
 describe('voucherAuditQueryOptions', () => {

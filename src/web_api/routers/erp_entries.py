@@ -390,16 +390,34 @@ def _net_spend(rows: list, debit_field: str, credit_field: str) -> Decimal | Non
     )
 
 
-def _voucher_group(
-    company_id: str, key: str, last_date, rows: list, mode: str = "base"
-) -> VoucherGroupRead:
-    entries = [r[0] for r in rows]
-    voucher_id = entries[0].voucher_id if entries else None
+def _voucher_amount(
+    rows: list, mode: str
+) -> tuple[Decimal | None, Decimal | None, Decimal | None, str | None, int]:
+    """The net spend, debit/credit totals, currency and unconverted count for
+    one voucher's rows, in the given `currency_mode`.
+
+    The single place this is computed: `/erp-entries/vouchers` (a page of
+    groups) and `/erp-entries/vouchers/{id}` (one voucher's full detail) both
+    call this rather than each totalling its own rows, so the group a table
+    row shows and the total a detail panel opened from that row shows cannot
+    disagree — the same discipline `_entry_select`/`_entry_read` already give
+    the shape of an entry.
+
+    Returns `(amount, debit_total, credit_total, currency, unconverted_count)`.
+    In base mode, only converted postings can be summed. An unconverted one is
+    counted and left out — folding its posted amount in would add DKK to EUR,
+    and dropping it silently would understate the voucher. `amount` is signed
+    net spend: debit − credit over the *expense* rows only (not
+    `debit_total − credit_total`, which is zero for any balanced voucher), None
+    when the voucher moved money without spending any (a payment) — unless no
+    row declares an account type at all, in which case "no expense account" is
+    ignorance rather than a fact and the voucher's magnitude is reported
+    instead of nothing. `currency` is `_shared`'s verdict on the summed rows:
+    the one they agree on, or None when they disagree (including when nothing
+    was summable at all).
+    """
     debit_field, credit_field, currency_field = _AMOUNT_FIELDS[mode]
 
-    # In base mode, only converted postings can be summed. An unconverted one is
-    # counted and left out — folding its posted amount in would add DKK to EUR,
-    # and dropping it silently would understate the voucher.
     if mode == "base":
         summable = [r for r in rows if r[0].base_currency is not None]
         unconverted_count = len(rows) - len(summable)
@@ -407,19 +425,26 @@ def _voucher_group(
         summable = rows
         unconverted_count = 0
 
-    if summable:
-        debit_total = sum((getattr(r[0], debit_field) or _ZERO for r in summable), _ZERO)
-        credit_total = sum((getattr(r[0], credit_field) or _ZERO for r in summable), _ZERO)
-        amount = _net_spend(summable, debit_field, credit_field)
-        if amount is None and not any(r[5] for r in summable):
-            # No account in this group declares a type at all, so "no expense
-            # account" is ignorance rather than a fact. Degrade to the voucher's
-            # magnitude instead of showing nothing.
-            amount = debit_total
-    else:
+    if not summable:
         # Nothing convertible in the whole group: say so, rather than reporting
         # 0.00 in a currency none of these postings are in.
-        debit_total = credit_total = amount = None
+        return None, None, None, None, unconverted_count
+
+    debit_total = sum((getattr(r[0], debit_field) or _ZERO for r in summable), _ZERO)
+    credit_total = sum((getattr(r[0], credit_field) or _ZERO for r in summable), _ZERO)
+    amount = _net_spend(summable, debit_field, credit_field)
+    if amount is None and not any(r[5] for r in summable):
+        amount = debit_total
+    currency = _shared([getattr(r[0], currency_field) for r in summable])
+    return amount, debit_total, credit_total, currency, unconverted_count
+
+
+def _voucher_group(
+    company_id: str, key: str, last_date, rows: list, mode: str = "base"
+) -> VoucherGroupRead:
+    entries = [r[0] for r in rows]
+    voucher_id = entries[0].voucher_id if entries else None
+    amount, debit_total, credit_total, currency, unconverted_count = _voucher_amount(rows, mode)
 
     return VoucherGroupRead(
         voucher_id=voucher_id,
@@ -430,7 +455,7 @@ def _voucher_group(
         amount=amount,
         debit_total=debit_total,
         credit_total=credit_total,
-        currency=_shared([getattr(r[0], currency_field) for r in summable]),
+        currency=currency,
         vendor_id=_shared([r[3] for r in rows]),
         vendor_name=_shared([r[4] for r in rows]),
         unconverted_count=unconverted_count,
@@ -438,7 +463,9 @@ def _voucher_group(
     )
 
 
-def _voucher_detail(session: Session, scope: TenantScope, entries: list) -> VoucherDetailRead:
+def _voucher_detail(
+    session: Session, scope: TenantScope, entries: list, mode: str = "base"
+) -> VoucherDetailRead:
     """Assemble a voucher payload from its postings.
 
     `_EXCLUDED_ENTRY_TYPES` deliberately does not apply: this is a lookup of a
@@ -471,13 +498,18 @@ def _voucher_detail(session: Session, scope: TenantScope, entries: list) -> Vouc
             if file_row is not None:
                 document = DocumentRead(file_id=file_row.id, filename=file_row.filename)
 
-    currencies = {r.currency for r in reads}
+    # Same helper, same rule as `/erp-entries/vouchers`: the total this panel
+    # shows and the total the table row it was opened from shows are computed
+    # once, not twice, so they cannot drift into disagreeing figures.
+    amount, _debit_total, _credit_total, currency, _unconverted_count = _voucher_amount(
+        entries, mode
+    )
     return VoucherDetailRead(
         voucher_id=first.voucher_id,
         company_id=first.company_id,
         accounting_date=max((r.accounting_date for r in reads if r.accounting_date), default=None),
-        # Claimed only when every posting agrees, matching VoucherGroupRead.
-        currency=currencies.pop() if len(currencies) == 1 else None,
+        currency=currency,
+        amount=amount,
         entry_count=len(reads),
         entries=reads,
         invoice=invoice_payload,
@@ -491,6 +523,7 @@ def _voucher_detail(session: Session, scope: TenantScope, entries: list) -> Vouc
 @router.get("/erp-entries/vouchers/by-entry/{entry_id}", response_model=VoucherDetailRead)
 def get_voucher_by_entry(
     entry_id: str,
+    currency_mode: CurrencyMode = Query(default="base"),
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> VoucherDetailRead:
@@ -510,8 +543,8 @@ def get_voucher_by_entry(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
     voucher_id = rows[0][0].voucher_id
     if voucher_id is not None:
-        return get_voucher_detail(voucher_id, scope, session)
-    return _voucher_detail(session, scope, list(rows))
+        return get_voucher_detail(voucher_id, currency_mode=currency_mode, scope=scope, session=session)
+    return _voucher_detail(session, scope, list(rows), mode=currency_mode)
 
 
 # Declared before `/erp-entries/{entry_id}` for the same reason as `vouchers`
@@ -519,10 +552,16 @@ def get_voucher_by_entry(
 @router.get("/erp-entries/vouchers/{voucher_id}", response_model=VoucherDetailRead)
 def get_voucher_detail(
     voucher_id: str,
+    currency_mode: CurrencyMode = Query(default="base"),
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> VoucherDetailRead:
-    """One voucher's postings, its invoice with lines, and its document."""
+    """One voucher's postings, its invoice with lines, and its document.
+
+    `amount`/`currency` follow the same `currency_mode=base|original` split as
+    `/erp-entries/vouchers` (base by default) and are computed by the same
+    helper, so a table row's total and the panel opened from it always agree.
+    """
     rows = session.exec(
         _entry_select()
         .where(
@@ -532,7 +571,7 @@ def get_voucher_detail(
         )
         .order_by(ErpEntry.id)
     ).all()
-    return _voucher_detail(session, scope, list(rows))
+    return _voucher_detail(session, scope, list(rows), mode=currency_mode)
 
 
 # Declared before `/erp-entries/vouchers/{voucher_id}/audit` and before
@@ -544,7 +583,11 @@ def list_voucher_audit_by_entry(
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> list[VoucherAuditRead]:
-    detail = get_voucher_by_entry(entry_id, scope, session)
+    # Audit doesn't read `amount`/`currency`, but this is a direct Python call,
+    # not an HTTP request — `currency_mode`'s default is a FastAPI `Query(...)`
+    # sentinel that only resolves to "base" when FastAPI itself invokes the
+    # route, so it must be passed explicitly here.
+    detail = get_voucher_by_entry(entry_id, currency_mode="base", scope=scope, session=session)
     return _voucher_audit(session, detail)
 
 
@@ -562,7 +605,10 @@ def list_voucher_audit(
     Newest-first because this is a feed — what happened lately. The per-line
     `GET /invoice-lines/{id}/audit` stays oldest-first: a history reads forward.
     """
-    detail = get_voucher_detail(voucher_id, scope, session)
+    # Same reason as `list_voucher_audit_by_entry`: a direct Python call needs
+    # an explicit `currency_mode`, since the `Query(...)` default only resolves
+    # when FastAPI itself is the caller.
+    detail = get_voucher_detail(voucher_id, currency_mode="base", scope=scope, session=session)
     return _voucher_audit(session, detail)
 
 

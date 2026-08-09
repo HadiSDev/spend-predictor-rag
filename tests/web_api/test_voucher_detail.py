@@ -17,6 +17,87 @@ from web_api.db.models import AuditLog, ErpAccount, ErpEntry
 from .conftest import auth
 
 
+# -- The detail total must agree with the voucher-groups total ---------------
+#
+# Regression: the detail endpoint used to report `currency` as whatever the
+# postings were as-posted in, always — and had no `amount` at all. A voucher
+# posted in a non-base currency then showed a different figure, in a different
+# currency, than the same voucher's row in `/erp-entries/vouchers` (which
+# base-converts by default). Both must be computed by the one server-side
+# rule (`_voucher_amount`), never two implementations that can drift.
+
+
+@pytest.fixture
+def eur_voucher(engine, voucher_seed):
+    """A voucher posted in EUR, converted to the company's DKK base."""
+    with Session(engine) as s:
+        entry = ErpEntry(
+            company_id=voucher_seed["comp_a"], erp_account_id=voucher_seed["account_a"],
+            voucher_id="EUR1", entry_type="purchase_invoice",
+            accounting_date=date(2025, 7, 10), currency="EUR",
+            debit_amount=Decimal("100.00"), status="pending",
+            base_currency="DKK", fx_rate=Decimal("7.46"), fx_rate_date=date(2025, 7, 10),
+            base_debit_amount=Decimal("746.00"),
+        )
+        s.add(entry)
+        s.commit()
+        return {"voucher_id": "EUR1", "entry_id": entry.id}
+
+
+def test_voucher_detail_defaults_to_the_base_currency_total(client, voucher_seed, eur_voucher):
+    body = client.get(f"/api/v1/erp-entries/vouchers/{eur_voucher['voucher_id']}",
+                      headers=auth("tokA")).json()
+
+    assert body["currency"] == "DKK"
+    assert Decimal(body["amount"]) == Decimal("746.00")
+
+
+def test_voucher_detail_original_mode_reports_the_as_posted_figure(
+    client, voucher_seed, eur_voucher
+):
+    body = client.get(f"/api/v1/erp-entries/vouchers/{eur_voucher['voucher_id']}",
+                      headers=auth("tokA"), params={"currency_mode": "original"}).json()
+
+    assert body["currency"] == "EUR"
+    assert Decimal(body["amount"]) == Decimal("100.00")
+
+
+def test_voucher_detail_amount_matches_the_voucher_groups_total(
+    client, voucher_seed, eur_voucher
+):
+    """The regression this guards: a table row and the panel opened from it
+    must show the same figure in the same currency — one server-side rule,
+    not two client-side reimplementations that can silently disagree."""
+    detail = client.get(f"/api/v1/erp-entries/vouchers/{eur_voucher['voucher_id']}",
+                        headers=auth("tokA")).json()
+    groups = client.get("/api/v1/erp-entries/vouchers", headers=auth("tokA")).json()
+    group = next(g for g in groups["items"] if g["voucher_id"] == eur_voucher["voucher_id"])
+
+    assert detail["amount"] == group["amount"]
+    assert detail["currency"] == group["currency"]
+
+
+def test_by_entry_detail_also_defaults_to_base_currency(client, voucher_seed, eur_voucher):
+    body = client.get(
+        f"/api/v1/erp-entries/vouchers/by-entry/{eur_voucher['entry_id']}",
+        headers=auth("tokA"),
+    ).json()
+
+    assert body["currency"] == "DKK"
+    assert Decimal(body["amount"]) == Decimal("746.00")
+
+
+def test_voucher_audit_still_works_when_the_voucher_needs_conversion(
+    client, voucher_seed, eur_voucher
+):
+    """A direct Python call to `get_voucher_detail`/`get_voucher_by_entry` (as
+    the audit routes make) must not choke on `currency_mode`'s FastAPI `Query`
+    default when it is not resolved by an actual HTTP request."""
+    res = client.get(f"/api/v1/erp-entries/vouchers/{eur_voucher['voucher_id']}/audit",
+                     headers=auth("tokA"))
+    assert res.status_code == 200
+
+
 def test_voucher_detail_returns_postings_invoice_and_document(client, voucher_seed):
     res = client.get("/api/v1/erp-entries/vouchers/4821", headers=auth("tokA"))
 

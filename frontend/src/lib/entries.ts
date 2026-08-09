@@ -62,6 +62,12 @@ function voucherPath(key: VoucherKey): string | null {
  */
 export function voucherDetailQueryOptions(api: ApiClient, key: VoucherKey) {
   const path = voucherPath(key)
+  // Base mode is asked for rather than assumed — same reasoning as
+  // `voucherGroupsQueryOptions`: the drawer's header renders `amount`/
+  // `currency` straight from this payload, in the company's currency, so a
+  // server-side default change must not silently relabel the figure it shows
+  // (or make it disagree with the table row the drawer was opened from).
+  const query = { currency_mode: 'base' as const }
   return queryOptions({
     queryKey: [...entriesKey, 'voucher', key.voucher ?? null, key.entry ?? null],
     // `path` is only null when the query is disabled below, so TanStack Query
@@ -69,7 +75,7 @@ export function voucherDetailQueryOptions(api: ApiClient, key: VoucherKey) {
     // invariant breaking, not a path this app is meant to take.
     queryFn: () => {
       if (path === null) throw new Error('voucherDetailQueryOptions: no voucher or entry id given')
-      return api.get<VoucherDetailRead>(path)
+      return api.get<VoucherDetailRead>(path, query)
     },
     enabled: path !== null,
   })

@@ -411,12 +411,25 @@ export interface DocumentRead {
   filename: string
 }
 
-/** Everything one voucher's detail panel needs, in one request. */
+/**
+ * Everything one voucher's detail panel needs, in one request.
+ *
+ * `amount`/`currency` follow the same `currency_mode=base|original` split as
+ * `VoucherGroupRead` (base by default — see `voucherDetailQueryOptions`) and
+ * are computed server-side by the very same rule the groups endpoint uses, so
+ * a table row's total and the panel opened from it can never disagree. Do not
+ * recompute either client-side.
+ */
 export interface VoucherDetailRead {
   voucher_id: string | null
   company_id: string
   accounting_date: string | null
+  /** Claimed only when every summed posting agrees; null otherwise. */
   currency: string | null
+  /** Signed net spend: debit - credit over the voucher's *expense* postings
+   *  only. Null when the voucher moved money without spending any (a
+   *  payment), or when nothing was summable at all. */
+  amount: Money | null
   entry_count: number
   entries: Array<ErpEntryRead>
   invoice: InvoiceDetailRead | null

@@ -370,12 +370,27 @@ class VoucherDetailRead(BaseModel):
     group's entries, so a panel opened from the table has its postings already.
     A shared link arriving at an unfiltered page does not, and also needs the
     invoice, its lines, and the document descriptor.
+
+    `amount` and `currency` follow the same `currency_mode=base|original` split
+    as `VoucherGroupRead` (base by default) and are computed by the very same
+    helper (`_voucher_amount` in `erp_entries.py`) — not a client-side
+    reimplementation — so a table row's total and the panel opened from that
+    row can never disagree.
     """
 
     voucher_id: str | None = None
     company_id: str
     accounting_date: date | None = None
+    # Claimed only when every summed entry agrees — in base mode that means
+    # they agree on `base_currency`, so a voucher posted in two currencies but
+    # converted to one still reports that one.
     currency: str | None = None
+    # Signed net spend: debit - credit over the voucher's *expense* postings
+    # only. Not `debit_total - credit_total`, which is zero for any balanced
+    # voucher. Null when the voucher moved money without spending any (a
+    # payment), or when nothing was summable at all (every posting unconverted
+    # in base mode, or the postings disagree on currency in original mode).
+    amount: Decimal | None = None
     entry_count: int
     entries: list[ErpEntryRead] = []
     invoice: InvoiceDetailRead | None = None
