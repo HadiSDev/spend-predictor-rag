@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from alembic import op
 import sqlalchemy as sa
+import sqlmodel  # noqa: F401 - autogenerate renders sqlmodel.sql.sqltypes.* column types
 ${imports if imports else ""}
 
 revision = ${repr(up_revision)}
