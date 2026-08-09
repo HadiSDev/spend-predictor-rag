@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from sqlmodel import Session
 
+from web_api.audit import record_audit
 from web_api.db.models import AuditLog
 
 from .conftest import auth
@@ -189,3 +190,23 @@ def test_voucher_audit_orders_by_seq_not_created_at(client, engine, voucher_seed
 
     assert [r["id"] for r in first] == expected_order
     assert [r["id"] for r in second] == expected_order
+
+
+def test_record_audit_twice_in_one_flush_assigns_distinct_seq(engine, voucher_seed):
+    """Two `record_audit()` calls before a single commit share one flush.
+    SQLAlchemy fires every pending `before_insert` for a flush *before*
+    issuing any of their INSERTs, so a naive `MAX(seq) + 1` read inside that
+    hook would have both calls observe the same max and collide on `seq`'s
+    unique constraint — this is exactly what regressed once already. Assert
+    both rows land with distinct `seq`, in the order they were written."""
+    with Session(engine) as s:
+        row1 = record_audit(s, entity_type="invoice_line", entity_id=voucher_seed["line_a1"],
+                            action="ai_categorize", actor="system", changes=[])
+        row2 = record_audit(s, entity_type="invoice_line", entity_id=voucher_seed["line_a2"],
+                            action="ai_categorize", actor="system", changes=[])
+        s.commit()  # one flush covering both new rows
+
+        assert row1.seq is not None
+        assert row2.seq is not None
+        assert row1.seq != row2.seq
+        assert row1.seq < row2.seq
