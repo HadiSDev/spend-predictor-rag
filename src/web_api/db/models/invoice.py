@@ -2,11 +2,11 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, JSON, Numeric, String
+from sqlalchemy import Date, DateTime, Integer, JSON, Numeric, String
 from sqlmodel import Field, Relationship, SQLModel
 
 from ._base import _ts, _uuid
-from .enums import InvoiceStatus
+from .enums import DocStatus, InvoiceStatus
 
 
 class Invoice(SQLModel, table=True):
@@ -41,6 +41,20 @@ class Invoice(SQLModel, table=True):
     # AI's parse of a document and may be corrected by a human.
     source: str = Field(sa_type=String, nullable=False, default="erp")
     error_message: Optional[str] = Field(sa_type=String, nullable=True)
+
+    # Document processing: whether the attached scan has been turned into lines.
+    # Independent of `status` above, which is the categorization rollup — one
+    # says whether we have read the document, the other whether the resulting
+    # spend has been categorized. An invoice with no scan is `not_applicable`,
+    # which is the ordinary case and not a failure.
+    doc_status: DocStatus = Field(
+        sa_type=String, nullable=False, default=DocStatus.NOT_APPLICABLE
+    )
+    doc_attempts: int = Field(sa_type=Integer, nullable=False, default=0)
+    doc_error: Optional[str] = Field(sa_type=String, nullable=True)
+    doc_processed_at: Optional[datetime] = Field(
+        sa_type=DateTime(timezone=True), nullable=True
+    )
 
     raw_json: Optional[dict] = Field(sa_type=JSON, nullable=True)
     created_at: datetime = Field(sa_column=_ts())

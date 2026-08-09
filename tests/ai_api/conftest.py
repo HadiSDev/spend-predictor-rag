@@ -62,11 +62,20 @@ INVOICE = ErpInvoiceData(
 )
 
 
+#: Distinguishes "the test scripted None" from "the test scripted nothing" —
+#: a scan being absent is itself a case worth scripting.
+_UNSET = object()
+
+
 class FakeConnector(ErpConnector):
     """A connector the tests drive. Class-level switches, reset per test.
 
     `config` is captured on construction so a test can assert which credentials
     actually reached the connector.
+
+    `accounts` / `entries` / `scan` override the module constants above for one
+    test. They default to `None` / `_UNSET`, so a test that scripts nothing gets
+    exactly the data every existing test was pinned against.
     """
 
     display_label = "Fake ERP"
@@ -80,6 +89,9 @@ class FakeConnector(ErpConnector):
     raise_on_fetch = False
     seen_configs: list[dict] = []
     seen_since: list[date | None] = []
+    accounts: list[ErpAccountData] | None = None
+    entries: list[ErpEntryData] | None = None
+    scan: object = _UNSET
 
     def __init__(self, config: dict | None = None) -> None:
         self.config = config or {}
@@ -91,6 +103,13 @@ class FakeConnector(ErpConnector):
         cls.raise_on_fetch = False
         cls.seen_configs = []
         cls.seen_since = []
+        cls.accounts = None
+        cls.entries = None
+        cls.scan = _UNSET
+
+    @classmethod
+    def _scan(cls) -> ErpInvoiceData | None:
+        return INVOICE if cls.scan is _UNSET else cls.scan  # type: ignore[return-value]
 
     def authorize(self) -> None:
         return None
@@ -99,7 +118,7 @@ class FakeConnector(ErpConnector):
         return FakeConnector.reachable
 
     def fetch_accounts(self) -> list[ErpAccountData]:
-        return list(ACCOUNTS)
+        return list(FakeConnector.accounts if FakeConnector.accounts is not None else ACCOUNTS)
 
     def fetch_vendors(self, since: date | None = None) -> list[ErpVendorData]:
         return list(VENDORS)
@@ -109,16 +128,20 @@ class FakeConnector(ErpConnector):
         FakeConnector.seen_since.append(since)
         if FakeConnector.raise_on_fetch:
             raise RuntimeError("fake ERP blew up mid-fetch")
-        rows = list(ENTRIES)
+        rows = list(FakeConnector.entries if FakeConnector.entries is not None else ENTRIES)
         if account_codes is not None:
             rows = [e for e in rows if e.erp_account_code in account_codes]
         return rows
 
     def fetch_invoices(self, since: date | None = None) -> list[ErpInvoiceData]:
-        return [INVOICE]
+        scan = FakeConnector._scan()
+        return [scan] if scan is not None else []
 
     def fetch_invoice_scan(self, voucher_id: str) -> ErpInvoiceData | None:
-        return INVOICE if voucher_id == INVOICE.voucher_id else None
+        scan = FakeConnector._scan()
+        if scan is None or voucher_id != scan.voucher_id:
+            return None
+        return scan
 
     def fetch_invoice_document(self, voucher_id: str) -> DocumentPayload | None:
         return None

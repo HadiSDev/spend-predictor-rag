@@ -39,6 +39,7 @@ from web_api.connectors.base import (
 )
 from web_api.db.models import (
     Company,
+    DocStatus,
     ErpAccount,
     ErpEntry,
     ErpIntegration,
@@ -46,11 +47,13 @@ from web_api.db.models import (
     Invoice,
     InvoiceLine,
     InvoiceStatus,
+    LineOrigin,
     LineStatus,
     SpendCategory,
     SyncState,
     Vendor,
 )
+from web_api.db.models.enums import EXPENSE_ACCOUNT_TYPE
 from ..persistence import LineGroundTruth
 from ..procurement_agent import recommender
 from ..redundancy import detector as redundancy
@@ -67,6 +70,8 @@ logger = logging.getLogger("ai_api.sync")
 # Stable namespace so org/company/integration/entity IDs are reproducible across
 # runs — re-syncing the same source is idempotent instead of duplicating rows.
 _NS = uuid.UUID("5f4d6c3b-2a1e-4f8d-9c7b-0a1b2c3d4e5f")
+
+_ZERO = Decimal("0")
 
 
 def _det_id(*parts: str) -> str:
@@ -273,6 +278,38 @@ def _persist_file(
     return file_id
 
 
+def _queue_document(row: Invoice, previous_file_id: Optional[str]) -> bool:
+    """Set ``doc_status`` for an invoice the sync is writing. True if it queued it.
+
+    The runner queues documents; it never processes them. Four cases, and the
+    reasons matter:
+
+    * **No document** — ``not_applicable``. Most vouchers have no scan and that
+      is ordinary, not a failure; their stand-in lines are the answer.
+    * **Currently processing** — left exactly as it is. A sync running alongside
+      the stage must not yank an invoice out from under a run in flight.
+    * **Already processed, same document** — stays ``processed``. Re-reading a
+      document we have already read would replace good extracted lines with
+      identical ones and reset their categorization for nothing. A *different*
+      document is new evidence, so that returns to ``pending``.
+    * **Already failed** — stays ``failed``. A sync is not a retry: the explicit
+      path back is ``POST /invoices/{id}/reprocess``, and silently requeueing on
+      every sync would both make that endpoint pointless and re-run a document
+      that has already proved it cannot be read.
+    """
+    if row.file_id is None:
+        row.doc_status = DocStatus.NOT_APPLICABLE
+        return False
+    if row.doc_status == DocStatus.PROCESSING:
+        return False
+    if row.doc_status == DocStatus.PROCESSED and row.file_id == previous_file_id:
+        return False
+    if row.doc_status == DocStatus.FAILED:
+        return False
+    row.doc_status = DocStatus.PENDING
+    return True
+
+
 def _persist_invoices(
     session: Session,
     company_id: str,
@@ -281,7 +318,7 @@ def _persist_invoices(
     fx: FxService,
     base_currency: str,
     fx_counts: dict[str, int],
-) -> tuple[dict[str, str], int, int]:
+) -> tuple[dict[str, str], int, int, int]:
     """Upsert Invoice + InvoiceLine (+ scan File) as pending.
 
     The invoice is a purely internal scan: it references the File domain and is
@@ -290,12 +327,14 @@ def _persist_invoices(
     scan's ERP id is still used to derive a stable, deterministic invoice id so
     re-syncs upsert instead of duplicating.
 
-    Returns ``(voucher_invoice_map, n_invoices, n_lines)`` where the map ties each
-    scan's voucher to its persisted invoice id, so entries can be linked without
-    the invoice storing the voucher.
+    Returns ``(voucher_invoice_map, n_invoices, n_lines, n_queued)`` where the map
+    ties each scan's voucher to its persisted invoice id, so entries can be linked
+    without the invoice storing the voucher, and ``n_queued`` is how many invoices
+    this run left waiting for document processing.
     """
     voucher_invoice_map: dict[str, str] = {}
     n_lines = 0
+    n_queued = 0
     for inv in invoices:
         invoice_id = _det_id("invoice", company_id, inv.erp_id)
         vendor_id = vendor_map.get(inv.vendor_erp_id)
@@ -304,8 +343,11 @@ def _persist_invoices(
         if row is None:
             row = Invoice(id=invoice_id, company_id=company_id, status=InvoiceStatus.UNCATEGORIZED)
             session.add(row)
+        previous_file_id = row.file_id
         row.vendor_id = vendor_id
         row.file_id = file_id
+        if _queue_document(row, previous_file_id):
+            n_queued += 1
         row.invoice_number = inv.invoice_number
         row.invoice_date = inv.invoice_date
         row.currency = inv.currency
@@ -326,8 +368,10 @@ def _persist_invoices(
             lrow = session.get(InvoiceLine, line_id)
             if lrow is None:
                 lrow = InvoiceLine(id=line_id, company_id=company_id,
-                                   invoice_id=invoice_id, status=LineStatus.UNCATEGORIZED)
+                                   invoice_id=invoice_id, status=LineStatus.UNCATEGORIZED,
+                                   origin=LineOrigin.ERP)
                 session.add(lrow)
+            lrow.origin = LineOrigin.ERP
             lrow.description = line.description
             lrow.quantity = _dec(line.quantity)
             lrow.unit_price = _dec(line.unit_price)
@@ -347,7 +391,7 @@ def _persist_invoices(
             )
             n_lines += 1
     session.commit()
-    return voucher_invoice_map, len(invoices), n_lines
+    return voucher_invoice_map, len(invoices), n_lines, n_queued
 
 
 def _source_line_id(
@@ -437,6 +481,104 @@ def _persist_entries(
             n_linked += 1
     session.commit()
     return n_entries, n_linked
+
+
+def _persist_standin_lines(
+    session: Session,
+    company_id: str,
+    invoice_ids: set[str],
+    fx: FxService,
+    base_currency: str,
+    fx_counts: dict[str, int],
+) -> int:
+    """Stand a line in for every expense posting on an invoice that has none.
+
+    The invoice line is the unit of spend this product works in — it is what
+    carries a description, a category and a human's verification. When no better
+    source has produced one (no document extraction has succeeded, and the ERP
+    supplied no bill lines), each **expense** posting stands in for one, so
+    categorization and the reports are never dark on a voucher just because it
+    arrived without a scan.
+
+    Only expense postings. Input VAT, the payable, bank and the rest are not
+    spend, and a line for each of them would make an invoice's lines sum to
+    zero. `EXPENSE_ACCOUNT_TYPE` is the *same* constant the voucher's Total
+    Spend is computed from, which is what keeps the lines and the figure above
+    them counting the same postings.
+
+    Never runs where the invoice already has lines: an invoice holds exactly one
+    origin at a time, so `document_ai` lines are safe from a later sync and ERP
+    lines are not doubled by stand-ins for the same money.
+
+    Returns the number of stand-in lines written.
+    """
+    if not invoice_ids:
+        return 0
+
+    # One query for the whole batch: the postings of these invoices, with their
+    # account's type and code alongside.
+    rows = session.exec(
+        select(ErpEntry, ErpAccount.erp_account_type, ErpAccount.erp_account_code)
+        .join(ErpAccount, ErpAccount.id == ErpEntry.erp_account_id)
+        .where(ErpEntry.source_invoice_id.in_(invoice_ids))  # type: ignore[union-attr]
+    ).all()
+
+    postings: dict[str, list[tuple[ErpEntry, str]]] = {}
+    for entry, account_type, account_code in rows:
+        if account_type != EXPENSE_ACCOUNT_TYPE:
+            continue
+        postings.setdefault(entry.source_invoice_id, []).append((entry, account_code))
+
+    n_written = 0
+    for invoice_id in sorted(invoice_ids):
+        existing = session.exec(
+            select(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id)
+        ).all()
+        # Any line from a better source wins, and a re-sync must find its own
+        # stand-ins rather than skip them — otherwise a posting added to an
+        # existing voucher would never get a line.
+        if any(line.origin != LineOrigin.ENTRY_FALLBACK for line in existing):
+            continue
+
+        invoice = session.get(Invoice, invoice_id)
+        if invoice is None:  # pragma: no cover - the map only holds persisted ids
+            continue
+
+        for entry, account_code in sorted(
+            postings.get(invoice_id, []), key=lambda pair: pair[0].id
+        ):
+            # Keyed off the posting it stands for, so a re-sync upserts the same
+            # row instead of minting a second line for the same money.
+            line_id = _det_id("standin", entry.id)
+            lrow = session.get(InvoiceLine, line_id)
+            if lrow is None:
+                lrow = InvoiceLine(id=line_id, company_id=company_id,
+                                   invoice_id=invoice_id, status=LineStatus.UNCATEGORIZED,
+                                   origin=LineOrigin.ENTRY_FALLBACK)
+                session.add(lrow)
+            lrow.origin = LineOrigin.ENTRY_FALLBACK
+            # Signed, exactly as `_net_spend` reads a posting: a credit on an
+            # expense account is a refund and the line is negative.
+            lrow.amount = (entry.debit_amount or _ZERO) - (entry.credit_amount or _ZERO)
+            lrow.description = entry.description
+            lrow.native_account_code = account_code
+            # Status is not reset: a re-sync must not undo a categorization.
+            _safe_convert(
+                fx_counts,
+                lambda lrow=lrow, entry=entry, invoice=invoice: fx.convert_line(
+                    lrow, base_currency,
+                    currency=entry.currency or invoice.currency,
+                    invoice_date=invoice.invoice_date,
+                ),
+            )
+            # The posting and the line it produced point at each other, so the
+            # existing entry→line link keeps resolving and a posting still shows
+            # its own category.
+            entry.source_invoice_line_id = line_id
+            n_written += 1
+
+    session.commit()
+    return n_written
 
 
 # -- Categorize --------------------------------------------------------------
@@ -693,15 +835,24 @@ def _sync_one(
         # 2. Persist
         logger.info("  [2/6] Persisting to PostgreSQL…")
         vendor_map = _persist_vendors(session, vendors)
-        voucher_invoice_map, n_inv, n_lines = _persist_invoices(
+        voucher_invoice_map, n_inv, n_lines, n_queued = _persist_invoices(
             session, company_id, invoices, vendor_map, fx, base_currency, fx_counts
         )
         n_entries, n_linked = _persist_entries(
             session, company_id, integration_id, entries,
             voucher_invoice_map, account_map, fx, base_currency, fx_counts
         )
-        logger.info("    persisted %d invoices, %d lines, %d entries (%d linked to an invoice)",
-                    n_inv, n_lines, n_entries, n_linked)
+        # After the entries, because a stand-in line stands in for a *posting* —
+        # there is nothing to stand in for until they are persisted.
+        n_standin = _persist_standin_lines(
+            session, company_id, set(voucher_invoice_map.values()),
+            fx, base_currency, fx_counts,
+        )
+        n_lines += n_standin
+        logger.info("    persisted %d invoices, %d lines (%d standing in for a posting), "
+                    "%d entries (%d linked to an invoice)",
+                    n_inv, n_lines, n_standin, n_entries, n_linked)
+        logger.info("    queued %d invoices for document processing", n_queued)
         logger.info("    converted to %s: %d rows (%d unconverted, %d already current)",
                     base_currency, fx_counts[CONVERTED],
                     fx_counts[UNCONVERTED], fx_counts[UNCHANGED])
@@ -731,6 +882,10 @@ def _sync_one(
         summary["categorization"] = cat_stats
         summary["accounts"] = len(accounts)
         summary["accounts_enabled"] = len(enabled_codes)
+        # The backlog the document stage will face, visible without querying the
+        # database.
+        summary["documents_queued"] = n_queued
+        summary["standin_lines"] = n_standin
         summary["base_currency"] = base_currency
         summary["fx"] = fx_counts
         return summary

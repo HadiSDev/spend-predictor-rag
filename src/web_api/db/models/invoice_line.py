@@ -6,7 +6,7 @@ from sqlalchemy import JSON, Date, Numeric, String
 from sqlmodel import Field, Relationship, SQLModel
 
 from ._base import _ts, _uuid
-from .enums import LineStatus
+from .enums import LineOrigin, LineStatus
 
 
 class InvoiceLine(SQLModel, table=True):
@@ -20,6 +20,11 @@ class InvoiceLine(SQLModel, table=True):
     unit_price: Optional[Decimal] = Field(sa_type=Numeric(12, 4), nullable=True)
     amount: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
     native_account_code: Optional[str] = Field(sa_type=String, nullable=True)
+
+    # Which source produced this line. Stored rather than inferred: a stand-in
+    # line and an extracted line can be identical in every other field, and the
+    # difference decides whether the description can be trusted.
+    origin: LineOrigin = Field(sa_type=String, nullable=False, default=LineOrigin.ERP)
 
     # Conversion into the company's base currency. A line has no date of its
     # own: it is converted at its invoice's `invoice_date`. `amount` stays as

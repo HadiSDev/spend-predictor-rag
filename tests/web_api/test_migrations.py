@@ -30,6 +30,7 @@ import os
 import subprocess
 import sys
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -134,6 +135,152 @@ def _postgres_admin_url() -> str | None:
         return None
     # render_as_string(hide_password=False): str(URL) masks the password as "***".
     return url.set(database="postgres").render_as_string(hide_password=False)
+
+
+def _upgrade(env: dict[str, str], revision: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", revision],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+@contextmanager
+def _throwaway_database(admin_url: str):
+    """A uniquely named database, dropped again however the body exits."""
+    admin = create_engine(admin_url, isolation_level="AUTOCOMMIT", **_CONNECT_ARGS)
+    db_name = f"sp_migration_guard_{uuid.uuid4().hex[:12]}"
+    target_url = make_url(admin_url).set(database=db_name).render_as_string(
+        hide_password=False
+    )
+    with admin.connect() as conn:
+        conn.execute(text(f'CREATE DATABASE "{db_name}"'))
+    try:
+        yield db_name, target_url
+    finally:
+        with admin.connect() as conn:
+            conn.execute(
+                text(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = :name AND pid <> pg_backend_pid()"
+                ),
+                {"name": db_name},
+            )
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{db_name}"'))
+        admin.dispose()
+
+
+def _reachable_admin_url() -> str:
+    """The admin URL, or skip — with the reason, never a quiet pass."""
+    admin_url = _postgres_admin_url()
+    if admin_url is None:
+        pytest.skip("DATABASE_URL is not PostgreSQL; migrations target PostgreSQL only")
+    admin = create_engine(admin_url, isolation_level="AUTOCOMMIT", **_CONNECT_ARGS)
+    try:
+        with admin.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as exc:  # pragma: no cover - environment dependent
+        pytest.skip(f"PostgreSQL not reachable at {make_url(admin_url).host}: {exc}")
+    finally:
+        admin.dispose()
+    return admin_url
+
+
+def test_backfill_queues_only_the_invoices_that_have_a_scan() -> None:
+    """0002's backfill must classify the *existing* corpus, not just new rows.
+
+    The stage discovers its work from ``doc_status = 'pending'``, so an invoice
+    that already carries a scan has to be queued by the migration itself —
+    otherwise the whole pre-existing corpus is invisible to it forever and would
+    need a separate backfill script. The server_default covers the rest, and
+    ``origin`` covers every line that was written before provenance existed.
+
+    Stepwise on purpose: upgrade to the baseline, seed rows that predate 0002,
+    then upgrade the rest of the way. An empty-database run cannot see any of
+    this, which is why :func:`test_upgrade_from_empty_database` does not cover it.
+    """
+    admin_url = _reachable_admin_url()
+
+    with _throwaway_database(admin_url) as (db_name, target_url):
+        env = {**os.environ, "DATABASE_URL": target_url}
+        _assert_subprocess_targets(env, db_name)
+
+        baseline = _upgrade(env, "0001_baseline_schema")
+        assert baseline.returncode == 0, (
+            f"upgrade to the baseline failed:\n{baseline.stdout}\n{baseline.stderr}"
+        )
+
+        engine = create_engine(target_url, **_CONNECT_ARGS)
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO organizations (id, name, status, created_at) "
+                        "VALUES ('org', 'Org', 'active', now())"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO companies "
+                        "(id, organization_id, name, base_currency, is_active, created_at) "
+                        "VALUES ('co', 'org', 'Co', 'DKK', true, now())"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO files "
+                        "(id, company_id, filename, file_type, storage_path, status, created_at) "
+                        "VALUES ('f1', 'co', 'scan.pdf', 'invoice_pdf', 's3://x', 'pending', now())"
+                    )
+                )
+                # One invoice with a scan, one without — the whole point.
+                conn.execute(
+                    text(
+                        "INSERT INTO invoices "
+                        "(id, company_id, file_id, status, source, created_at) VALUES "
+                        "('with-scan', 'co', 'f1', 'uncategorized', 'erp', now()), "
+                        "('no-scan', 'co', NULL, 'uncategorized', 'erp', now())"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO invoice_lines "
+                        "(id, company_id, invoice_id, status, created_at) "
+                        "VALUES ('ln', 'co', 'with-scan', 'uncategorized', now())"
+                    )
+                )
+
+            head = _upgrade(env, "head")
+            assert head.returncode == 0, (
+                f"upgrade from the baseline failed:\n{head.stdout}\n{head.stderr}"
+            )
+
+            with engine.connect() as conn:
+                statuses = dict(
+                    conn.execute(text("SELECT id, doc_status FROM invoices")).all()
+                )
+                attempts = dict(
+                    conn.execute(text("SELECT id, doc_attempts FROM invoices")).all()
+                )
+                origins = dict(
+                    conn.execute(text("SELECT id, origin FROM invoice_lines")).all()
+                )
+
+            assert statuses["with-scan"] == "pending", (
+                "an invoice that already had a scan was not queued — the whole "
+                f"pre-0002 corpus would be invisible to the stage (got {statuses})"
+            )
+            assert statuses["no-scan"] == "not_applicable", (
+                f"an invoice with no scan must not be queued (got {statuses})"
+            )
+            assert set(attempts.values()) == {0}, f"attempts not zeroed: {attempts}"
+            assert origins == {"ln": "erp"}, (
+                f"pre-existing lines must backfill to 'erp', got {origins}"
+            )
+        finally:
+            engine.dispose()
 
 
 def test_upgrade_from_empty_database() -> None:

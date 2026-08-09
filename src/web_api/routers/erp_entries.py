@@ -16,6 +16,7 @@ from sqlalchemy import String, func, literal, nulls_last
 from sqlmodel import Session, select
 
 from web_api.db.models import AuditLog, ErpAccount, ErpEntry, File, Invoice, InvoiceLine, Vendor
+from web_api.db.models.enums import EXPENSE_ACCOUNT_TYPE
 from ..deps import TenantScope, get_session, resolve_company_ids, tenant_scope
 from ..schemas import (
     AuditLogRead,
@@ -368,9 +369,10 @@ def _shared(values: list) -> object | None:
     return None
 
 
-# The account type that means "this is money spent". Everything else in a
-# voucher is the counterparty (payables, bank) or reclaimable VAT.
-_EXPENSE = "expense"
+# The account type that means "this is money spent". Defined in the domain
+# because the sync runner's stand-in lines must count exactly the same postings
+# this figure does — see `EXPENSE_ACCOUNT_TYPE`.
+_EXPENSE = EXPENSE_ACCOUNT_TYPE
 
 # Which columns a group's totals are summed from, per currency mode. Keeping the
 # two side by side is what lets one set of grouping logic serve both without
