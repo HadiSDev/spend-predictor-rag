@@ -103,10 +103,13 @@ def replace_invoice_lines(
         )
         session.delete(line)
 
-    for item in lines:
+    for seq, item in enumerate(lines):
         row = InvoiceLine(
             company_id=invoice.company_id,
             invoice_id=invoice.id,
+            # The order the document stated them in, which is how an invoice is
+            # read. The row's random id would scramble it.
+            sequence=seq,
             description=item.description,
             quantity=_dec(item.quantity),
             unit_price=_dec(item.unit_price),

@@ -372,6 +372,9 @@ def _persist_invoices(
                                    origin=LineOrigin.ERP)
                 session.add(lrow)
             lrow.origin = LineOrigin.ERP
+            # The ERP stated the lines in this order; an invoice reads top to
+            # bottom, and the row's random id would scramble it.
+            lrow.sequence = idx
             lrow.description = line.description
             lrow.quantity = _dec(line.quantity)
             lrow.unit_price = _dec(line.unit_price)
@@ -544,8 +547,8 @@ def _persist_standin_lines(
         if invoice is None:  # pragma: no cover - the map only holds persisted ids
             continue
 
-        for entry, account_code in sorted(
-            postings.get(invoice_id, []), key=lambda pair: pair[0].id
+        for seq, (entry, account_code) in enumerate(
+            sorted(postings.get(invoice_id, []), key=lambda pair: pair[0].id)
         ):
             # Keyed off the posting it stands for, so a re-sync upserts the same
             # row instead of minting a second line for the same money.
@@ -557,6 +560,9 @@ def _persist_standin_lines(
                                    origin=LineOrigin.ENTRY_FALLBACK)
                 session.add(lrow)
             lrow.origin = LineOrigin.ENTRY_FALLBACK
+            # Stand-ins have no document order to preserve, so they take the
+            # posting order — stable across re-syncs, which is what matters.
+            lrow.sequence = seq
             # Signed, exactly as `_net_spend` reads a posting: a credit on an
             # expense account is a refund and the line is negative.
             lrow.amount = (entry.debit_amount or _ZERO) - (entry.credit_amount or _ZERO)

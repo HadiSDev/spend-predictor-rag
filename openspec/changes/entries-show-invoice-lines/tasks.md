@@ -44,12 +44,12 @@
 
 ## 5. Web API
 
-- [ ] 5.1 Add `origin` to `InvoiceLineRead`, and `doc_status`/`doc_error`/`doc_processed_at` to `InvoiceRead` (`web_api/schemas.py`)
-- [ ] 5.2 Carry `lines` plus the invoice's `doc_status`/`doc_error` on `VoucherGroupRead` and `VoucherDetailRead`, resolved server-side and deterministically ordered
-- [ ] 5.3 Build the line resolution through the existing `_entry_select()`/`_entry_read()`/`_entry_conditions()` structure in `routers/erp_entries.py` so the flat list, the groups and the detail endpoint cannot drift; leave `_voucher_amount()` and the grouping untouched
-- [ ] 5.4 Add `voucher_id`, `vendor_id`, `origin` and `from`/`to` filters to `GET /invoice-lines`, with `from`/`to` bounding the invoice date and `vendor_id` resolving through the invoice
-- [ ] 5.5 Add `POST /invoices/{id}/reprocess` (management role): returns the invoice to `pending`, clears `doc_error`, resets `doc_attempts`; `409` when there is no document or the invoice is `processing`; `404` out of scope; audited with the acting user
-- [ ] 5.6 Tests: voucher payloads carry lines and processing state; a voucher with no invoice returns an empty line list; grouping/pagination/amounts are byte-identical to before; each new `/invoice-lines` filter and their composition; every reprocess status code and the role gate
+- [x] 5.1 Add `origin` to `InvoiceLineRead`, and `doc_status`/`doc_error`/`doc_processed_at` to `InvoiceRead` (`web_api/schemas.py`)
+- [x] 5.2 Carry `lines` plus the invoice's `doc_status`/`doc_error` on `VoucherGroupRead` and `VoucherDetailRead`, resolved server-side and deterministically ordered
+- [x] 5.3 Build the line resolution through the existing `_entry_select()`/`_entry_read()`/`_entry_conditions()` structure in `routers/erp_entries.py` so the flat list, the groups and the detail endpoint cannot drift; leave `_voucher_amount()` and the grouping untouched
+- [x] 5.4 Add `voucher_id`, `vendor_id`, `origin` and `from`/`to` filters to `GET /invoice-lines`, with `from`/`to` bounding the invoice date and `vendor_id` resolving through the invoice
+- [x] 5.5 Add `POST /invoices/{id}/reprocess` (management role): returns the invoice to `pending`, clears `doc_error`, resets `doc_attempts`; `409` when there is no document or the invoice is `processing`; `404` out of scope; audited with the acting user
+- [x] 5.6 Tests: voucher payloads carry lines and processing state; a voucher with no invoice returns an empty line list; grouping/pagination/amounts are byte-identical to before; each new `/invoice-lines` filter and their composition; every reprocess status code and the role gate
 
 ## 6. Frontend
 

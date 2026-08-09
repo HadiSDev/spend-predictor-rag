@@ -51,6 +51,13 @@ def upgrade() -> None:
         'invoice_lines',
         sa.Column('origin', sa.String(), nullable=False, server_default='erp'),
     )
+    # Position on the invoice. Existing rows all take 0, which leaves their
+    # relative order to the `id` tiebreak — exactly what it was before. New
+    # writers set it, so lines land in the order their source stated them.
+    op.add_column(
+        'invoice_lines',
+        sa.Column('sequence', sa.Integer(), nullable=False, server_default='0'),
+    )
 
     op.add_column(
         'invoices',
@@ -90,4 +97,5 @@ def downgrade() -> None:
     op.drop_column('invoices', 'doc_error')
     op.drop_column('invoices', 'doc_attempts')
     op.drop_column('invoices', 'doc_status')
+    op.drop_column('invoice_lines', 'sequence')
     op.drop_column('invoice_lines', 'origin')

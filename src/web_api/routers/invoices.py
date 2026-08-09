@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from web_api.db.models import ErpAccount, ErpEntry, ErpIntegration, File, Invoice, InvoiceLine
+from web_api.db.models import (
+    DocStatus, ErpAccount, ErpEntry, ErpIntegration, File, Invoice, InvoiceLine,
+)
 from web_api.connectors.base import ErpConnectionError
 from .. import integrations
 from ..audit import INVOICE_AUDIT_FIELDS, INVOICE_BASE_FX_FIELDS, diff_changes, record_audit
@@ -152,6 +154,58 @@ def update_invoice(
     session.commit()
     session.refresh(invoice)
     return invoice
+
+
+@router.post("/invoices/{invoice_id}/reprocess", response_model=InvoiceRead)
+def reprocess_invoice_document(
+    invoice_id: str,
+    scope: TenantScope = Depends(require_management),
+    session: Session = Depends(get_session),
+) -> InvoiceRead:
+    """Queue this invoice's document to be read again (management only).
+
+    The explicit way back from a failed extraction, and the only one: a sync
+    deliberately does not requeue a `failed` invoice, because a document that
+    has already proved unreadable does not become readable by being synced
+    again. Resetting the attempt count is the point — the ceiling is what
+    stopped the stage retrying, and a human asking for it is new information.
+
+    Permitted on a `processed` invoice too, so a bad extraction can be redone
+    once the extractor improves.
+    """
+    invoice = session.get(Invoice, invoice_id)
+    if invoice is None or invoice.company_id not in scope.company_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    if invoice.file_id is None:
+        # A pending invoice that can never succeed would sit in the queue
+        # forever, so this is refused rather than accepted as a no-op.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This invoice has no attached document, so there is nothing to process.",
+        )
+    if invoice.doc_status == DocStatus.PROCESSING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This invoice is being processed right now. Try again once it finishes.",
+        )
+
+    before = {"doc_status": invoice.doc_status, "doc_error": invoice.doc_error}
+    invoice.doc_status = DocStatus.PENDING
+    invoice.doc_error = None
+    invoice.doc_attempts = 0
+    session.add(invoice)
+    record_audit(
+        session, entity_type="invoice", entity_id=invoice.id, action="reprocess_document",
+        actor=scope.user_id,
+        changes=diff_changes(
+            before, {"doc_status": invoice.doc_status, "doc_error": invoice.doc_error},
+            ("doc_status", "doc_error"),
+        ),
+    )
+    session.commit()
+    session.refresh(invoice)
+    file_row = session.get(File, invoice.file_id)
+    return _invoice_read(invoice, file_row)
 
 
 def _resolve_document_source(session: Session, invoice: Invoice) -> tuple[ErpIntegration, str]:

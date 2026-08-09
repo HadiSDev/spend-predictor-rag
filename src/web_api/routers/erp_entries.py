@@ -348,11 +348,27 @@ def list_voucher_groups(
         if bucket is not None:
             bucket.append(row)
 
-    items = [
-        _voucher_group(company, key, last_dates[(company, key)],
-                       buckets[(company, key)], currency_mode)
-        for company, key in order
-    ]
+    # Query 3 — the lines and processing state of the page's invoices, batched.
+    # The grouping, the totals and the pagination above are untouched by this:
+    # lines are additive payload, never an input to which vouchers are returned.
+    group_invoices = {
+        pair: _group_invoice_id(buckets[pair]) for pair in order
+    }
+    invoice_ids = {inv for inv in group_invoices.values() if inv is not None}
+    lines_by_invoice = _invoice_lines_for(session, invoice_ids)
+    doc_state_by_invoice = _invoice_doc_state(session, invoice_ids)
+
+    items = []
+    for company, key in order:
+        invoice_id = group_invoices[(company, key)]
+        items.append(
+            _voucher_group(
+                company, key, last_dates[(company, key)],
+                buckets[(company, key)], currency_mode,
+                lines=lines_by_invoice.get(invoice_id) if invoice_id else None,
+                doc_state=doc_state_by_invoice.get(invoice_id) if invoice_id else None,
+            )
+        )
     return Page(items=items, page=page, page_size=page_size, total=total)
 
 
@@ -457,8 +473,61 @@ def _voucher_amount(
     return amount, debit_total, credit_total, currency, unconverted_count
 
 
+def _invoice_lines_for(session: Session, invoice_ids: set[str]) -> dict[str, list[InvoiceLineRead]]:
+    """Every listed voucher's invoice lines, in one round-trip.
+
+    The Entries table renders a voucher's *lines* when it is expanded, so they
+    travel with the page. Fetching them per expanded row would make the page's
+    cost a function of how much the user explores, and would show a spinner
+    inside a row that is already on screen.
+    """
+    if not invoice_ids:
+        return {}
+    rows = session.exec(
+        select(InvoiceLine)
+        .where(InvoiceLine.invoice_id.in_(invoice_ids))  # type: ignore[union-attr]
+        # An invoice reads top to bottom, so its lines come back in the order
+        # their source stated them; the id is only a tiebreak.
+        .order_by(InvoiceLine.invoice_id, InvoiceLine.sequence, InvoiceLine.id)
+    ).all()
+    by_invoice: dict[str, list[InvoiceLineRead]] = {}
+    for line in rows:
+        by_invoice.setdefault(line.invoice_id, []).append(
+            InvoiceLineRead.model_validate(line)
+        )
+    return by_invoice
+
+
+def _invoice_doc_state(session: Session, invoice_ids: set[str]) -> dict[str, tuple[str, str | None]]:
+    """`{invoice_id: (doc_status, doc_error)}`, in one round-trip."""
+    if not invoice_ids:
+        return {}
+    rows = session.exec(
+        select(Invoice.id, Invoice.doc_status, Invoice.doc_error).where(
+            Invoice.id.in_(invoice_ids)  # type: ignore[union-attr]
+        )
+    ).all()
+    return {row[0]: (str(row[1]), row[2]) for row in rows}
+
+
+def _group_invoice_id(rows: list) -> str | None:
+    """The source invoice the group's postings agree on, if any.
+
+    `_shared` rather than "the first one that has one": a voucher whose postings
+    name two different invoices is not a voucher whose lines we can show, and
+    picking one arbitrarily would list one invoice's lines under another's spend.
+    """
+    return _shared([r[0].source_invoice_id for r in rows if r[0].source_invoice_id])
+
+
 def _voucher_group(
-    company_id: str, key: str, last_date, rows: list, mode: str = "base"
+    company_id: str,
+    key: str,
+    last_date,
+    rows: list,
+    mode: str = "base",
+    lines: list[InvoiceLineRead] | None = None,
+    doc_state: tuple[str, str | None] | None = None,
 ) -> VoucherGroupRead:
     entries = [r[0] for r in rows]
     voucher_id = entries[0].voucher_id if entries else None
@@ -478,6 +547,9 @@ def _voucher_group(
         vendor_name=_shared([r[4] for r in rows]),
         unconverted_count=unconverted_count,
         entries=[_entry_read(r) for r in rows],
+        lines=lines or [],
+        doc_status=doc_state[0] if doc_state is not None else None,
+        doc_error=doc_state[1] if doc_state is not None else None,
     )
 
 
@@ -505,7 +577,7 @@ def _voucher_detail(
             lines = session.exec(
                 select(InvoiceLine)
                 .where(InvoiceLine.invoice_id == invoice.id)
-                .order_by(InvoiceLine.id)
+                .order_by(InvoiceLine.sequence, InvoiceLine.id)
             ).all()
             file_row = (
                 session.get(File, invoice.file_id) if invoice.file_id is not None else None

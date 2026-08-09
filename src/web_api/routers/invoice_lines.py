@@ -2,11 +2,13 @@
 human verification of the categorization result and its audit history."""
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from web_api.db.models import AuditLog, InvoiceLine, LineStatus
+from web_api.db.models import AuditLog, ErpEntry, Invoice, InvoiceLine, LineStatus
 from ..audit import LINE_AUDIT_FIELDS, diff_changes, record_audit
 from ..deps import (
     TenantScope,
@@ -36,11 +38,27 @@ def _get_scoped_line(session: Session, scope: TenantScope, line_id: str) -> Invo
 def list_invoice_lines(
     status_filter: str | None = Query(default=None, alias="status"),
     company_id: str | None = Query(default=None),
+    vendor_id: str | None = Query(default=None),
+    voucher_id: str | None = Query(default=None),
+    origin: str | None = Query(default=None),
+    date_from: date | None = Query(default=None, alias="from"),
+    date_to: date | None = Query(default=None, alias="to"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> Page[InvoiceLine]:
+    """The line-level view of spend, filtered the way the Entries page filters.
+
+    A line carries no date, no supplier and no voucher of its own, so three of
+    these resolve through its invoice:
+
+    * `from`/`to` bound the **invoice date** — the same date the line was
+      converted at, so a filtered period and the amounts shown for it agree.
+    * `vendor_id` matches the invoice's supplier.
+    * `voucher_id` matches through the invoice's postings, so a caller holding a
+      voucher can ask for the lines behind it.
+    """
     company_ids = resolve_company_ids(scope, company_id)
     if not company_ids:
         return Page(items=[], page=page, page_size=page_size, total=0)
@@ -48,6 +66,32 @@ def list_invoice_lines(
     conditions = [InvoiceLine.company_id.in_(company_ids)]
     if status_filter is not None:
         conditions.append(InvoiceLine.status == status_filter)
+    if origin is not None:
+        conditions.append(InvoiceLine.origin == origin)
+
+    # Resolved as subqueries on `invoice_id` rather than as joins: a join would
+    # multiply a line by its invoice's postings and a voucher filter would then
+    # return the same line several times.
+    if vendor_id is not None or date_from is not None or date_to is not None:
+        invoice_conditions = []
+        if vendor_id is not None:
+            invoice_conditions.append(Invoice.vendor_id == vendor_id)
+        if date_from is not None:
+            invoice_conditions.append(Invoice.invoice_date >= date_from)
+        if date_to is not None:
+            invoice_conditions.append(Invoice.invoice_date <= date_to)
+        conditions.append(
+            InvoiceLine.invoice_id.in_(select(Invoice.id).where(*invoice_conditions))
+        )
+    if voucher_id is not None:
+        conditions.append(
+            InvoiceLine.invoice_id.in_(
+                select(ErpEntry.source_invoice_id).where(
+                    ErpEntry.voucher_id == voucher_id,
+                    ErpEntry.source_invoice_id.is_not(None),
+                )
+            )
+        )
 
     total = session.exec(
         select(func.count()).select_from(InvoiceLine).where(*conditions)

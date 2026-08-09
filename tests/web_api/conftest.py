@@ -100,18 +100,18 @@ def seed(engine):
         s.commit()
         converted = {"base_currency": "DKK", "fx_rate": Decimal("1")}
         line_a1 = InvoiceLine(company_id=comp_a.id, invoice_id=inv_a.id, description="Cloud server",
-                              amount=Decimal("80.00"), status="uncategorized",
+                              amount=Decimal("80.00"), status="uncategorized", sequence=0,
                               base_amount=Decimal("80.00"),
                               fx_rate_date=date(2025, 7, 1), **converted)
         line_a2 = InvoiceLine(company_id=comp_a.id, invoice_id=inv_a.id, description="Support",
-                              amount=Decimal("20.00"), status="ai_categorized",
+                              amount=Decimal("20.00"), status="ai_categorized", sequence=1,
                               level_2="Technology", account_code="6010",
                               account_name="Cloud Hosting & Infrastructure",
                               confidence=Decimal("0.900"), rationale="matched",
                               base_amount=Decimal("20.00"),
                               fx_rate_date=date(2025, 7, 1), **converted)
         line_b1 = InvoiceLine(company_id=comp_b.id, invoice_id=inv_b.id, description="Legal retainer",
-                              amount=Decimal("50.00"), status="uncategorized",
+                              amount=Decimal("50.00"), status="uncategorized", sequence=0,
                               base_amount=Decimal("50.00"),
                               fx_rate_date=date(2025, 8, 1), **converted)
         s.add(line_a1)

@@ -156,6 +156,15 @@ class InvoiceLineRead(BaseModel):
     unit_price: Decimal | None = None
     amount: Decimal | None = None
     native_account_code: str | None = None
+    # Which source produced this line: 'erp' | 'document_ai' | 'entry_fallback'.
+    # A stand-in line and an extracted line are identical in every other field,
+    # and the difference decides whether the description can be trusted — so it
+    # travels with the line rather than being inferred from it.
+    origin: str = "erp"
+    # Position on the invoice, as its source stated it. Carried so a client can
+    # keep the order after a client-side sort, and so the ordering is inspectable
+    # rather than an implicit property of the response.
+    sequence: int = 0
     # The line in the company's base currency, at its invoice's rate. Null when
     # unconverted. A line's base amounts may not sum exactly to its invoice's —
     # each amount is converted from its own posted value, so a rounding
@@ -319,6 +328,19 @@ class VoucherGroupRead(BaseModel):
     vendor_id: str | None = None
     vendor_name: str | None = None
     entries: list[ErpEntryRead] = []
+    # The voucher's invoice lines — what the Entries page lists when a group is
+    # expanded. Carried here rather than fetched per expanded row: the table
+    # renders lines on expand, and a request per voucher would make the page's
+    # cost a function of how much the user explores.
+    #
+    # Empty for a voucher with no source invoice (a journal entry, a transfer).
+    # That is ordinary, not an error — lines are not universal.
+    lines: list[InvoiceLineRead] = []
+    # The invoice's document-processing state, so a reader can tell provisional
+    # lines from read-the-document ones and see why processing failed. Null when
+    # the voucher has no source invoice at all.
+    doc_status: str | None = None
+    doc_error: str | None = None
 
 
 class InvoiceRead(BaseModel):
@@ -349,6 +371,16 @@ class InvoiceRead(BaseModel):
     # decide whether to render a viewer.
     file_name: str | None = None
     has_document: bool = False
+    # Whether the attached document has been turned into lines:
+    # 'not_applicable' | 'pending' | 'processing' | 'processed' | 'failed'.
+    # Deliberately separate from `status` above, which is the categorization
+    # rollup — one says whether we have read the document, the other whether the
+    # resulting spend has been categorized.
+    doc_status: str = "not_applicable"
+    # Readable, because it is shown to the user beside the retrigger action
+    # rather than only logged.
+    doc_error: str | None = None
+    doc_processed_at: datetime | None = None
 
 
 class InvoiceDetailRead(InvoiceRead):

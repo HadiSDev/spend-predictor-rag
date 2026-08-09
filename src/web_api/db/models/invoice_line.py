@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import JSON, Date, Numeric, String
+from sqlalchemy import JSON, Date, Integer, Numeric, String
 from sqlmodel import Field, Relationship, SQLModel
 
 from ._base import _ts, _uuid
@@ -25,6 +25,12 @@ class InvoiceLine(SQLModel, table=True):
     # line and an extracted line can be identical in every other field, and the
     # difference decides whether the description can be trusted.
     origin: LineOrigin = Field(sa_type=String, nullable=False, default=LineOrigin.ERP)
+
+    # Position on the invoice, as its source stated it. The line's `id` is a
+    # random UUID, so ordering by it scrambles a document into an arbitrary
+    # sequence — invisible while the Entries page listed postings, and wrong the
+    # moment it lists lines: an invoice reads top to bottom.
+    sequence: int = Field(sa_type=Integer, nullable=False, default=0)
 
     # Conversion into the company's base currency. A line has no date of its
     # own: it is converted at its invoice's `invoice_date`. `amount` stays as
