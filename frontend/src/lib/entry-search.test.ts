@@ -42,6 +42,17 @@ describe('validateEntrySearch', () => {
     expect(validateEntrySearch({ page: '0' }).page).toBeUndefined()
     expect(validateEntrySearch({ page: '4' }).page).toBe(4)
   })
+
+  it('carries the open voucher and tab', () => {
+    expect(validateEntrySearch({ voucher: '4821', tab: 'activity' })).toMatchObject({
+      voucher: '4821',
+      tab: 'activity',
+    })
+  })
+
+  it('drops an unknown tab rather than trusting the URL', () => {
+    expect(validateEntrySearch({ voucher: '4821', tab: 'evil' }).tab).toBeUndefined()
+  })
 })
 
 describe('applyFilterChange', () => {
@@ -58,6 +69,18 @@ describe('applyFilterChange', () => {
 
   it('clears a filter when the change sets it undefined', () => {
     expect(applyFilterChange({ company_id: 'c1' }, { company_id: undefined }).company_id).toBeUndefined()
+  })
+
+  it('closes the panel when a filter changes', () => {
+    // The open voucher may not survive the new filter; leaving it open would
+    // show a panel for a row that is no longer in the list.
+    const next = applyFilterChange(
+      { voucher: '4821', entry: 'e1', tab: 'details' },
+      { company_id: 'c2' },
+    )
+    expect(next.voucher).toBeUndefined()
+    expect(next.entry).toBeUndefined()
+    expect(next.tab).toBeUndefined()
   })
 })
 

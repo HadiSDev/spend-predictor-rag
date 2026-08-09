@@ -1,8 +1,17 @@
-import type { EntryFilters } from './types'
+import type { EntryFilters, VoucherTab } from './types'
 
 /** Read one search key, dropping empty values so they never reach the URL. */
 function str(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+const VOUCHER_TABS: ReadonlyArray<VoucherTab> = ['details', 'postings', 'activity']
+
+/** Read the tab, ignoring anything not a known tab — search params are user input. */
+function tab(value: unknown): VoucherTab | undefined {
+  return typeof value === 'string' && (VOUCHER_TABS as ReadonlyArray<string>).includes(value)
+    ? (value as VoucherTab)
+    : undefined
 }
 
 /**
@@ -23,19 +32,24 @@ export function validateEntrySearch(search: Record<string, unknown>): EntryFilte
     from: str(search.from),
     to: str(search.to),
     page: Number.isInteger(page) && page > 1 ? page : undefined,
+    voucher: str(search.voucher),
+    entry: str(search.entry),
+    tab: tab(search.tab),
   }
 }
 
 /**
  * Apply a filter change. Any filter change returns to page 1 — narrowing a
  * filter while on page 7 otherwise strands the user on an empty page that
- * reads as "no results".
+ * reads as "no results". It also closes the voucher panel: the open voucher
+ * may not survive the new filter, and leaving it open would show detail for a
+ * row that is no longer in the (re-filtered) list.
  */
 export function applyFilterChange(
   filters: EntryFilters,
   changes: Partial<EntryFilters>,
 ): EntryFilters {
-  return { ...filters, ...changes, page: undefined }
+  return { ...filters, ...changes, page: undefined, voucher: undefined, entry: undefined, tab: undefined }
 }
 
 /**

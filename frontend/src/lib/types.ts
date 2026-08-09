@@ -294,6 +294,9 @@ export interface VoucherGroupRead {
   entries: Array<ErpEntryRead>
 }
 
+/** Which face of the voucher panel is showing. */
+export type VoucherTab = 'details' | 'postings' | 'activity'
+
 /** Filters accepted by both entry list endpoints. Unset keys are not sent. */
 export interface EntryFilters {
   company_id?: string
@@ -304,6 +307,10 @@ export interface EntryFilters {
   to?: string
   page?: number
   currency_mode?: CurrencyMode
+  /** The open voucher, or the lone posting when it has no voucher id. */
+  voucher?: string
+  entry?: string
+  tab?: VoucherTab
 }
 
 /**
