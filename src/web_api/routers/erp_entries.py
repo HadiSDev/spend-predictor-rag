@@ -484,18 +484,27 @@ def _invoice_lines_for(session: Session, invoice_ids: set[str]) -> dict[str, lis
     if not invoice_ids:
         return {}
     rows = session.exec(
-        select(InvoiceLine)
+        # The invoice's currency comes along: a line is denominated in it and
+        # carries none of its own, so without it the client cannot say what
+        # `amount` is in.
+        select(InvoiceLine, Invoice.currency)
+        .join(Invoice, Invoice.id == InvoiceLine.invoice_id)
         .where(InvoiceLine.invoice_id.in_(invoice_ids))  # type: ignore[union-attr]
         # An invoice reads top to bottom, so its lines come back in the order
         # their source stated them; the id is only a tiebreak.
         .order_by(InvoiceLine.invoice_id, InvoiceLine.sequence, InvoiceLine.id)
     ).all()
     by_invoice: dict[str, list[InvoiceLineRead]] = {}
-    for line in rows:
-        by_invoice.setdefault(line.invoice_id, []).append(
-            InvoiceLineRead.model_validate(line)
-        )
+    for line, currency in rows:
+        by_invoice.setdefault(line.invoice_id, []).append(_line_read(line, currency))
     return by_invoice
+
+
+def _line_read(line: InvoiceLine, currency: str | None) -> InvoiceLineRead:
+    """The one place a line payload is built, so every reader agrees on it."""
+    return InvoiceLineRead.model_validate(
+        {**InvoiceLineRead.model_validate(line).model_dump(), "currency": currency}
+    )
 
 
 def _invoice_doc_state(session: Session, invoice_ids: set[str]) -> dict[str, tuple[str, str | None]]:
@@ -583,7 +592,7 @@ def _voucher_detail(
                 session.get(File, invoice.file_id) if invoice.file_id is not None else None
             )
             detail = _invoice_read(invoice, file_row).model_dump()
-            detail["lines"] = [InvoiceLineRead.model_validate(ln) for ln in lines]
+            detail["lines"] = [_line_read(ln, invoice.currency) for ln in lines]
             invoice_payload = InvoiceDetailRead.model_validate(detail)
             if file_row is not None:
                 document = DocumentRead(file_id=file_row.id, filename=file_row.filename)

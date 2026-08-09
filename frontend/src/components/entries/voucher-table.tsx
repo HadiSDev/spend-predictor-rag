@@ -14,10 +14,9 @@ import {
   TooltipTrigger,
   cn,
 } from '#/components/ui'
-import { basePostingAmount, postingAmount } from '#/lib/entry-amount'
 import type { VoucherKey } from '#/lib/entries'
 import { formatMoney, toNumber } from '#/lib/format'
-import type { ErpEntryRead, VoucherGroupRead } from '#/lib/types'
+import type { InvoiceLineRead, LineOrigin, VoucherGroupRead, VoucherTab } from '#/lib/types'
 import { ConvertedAmount } from './converted-amount'
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' })
@@ -26,6 +25,12 @@ function formatDate(value: string | null): string {
   if (!value) return '—'
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : dateFormatter.format(parsed)
+}
+
+/** A quantity without its stored trailing zeros — `2.0000` reads as `2`. */
+function formatQuantity(value: string | number): string {
+  const parsed = toNumber(value)
+  return Number.isNaN(parsed) ? String(value) : parsed.toLocaleString('en-GB')
 }
 
 /** A group is a real voucher when it has an id; otherwise it is a lone posting. */
@@ -103,22 +108,16 @@ function IncompleteMarker({ count }: { count: number }) {
 }
 
 /**
- * The spend category of the invoice line this posting came from, as its full
- * path — `Indirect › Legal › Professional Services`.
+ * A line's spend category as its full path — `Indirect › Legal › Professional
+ * Services`.
  *
- * The category is never the posting's own: it belongs to the line, and one line
- * may be posted as several entries, which then all read the same category here.
- *
- * Empty for two different reasons that deliberately look identical — the
- * posting has no line behind it (VAT, the payable), or its line has not been
- * categorized yet. Neither is a state the reader can act on from this table.
+ * Empty when the line is not categorized yet, which is not a state the reader
+ * can act on from this table.
  */
-function SpendCategory({ entry }: { entry: ErpEntryRead }) {
-  const path = [
-    entry.spend_category_level_1,
-    entry.spend_category_level_2,
-    entry.spend_category_level_3,
-  ].filter((level): level is string => Boolean(level))
+export function SpendCategory({ line }: { line: InvoiceLineRead }) {
+  const path = [line.level_1, line.level_2, line.level_3].filter(
+    (level): level is string => Boolean(level),
+  )
 
   if (path.length === 0) return <span className="text-muted-foreground">—</span>
   return (
@@ -135,42 +134,65 @@ function SpendCategory({ entry }: { entry: ErpEntryRead }) {
 }
 
 /**
- * Column headers for the postings a group expands to.
+ * Says a line stands in for a posting because no document was read.
  *
- * The table's own header describes *vouchers*, so without this the account
- * lands under Voucher, the line text under Date, and the posting's amount under
- * Total Spend — three columns whose names say something else. Rendered once per
- * open group rather than once for the table, since groups expand independently
- * and a header far above the rows it names is no header at all.
+ * Information, not an error: most vouchers have no scan, so presenting this as a
+ * problem would flag most of the ledger. Only `entry_fallback` is marked —
+ * marking the ordinary extracted case too would make the marking meaningless.
  *
- * "Amount", not "Total Spend": this is one posting's own debit − credit, and
- * the VAT and payable rows are not spend at all.
+ * `tabIndex` and `aria-label` rather than colour or a bare icon: the whole
+ * content of the mark is the explanation, so it has to reach a keyboard and a
+ * screen-reader user identically.
  */
-function PostingHeaderRow() {
+export function ProvenanceMark({ origin }: { origin: LineOrigin }) {
+  if (origin !== 'entry_fallback') return null
+  const explanation =
+    'Stands in for a ledger posting — no document was read for this voucher, ' +
+    'so this is the bookkeeper’s description rather than what was bought.'
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            tabIndex={0}
+            aria-label={explanation}
+            className="cursor-help rounded border border-border px-1 text-[10px] leading-4 text-muted-foreground"
+          />
+        }
+      >
+        from posting
+      </TooltipTrigger>
+      <TooltipContent>{explanation}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * Column headers for the lines a group expands to.
+ *
+ * The table's own header describes *vouchers*, so without this the description
+ * lands under Voucher and the line's amount under Total Spend — columns whose
+ * names say something else. Rendered once per open group rather than once for
+ * the table, since groups expand independently and a header far above the rows
+ * it names is no header at all.
+ *
+ * "Amount", not "Total Spend": this is one line's own figure, and the group's
+ * figure is the net of the voucher's expense postings — a different quantity.
+ */
+function LineHeaderRow() {
   return (
     <TableRow className="bg-muted/25 hover:bg-transparent">
       <TableHead className="h-8" />
-      {/* One cell per column now that Spend category is here — the account
-          cell used to span two, which leaves no room for a fifth. */}
-      <TableHead className="h-8 pl-8">Account</TableHead>
-      <TableHead className="h-8">Description</TableHead>
+      <TableHead className="h-8 pl-8">Description</TableHead>
+      <TableHead className="h-8">Quantity</TableHead>
       <TableHead className="h-8">Spend category</TableHead>
       <TableHead className="h-8 text-right">Amount</TableHead>
     </TableRow>
   )
 }
 
-/** One posting. Debit and credit are collapsed into a single signed
- *  figure — the only thing being asked of this table. */
-function EntryRow({
-  entry,
-  onSelect,
-}: {
-  entry: ErpEntryRead
-  onSelect: () => void
-}) {
-  const amount = postingAmount(entry)
-  const base = basePostingAmount(entry)
+/** One invoice line — what was bought, not how it was posted. */
+function LineRow({ line, onSelect }: { line: InvoiceLineRead; onSelect: () => void }) {
   return (
     <TableRow className="bg-muted/25">
       <TableCell />
@@ -180,27 +202,22 @@ function EntryRow({
           onClick={onSelect}
           className="text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="font-medium tabular-nums">{entry.erp_account_code}</span>{' '}
-          <span className="text-muted-foreground">{entry.erp_account_name}</span>
-        </button>
+          {line.description ?? <span className="text-muted-foreground">—</span>}
+        </button>{' '}
+        <ProvenanceMark origin={line.origin} />
       </TableCell>
-      <TableCell className="text-muted-foreground">
-        {entry.description ?? '—'}
-        {entry.status === 'failed' ? (
-          <Badge variant="destructive" className="ml-2">
-            failed
-          </Badge>
-        ) : null}
+      <TableCell className="tabular-nums text-muted-foreground">
+        {line.quantity === null ? '—' : formatQuantity(line.quantity)}
       </TableCell>
       <TableCell>
-        <SpendCategory entry={entry} />
+        <SpendCategory line={line} />
       </TableCell>
       <TableCell className="text-right">
         <ConvertedAmount
-          row={entry}
-          base={base}
-          posted={amount}
-          postedCurrency={entry.currency}
+          row={line}
+          base={line.base_amount}
+          posted={line.amount}
+          postedCurrency={line.currency}
           signed
         />
       </TableCell>
@@ -212,8 +229,9 @@ export interface VoucherTableProps {
   groups: Array<VoucherGroupRead>
   /** Opens the voucher-wide panel — by voucher id when the group has one,
    *  by the clicked posting's entry id otherwise (a voucherless group has no
-   *  other shareable key). */
-  onSelectEntry: (key: VoucherKey) => void
+   *  other shareable key). A `tab` is passed when the row that was activated
+   *  says which face of the panel to open on. */
+  onSelectEntry: (key: VoucherKey & { tab?: VoucherTab }) => void
 }
 
 /**
@@ -257,11 +275,12 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
         {groups.map((group) => {
           const key = groupKey(group)
           const postings = group.entries
-          // Expandable whenever there is more than one posting to reveal.
-          // Nothing is filtered out any more, so an ordinary purchase — expense,
-          // VAT, payable — does expand. That is the point: the ledger detail was
-          // always fetched and was previously unreachable.
-          const expandable = postings.length > 1
+          const lines = group.lines
+          // Expandable whenever the voucher has a line to reveal. A voucher with
+          // none — a journal entry, a transfer, a voucher of only non-expense
+          // postings — stays an ordinary row that still opens the panel, where
+          // its postings are listed. That is the only place they live now.
+          const expandable = lines.length > 0
           const isOpen = expanded.has(key)
           // Voucher id when the group has one, else the entry id of its lone
           // posting — a voucherless group has no other shareable key.
@@ -313,13 +332,19 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
               </TableRow>
               {isOpen ? (
                 <>
-                  <PostingHeaderRow />
-                  {postings.map((entry) => (
-                    <EntryRow
-                      key={entry.id}
-                      entry={entry}
+                  <LineHeaderRow />
+                  {lines.map((line) => (
+                    <LineRow
+                      key={line.id}
+                      line={line}
+                      // Opens the panel on its Lines tab: the row the reader
+                      // activated is a line, so that is what should be in view.
                       onSelect={() =>
-                        onSelectEntry({ voucher: group.voucher_id ?? undefined, entry: entry.id })
+                        onSelectEntry({
+                          voucher: group.voucher_id ?? undefined,
+                          entry: postings[0]?.id,
+                          tab: 'lines',
+                        })
                       }
                     />
                   ))}

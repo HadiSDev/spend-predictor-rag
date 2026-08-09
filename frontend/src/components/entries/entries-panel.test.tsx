@@ -6,6 +6,7 @@ import type {
   CompanyRead,
   ErpEntryRead,
   InvoiceDetailRead,
+  InvoiceLineRead,
   VendorRead,
   VoucherDetailRead,
   VoucherGroupRead,
@@ -91,6 +92,40 @@ function entry(overrides: Partial<ErpEntryRead> = {}): ErpEntryRead {
   }
 }
 
+/**
+ * One invoice line. `document_ai` by default — the ordinary case once the
+ * document has been read, and the one that carries no provenance mark.
+ */
+function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
+  return {
+    id: 'l1',
+    invoice_id: 'inv1',
+    company_id: 'c1',
+    description: 'Figma Organization, 12 seats',
+    quantity: '12.0000',
+    unit_price: '100.0000',
+    amount: '1200.00',
+    native_account_code: '6200',
+    origin: 'document_ai',
+    sequence: 0,
+    currency: 'DKK',
+    base_currency: 'DKK',
+    base_amount: '1200.00',
+    fx_rate: '1',
+    fx_rate_date: '2026-07-02',
+    status: 'ai_categorized',
+    level_1: 'Indirect',
+    level_2: 'Technology',
+    level_3: 'Software Subscriptions',
+    account_code: '6200',
+    account_name: 'Software',
+    confidence: '0.910',
+    rationale: 'matched',
+    spend_category_id: null,
+    ...overrides,
+  }
+}
+
 /** A three-posting voucher, the normal case. */
 const VOUCHER: VoucherGroupRead = {
   voucher_id: 'V-1042',
@@ -105,6 +140,9 @@ const VOUCHER: VoucherGroupRead = {
   unconverted_count: 0,
   vendor_id: 'v1',
   vendor_name: 'Contoso ApS',
+  lines: [line()],
+  doc_status: 'processed',
+  doc_error: null,
   entries: [
     entry({ id: 'e1', erp_account_code: '6200', erp_account_name: 'Software' }),
     entry({ id: 'e2', erp_account_code: '2610', erp_account_name: 'Input VAT',
@@ -127,6 +165,13 @@ const SPLIT: VoucherGroupRead = {
   voucher_id: 'V-SPLIT',
   amount: '900.00',
   entry_count: 3,
+  lines: [
+    line({ id: 'sl1', description: 'Figma seats', amount: '500.00',
+           base_amount: '500.00', sequence: 0 }),
+    line({ id: 'sl2', description: 'Flights to Berlin', amount: '400.00',
+           base_amount: '400.00', sequence: 1,
+           level_2: 'Travel', level_3: 'Air Travel' }),
+  ],
   entries: [
     entry({ id: 's1', voucher_id: 'V-SPLIT', erp_account_code: '6200',
             erp_account_name: 'Software', erp_account_type: 'expense',
@@ -154,6 +199,10 @@ const LONE: VoucherGroupRead = {
   unconverted_count: 0,
   vendor_id: null,
   vendor_name: null,
+  // A journal entry has no invoice behind it, so no lines and no document.
+  lines: [],
+  doc_status: null,
+  doc_error: null,
   entries: [
     entry({
       id: 'e9',
@@ -177,6 +226,8 @@ const MIXED: VoucherGroupRead = {
   currency: null,
   entry_count: 2,
   amount: '30.00',
+  lines: [line({ id: 'ml1', description: 'Mixed voucher line', amount: '30.00',
+                base_amount: '30.00' })],
   debit_total: '30.00',
   entries: [
     entry({ id: 'm1', voucher_id: 'V-MIX', currency: 'DKK', debit_amount: '10.00' }),
@@ -205,6 +256,9 @@ function invoiceDetail(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetai
     file_id: null,
     file_name: null,
     has_document: false,
+    doc_status: 'not_applicable',
+    doc_error: null,
+    doc_processed_at: null,
     lines: [],
     ...overrides,
   }
@@ -245,6 +299,8 @@ function common() {
     onSelectEntry: vi.fn(),
     onVerifyLine: vi.fn().mockResolvedValue(undefined),
     onUpdateHeader: vi.fn().mockResolvedValue(undefined),
+    onReprocess: vi.fn().mockResolvedValue(undefined),
+    canRetrigger: true,
   }
 }
 
@@ -284,15 +340,15 @@ describe('EntriesPanel — voucher rows', () => {
     expect(screen.getByRole('button', { name: /Expand voucher V-1042/ })).toBeTruthy()
   })
 
-  it('reveals every posting, plumbing included', async () => {
+  it('reveals the voucher’s lines, not its postings', async () => {
     setup()
     fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
 
-    expect(await screen.findByText('Software')).toBeTruthy()
-    // VAT and the counterparty are what a reconciliation needs; withholding
-    // them was the whole problem.
-    expect(screen.getByText('Input VAT')).toBeTruthy()
-    expect(screen.getByText('Payables')).toBeTruthy()
+    expect(await screen.findByText('Figma Organization, 12 seats')).toBeTruthy()
+    // A posting is what the bookkeeper wrote; the plumbing belongs on the
+    // panel's Postings tab, where it is read as evidence rather than as spend.
+    expect(screen.queryByText('Input VAT')).toBeNull()
+    expect(screen.queryByText('Payables')).toBeNull()
   })
 
   it('opens the panel from the row when there is nothing to expand', () => {
@@ -335,70 +391,67 @@ describe('EntriesPanel — voucher rows', () => {
     expect(screen.queryByRole('columnheader', { name: 'Type' })).toBeNull()
   })
 
-  it('labels the postings, whose columns the voucher header does not describe', async () => {
+  it('labels the lines, whose columns the voucher header does not describe', async () => {
     setup()
     fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
-    await screen.findByText('Software')
+    await screen.findByText('Figma Organization, 12 seats')
 
-    // Without these the account reads under Voucher and the amount under
+    // Without these the description reads under Voucher and the amount under
     // Total Spend — headers that name something else.
-    expect(screen.getByRole('columnheader', { name: 'Account' })).toBeTruthy()
     expect(screen.getByRole('columnheader', { name: 'Description' })).toBeTruthy()
+    expect(screen.getByRole('columnheader', { name: 'Quantity' })).toBeTruthy()
     expect(screen.getByRole('columnheader', { name: 'Spend category' })).toBeTruthy()
-    // "Amount", not "Total Spend": a VAT or payable posting is not spend.
+    // "Amount", not "Total Spend": the group's figure is the net of the
+    // voucher's expense postings, which is a different quantity.
     expect(screen.getByRole('columnheader', { name: 'Amount' })).toBeTruthy()
   })
 
-  it('shows a posting’s spend category as its full path', async () => {
+  it('shows a line’s spend category as its full path', async () => {
     const categorized: VoucherGroupRead = {
       ...VOUCHER,
-      entries: [
-        entry({
-          id: 'e1',
-          source_invoice_line_id: 'l1',
-          spend_category_level_1: 'Indirect',
-          spend_category_level_2: 'Legal',
-          spend_category_level_3: 'Professional Services',
+      lines: [
+        line({
+          level_1: 'Indirect',
+          level_2: 'Legal',
+          level_3: 'Professional Services',
         }),
-        ...VOUCHER.entries.slice(1),
       ],
     }
     setup({ result: { items: [categorized], page: 1, page_size: 25, total: 1 } })
     fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
-    await screen.findByText('Software')
+    await screen.findByText('Figma Organization, 12 seats')
 
-    const row = screen.getByText('Software').closest('tr')
+    const row = screen.getByText('Figma Organization, 12 seats').closest('tr')
     expect(row?.textContent).toContain('Indirect')
     expect(row?.textContent).toContain('Legal')
     expect(row?.textContent).toContain('Professional Services')
   })
 
   it('leaves the category empty before the AI has categorized the line', async () => {
-    // The default fixture is uncategorized, which is also what every VAT and
-    // payable posting looks like — the two are indistinguishable on purpose.
-    setup()
+    const pending: VoucherGroupRead = {
+      ...VOUCHER,
+      lines: [line({ status: 'uncategorized', level_1: null, level_2: null, level_3: null })],
+    }
+    setup({ result: { items: [pending], page: 1, page_size: 25, total: 1 } })
     fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
-    await screen.findByText('Software')
+    await screen.findByText('Figma Organization, 12 seats')
 
     const category = screen.getByRole('columnheader', { name: 'Spend category' })
     const index = [...(category.closest('tr')?.children ?? [])].indexOf(category)
-    const row = screen.getByText('Software').closest('tr')
+    const row = screen.getByText('Figma Organization, 12 seats').closest('tr')
     expect(row?.children[index]?.textContent).toBe('—')
   })
 
   it('drops a level the categorizer did not fill rather than showing a gap', async () => {
     const partial: VoucherGroupRead = {
       ...VOUCHER,
-      entries: [
-        entry({ id: 'e1', spend_category_level_1: 'Indirect', spend_category_level_2: 'Legal' }),
-        ...VOUCHER.entries.slice(1),
-      ],
+      lines: [line({ level_1: 'Indirect', level_2: 'Legal', level_3: null })],
     }
     setup({ result: { items: [partial], page: 1, page_size: 25, total: 1 } })
     fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
-    await screen.findByText('Software')
+    await screen.findByText('Figma Organization, 12 seats')
 
-    const row = screen.getByText('Software').closest('tr')
+    const row = screen.getByText('Figma Organization, 12 seats').closest('tr')
     // "Indirect › Legal", not "Indirect › Legal ›" with a dangling separator.
     expect(row?.textContent).toContain('Legal')
     expect(row?.textContent).not.toMatch(/›\s*$/)
@@ -407,47 +460,82 @@ describe('EntriesPanel — voucher rows', () => {
   it('lines every row up to the same width, rather than a column short', async () => {
     setup()
     fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
-    await screen.findByText('Software')
+    await screen.findByText('Figma Organization, 12 seats')
 
     // Cells carry colSpans, so width has to be counted by span rather than by
-    // cell. Short by one and a posting's amount lands under the wrong header.
+    // cell. Short by one and a line's amount lands under the wrong header.
     const width = (row: Element | null | undefined) =>
       [...(row?.querySelectorAll('th, td') ?? [])].reduce(
         (n, cell) => n + ((cell as HTMLTableCellElement).colSpan || 1),
         0,
       )
     const voucherHeader = document.querySelector('thead tr')
-    const postingHeader = screen.getByRole('columnheader', { name: 'Account' }).closest('tr')
-    const posting = screen.getByText('Software').closest('tr')
+    const lineHeader = screen.getByRole('columnheader', { name: 'Quantity' }).closest('tr')
+    const lineRow = screen.getByText('Figma Organization, 12 seats').closest('tr')
 
     expect(width(voucherHeader)).toBeGreaterThan(0)
-    expect(width(postingHeader)).toBe(width(voucherHeader))
-    expect(width(posting)).toBe(width(voucherHeader))
+    expect(width(lineHeader)).toBe(width(voucherHeader))
+    expect(width(lineRow)).toBe(width(voucherHeader))
   })
 
-  it('never prints a zero for a posting that has no amount on one side', async () => {
-    // Connectors send 0.00 rather than null, and "0.00" is a truthy string —
-    // the reason every row once printed DKK 0.00.
-    setup({ result: { items: [SPLIT], page: 1, page_size: 25, total: 1 } })
-    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-SPLIT/ }))
-    await screen.findByText('Software')
+  it('never prints a zero for a line that carries no amount', async () => {
+    const zeroed: VoucherGroupRead = {
+      ...VOUCHER,
+      lines: [line({ amount: null, base_amount: null })],
+    }
+    setup({ result: { items: [zeroed], page: 1, page_size: 25, total: 1 } })
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
+    await screen.findByText('Figma Organization, 12 seats')
 
     // Exact match: /0\.00/ also matches inside "1,200.00".
     expect(screen.queryByText('DKK 0.00')).toBeNull()
   })
 
-  it('shows postings that net to zero, which the group figure is not', async () => {
+  it('shows the lines, whose sum the group figure is not', async () => {
     setup({ result: { items: [SPLIT], page: 1, page_size: 25, total: 1 } })
     fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-SPLIT/ }))
-    await screen.findByText('Software')
+    await screen.findByText('Figma seats')
 
-    // 500 + 400 − 900 = 0, as a balanced voucher must.
     expect(screen.getByText('DKK 500.00')).toBeTruthy()
     expect(screen.getByText('DKK 400.00')).toBeTruthy()
-    expect(screen.getByText(/^-\D*900\.00$/)).toBeTruthy()
-    // And the group still states its net spend — a different quantity, which
-    // is exactly why the column is not called Total.
+    // The group states its net spend, computed server-side from the *postings*
+    // — which is exactly why the column is not called Total.
     expect(screen.getByText('DKK 900.00')).toBeTruthy()
+  })
+
+  it('marks a line that stands in for a posting', async () => {
+    const standin: VoucherGroupRead = {
+      ...VOUCHER,
+      doc_status: 'not_applicable',
+      lines: [line({ description: 'Kontorartikler', origin: 'entry_fallback' })],
+    }
+    setup({ result: { items: [standin], page: 1, page_size: 25, total: 1 } })
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
+    await screen.findByText('Kontorartikler')
+
+    // The explanation is the whole content of the mark, so it has to reach a
+    // keyboard and a screen-reader user, not only a pointer.
+    const mark = screen.getByLabelText(/stands in for a ledger posting/i)
+    expect(mark.getAttribute('tabindex')).toBe('0')
+  })
+
+  it('leaves an extracted line unmarked, so the mark still means something', async () => {
+    setup()
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
+    await screen.findByText('Figma Organization, 12 seats')
+
+    expect(screen.queryByLabelText(/stands in for a ledger posting/i)).toBeNull()
+  })
+
+  it('gives a voucher with no lines no expand affordance, but still opens it', () => {
+    // A journal entry has no invoice behind it. Its postings live on the
+    // panel's Postings tab, which the row still opens.
+    const linesless: VoucherGroupRead = { ...VOUCHER, lines: [], doc_status: null }
+    const props = setup({ result: { items: [linesless], page: 1, page_size: 25, total: 1 } })
+
+    expect(screen.queryByRole('button', { name: /Expand voucher/ })).toBeNull()
+    fireEvent.click(screen.getByText('V-1042'))
+    expect(props.onSelectEntry).toHaveBeenCalled()
   })
 
   it('renders a refund as negative spend', () => {
@@ -571,6 +659,13 @@ describe('EntriesPanel — states', () => {
  * A voucher posted in EUR and USD, both converted into the company's DKK. As
  * posted these two cannot be added at all — converted, they are one figure.
  */
+const CONVERTED_LINE = () =>
+  line({
+    id: 'cl1', description: 'Converted line', amount: '100.00', currency: 'EUR',
+    base_currency: 'DKK', base_amount: '746.00', fx_rate: '7.46',
+    fx_rate_date: '2026-02-02',
+  })
+
 const CONVERTED_MIX: VoucherGroupRead = {
   ...VOUCHER,
   voucher_id: 'V-MIX',
@@ -592,10 +687,17 @@ const CONVERTED_MIX: VoucherGroupRead = {
   ],
 }
 
-/** One posting no rate was available for, alongside one that converted. */
+/** One posting no rate was available for, alongside one that converted. The
+ *  line mirrors it, since the expanded table is what shows lines. */
 const PARTLY_UNCONVERTED: VoucherGroupRead = {
   ...VOUCHER,
   voucher_id: 'V-GAP',
+  lines: [
+    line({
+      id: 'gl1', description: 'Unconverted line', amount: '500.00', currency: 'GBP',
+      base_currency: null, base_amount: null, fx_rate: null, fx_rate_date: null,
+    }),
+  ],
   amount: '1200.00',
   debit_total: '1200.00',
   currency: 'DKK',
@@ -625,11 +727,16 @@ describe('EntriesPanel — currency conversion', () => {
     expect(screen.getByText('Mixed currencies')).toBeTruthy()
   })
 
-  it('lets a converted posting explain itself', async () => {
-    setup({ result: { items: [CONVERTED_MIX], page: 1, page_size: 25, total: 1 } })
+  it('lets a converted line explain itself', async () => {
+    setup({
+      result: {
+        items: [{ ...CONVERTED_MIX, lines: [CONVERTED_LINE()] }],
+        page: 1, page_size: 25, total: 1,
+      },
+    })
     fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-MIX/ }))
 
-    // The posting shows the company's currency…
+    // The line shows the company's currency…
     const converted = await screen.findByText('DKK 746.00')
     // …and carries what it was, at what rate, from which publication — in the
     // accessible name, so it is not hover-only.
@@ -640,7 +747,12 @@ describe('EntriesPanel — currency conversion', () => {
   })
 
   it('offers the explanation to the keyboard, not only the mouse', async () => {
-    setup({ result: { items: [CONVERTED_MIX], page: 1, page_size: 25, total: 1 } })
+    setup({
+      result: {
+        items: [{ ...CONVERTED_MIX, lines: [CONVERTED_LINE()] }],
+        page: 1, page_size: 25, total: 1,
+      },
+    })
     fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-MIX/ }))
 
     const converted = await screen.findByText('DKK 746.00')
@@ -658,7 +770,7 @@ describe('EntriesPanel — currency conversion', () => {
     expect(amounts.every((el) => el.getAttribute('tabindex') === null)).toBe(true)
   })
 
-  it('marks an unconverted posting in its own currency', async () => {
+  it('marks an unconverted line in its own currency', async () => {
     setup({ result: { items: [PARTLY_UNCONVERTED], page: 1, page_size: 25, total: 1 } })
     fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-GAP/ }))
 
@@ -711,7 +823,7 @@ describe('EntriesPanel — voucher panel', () => {
     expect(onSelectEntry).toHaveBeenCalledWith({ voucher: 'V-1042', entry: 'e1' })
   })
 
-  it('opens a posting inside an expanded voucher as that voucher, not as a lone entry', async () => {
+  it('opens a line inside an expanded voucher as that voucher, on its Lines tab', async () => {
     const onSelectEntry = vi.fn()
     render(
       <EntriesPanel
@@ -722,9 +834,13 @@ describe('EntriesPanel — voucher panel', () => {
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-SPLIT/ }))
-    fireEvent.click(await screen.findByText('Travel'))
+    fireEvent.click(await screen.findByText('Flights to Berlin'))
 
-    expect(onSelectEntry).toHaveBeenCalledWith({ voucher: 'V-SPLIT', entry: 's2' })
+    // The voucher, addressed by its id — and opened on the tab that shows the
+    // row the reader actually activated.
+    expect(onSelectEntry).toHaveBeenCalledWith({
+      voucher: 'V-SPLIT', entry: 's1', tab: 'lines',
+    })
   })
 
   it('reports dismissal back to the owner by clearing the selection', async () => {
@@ -795,30 +911,15 @@ describe('EntriesPanel — voucher panel', () => {
       <EntriesPanel
         {...setupProps({
           filters: { voucher: '4821' },
+          tab: 'lines' as const,
           voucherDetail: { ...DETAIL, invoice: invoiceDetail({ lines: [
-            {
-              id: 'l1',
-              invoice_id: 'inv1',
-              company_id: 'c1',
-              description: 'Office chairs',
-              quantity: '2',
-              unit_price: '450.00',
-              amount: '900.00',
-              native_account_code: null,
-              base_currency: 'DKK',
-              base_amount: '900.00',
-              fx_rate: '1',
-              fx_rate_date: '2026-07-02',
-              status: 'ai_categorized',
-              level_1: 'Facilities',
-              level_2: 'Furniture',
-              level_3: 'Office chairs',
-              account_code: '6100',
-              account_name: 'Office equipment',
-              confidence: '0.62',
-              rationale: null,
-              spend_category_id: null,
-            },
+            line({
+              description: 'Office chairs', quantity: '2', unit_price: '450.00',
+              amount: '900.00', base_amount: '900.00',
+              level_1: 'Facilities', level_2: 'Furniture', level_3: 'Office chairs',
+              account_code: '6100', account_name: 'Office equipment',
+              confidence: '0.62', rationale: null,
+            }),
           ] }) },
           onVerifyLine,
         })}

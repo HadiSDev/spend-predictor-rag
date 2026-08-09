@@ -4,13 +4,15 @@ import { Badge, Button, Field, FieldControl, FieldLabel } from '#/components/ui'
 import { formatMoney } from '#/lib/format'
 import { serverErrorMessage } from '#/lib/form-errors'
 import type { InvoiceDetailRead, InvoiceUpdate } from '#/lib/types'
-import { LineCategoryEditor } from './line-category-editor'
-import type { LineCorrections } from './line-category-editor'
+import { DocumentProcessing } from './document-processing'
 
 export interface VoucherDetailsTabProps {
   invoice: InvoiceDetailRead
-  /** Sending an empty corrections object accepts the AI result as-is. */
-  onVerifyLine: (lineId: string, corrections: LineCorrections) => Promise<void>
+  /** Whether the signed-in user may retrigger document processing — the
+   *  endpoint is management-only. */
+  canRetrigger: boolean
+  /** `POST /invoices/{id}/reprocess`. */
+  onReprocess: (invoiceId: string) => Promise<void>
   /** Save a header correction (`PATCH /invoices/{id}`). Only called for a
    *  `pdf_extraction` invoice — the only source this tab ever renders inputs
    *  for; an `erp`-sourced one always shows `ReadOnlyField`s instead. */
@@ -206,15 +208,17 @@ function EditableInvoiceHeader({
 }
 
 /**
- * The Details tab: the invoice header and the per-line categorization
- * editors. Provenance decides affordance throughout — an ERP-posted header is
- * evidence (flat text, tinted surface); a PDF-parsed header is correctable
- * (real, focusable inputs). Line categorization is AI-produced and always
- * correctable, regardless of the header's source.
+ * The Details tab: the invoice header, and where its lines came from.
+ *
+ * Provenance decides affordance throughout — an ERP-posted header is evidence
+ * (flat text, tinted surface); a PDF-parsed header is correctable (real,
+ * focusable inputs). The lines themselves live on their own tab now: they are
+ * the unit this product works in, not a footnote to a header nobody edits.
  */
 export function VoucherDetailsTab({
   invoice,
-  onVerifyLine,
+  canRetrigger,
+  onReprocess,
   onUpdateHeader,
   onHeaderDirtyChange,
 }: VoucherDetailsTabProps) {
@@ -251,23 +255,14 @@ export function VoucherDetailsTab({
         )}
       </section>
 
-      <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-semibold text-foreground">Lines</h3>
-        {invoice.lines.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No lines on this invoice.</p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {invoice.lines.map((line) => (
-              <LineCategoryEditor
-                key={line.id}
-                line={line}
-                currency={invoice.currency}
-                onVerify={onVerifyLine}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+      {/* The lines moved to their own tab — they are the unit this product
+          works in, and the only thing on the voucher a human corrects. What
+          stays here is the header and where its lines came from. */}
+      <DocumentProcessing
+        invoice={invoice}
+        canRetrigger={canRetrigger}
+        onReprocess={onReprocess}
+      />
     </div>
   )
 }

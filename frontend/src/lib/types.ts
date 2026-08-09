@@ -292,10 +292,44 @@ export interface VoucherGroupRead {
    */
   unconverted_count: number
   entries: Array<ErpEntryRead>
+  /**
+   * The voucher's invoice lines — what the table lists when a group is
+   * expanded. Empty for a voucher with no source invoice (a journal entry, a
+   * transfer), which is ordinary rather than an error.
+   *
+   * Already ordered by the server, in the order the line's source stated it.
+   * Do not re-sort by id: an invoice reads top to bottom.
+   */
+  lines: Array<InvoiceLineRead>
+  /** The invoice's document-processing state, or null when the voucher has no
+   *  source invoice. See `DocStatus`. */
+  doc_status: DocStatus | null
+  doc_error: string | null
 }
 
+/**
+ * Whether an invoice's attached document has been turned into lines.
+ *
+ * Deliberately separate from the invoice's categorization status: one says
+ * whether we have read the document, the other whether the resulting spend has
+ * been categorized. `not_applicable` is the ordinary state for a voucher with
+ * no scan — most of them — and is not a failure.
+ */
+export type DocStatus = 'not_applicable' | 'pending' | 'processing' | 'processed' | 'failed'
+
+/**
+ * Which source produced an invoice line.
+ *
+ * `entry_fallback` stands in for one expense posting because no document was
+ * read. It is a real line in every respect — categorizable, verifiable — but
+ * its description is the bookkeeper's memo, not what was bought, so the reader
+ * is told. Stored on the line rather than inferred: a stand-in and an extracted
+ * line can be identical in every other field.
+ */
+export type LineOrigin = 'erp' | 'document_ai' | 'entry_fallback'
+
 /** Which face of the voucher panel is showing. */
-export type VoucherTab = 'details' | 'postings' | 'activity'
+export type VoucherTab = 'details' | 'lines' | 'postings' | 'activity'
 
 /** Filters accepted by both entry list endpoints. Unset keys are not sent. */
 export interface EntryFilters {
@@ -303,6 +337,8 @@ export interface EntryFilters {
   entry_type?: string
   status?: string
   vendor_id?: string
+  /** Line provenance — finds the spend still standing on its postings. */
+  origin?: LineOrigin
   from?: string
   to?: string
   page?: number
@@ -358,6 +394,15 @@ export interface InvoiceLineRead {
   unit_price: Money | null
   amount: Money | null
   native_account_code: string | null
+  /** Which source produced this line — decides whether its description can be
+   *  trusted as what was bought. */
+  origin: LineOrigin
+  /** Position on the invoice, as its source stated it. The server already
+   *  orders by this; carried so a client-side sort can restore it. */
+  sequence: number
+  /** The currency `amount` is in. A line has none of its own — this is its
+   *  invoice's, resolved server-side. */
+  currency: string | null
   /** The line in the company's base currency, at its invoice's rate. Null when
    *  unconverted. */
   base_currency: string | null
@@ -402,6 +447,13 @@ export interface InvoiceRead {
    *  decide whether to render a viewer. */
   file_name: string | null
   has_document: boolean
+  /** Whether the attached document has been turned into lines. Separate from
+   *  `status` above, which is the categorization rollup. */
+  doc_status: DocStatus
+  /** Why the last extraction failed, in words meant for the user — it is shown
+   *  beside the retrigger action, not only logged. */
+  doc_error: string | null
+  doc_processed_at: string | null
 }
 
 /** `InvoiceRead` plus its lines — the shape a voucher's detail panel needs. */

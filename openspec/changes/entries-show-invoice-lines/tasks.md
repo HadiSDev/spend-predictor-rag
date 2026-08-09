@@ -53,17 +53,17 @@
 
 ## 6. Frontend
 
-- [ ] 6.1 Extend the voucher types in `frontend/src/lib/entries.ts` with the lines array, `doc_status` and `doc_error`
-- [ ] 6.2 Rewrite the expanded-group renderer in `components/entries/voucher-table.tsx` to list invoice lines with Description, Quantity, Spend category and Amount headers, keeping the `colSpan` alignment invariant
-- [ ] 6.3 Make a group expandable when its voucher has at least one line; a voucher with no lines stays an ordinary row that still opens the panel
-- [ ] 6.4 Keep the group figure as the server's Total Spend — never a sum of the lines
-- [ ] 6.5 Add a Postings tab to the voucher panel listing every `ErpEntry` with account, type, date, description, debit, credit, status and error, as flat evidence text with no disabled inputs; carry the tab in the URL
-- [ ] 6.6 Make the Lines tab the tab that opens when a line is activated from the table, and the place a line's category is corrected
-- [ ] 6.7 Add the provenance mark for `entry_fallback` lines, explained on hover and to assistive technology, presented as information rather than an error; leave `document_ai` lines unmarked
-- [ ] 6.8 Show `doc_status` on the panel, with `doc_error` beside a retrigger action; offer the action only for a management role on an invoice that has a document and is not `processing`; show "no document attached" plainly with no control
-- [ ] 6.9 Wire the reprocess mutation in `lib/invoices.ts` and invalidate the voucher and line queries so the panel updates without a reload
-- [ ] 6.10 Add the `origin` filter to `lib/entry-search.ts` and the filter bar, carried in the URL, composing and clearing with the rest
-- [ ] 6.11 Update the affected tests in `components/entries/` — `voucher-table`, `entries-panel`, `voucher-postings-tab`, `voucher-details-tab` — to the line-based contract, and add tests for the provenance mark and the retrigger affordance
+- [x] 6.1 Extend the voucher types in `frontend/src/lib/entries.ts` with the lines array, `doc_status` and `doc_error`
+- [x] 6.2 Rewrite the expanded-group renderer in `components/entries/voucher-table.tsx` to list invoice lines with Description, Quantity, Spend category and Amount headers, keeping the `colSpan` alignment invariant
+- [x] 6.3 Make a group expandable when its voucher has at least one line; a voucher with no lines stays an ordinary row that still opens the panel
+- [x] 6.4 Keep the group figure as the server's Total Spend — never a sum of the lines
+- [x] 6.5 Add a Postings tab to the voucher panel listing every `ErpEntry` with account, type, date, description, debit, credit, status and error, as flat evidence text with no disabled inputs; carry the tab in the URL
+- [x] 6.6 Make the Lines tab the tab that opens when a line is activated from the table, and the place a line's category is corrected
+- [x] 6.7 Add the provenance mark for `entry_fallback` lines, explained on hover and to assistive technology, presented as information rather than an error; leave `document_ai` lines unmarked
+- [x] 6.8 Show `doc_status` on the panel, with `doc_error` beside a retrigger action; offer the action only for a management role on an invoice that has a document and is not `processing`; show "no document attached" plainly with no control
+- [x] 6.9 Wire the reprocess mutation in `lib/invoices.ts` and invalidate the voucher and line queries so the panel updates without a reload
+- [x] 6.10 Add the `origin` filter to `lib/entry-search.ts` and the filter bar, carried in the URL, composing and clearing with the rest
+- [x] 6.11 Update the affected tests in `components/entries/` — `voucher-table`, `entries-panel`, `voucher-postings-tab`, `voucher-details-tab` — to the line-based contract, and add tests for the provenance mark and the retrigger affordance
 
 ## 7. Verification and documentation
 

@@ -14,7 +14,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '#/components/ui'
-import type { CompanyRead, EntryFilters, VendorRead } from '#/lib/types'
+import { LINE_ORIGINS } from '#/lib/entry-search'
+import type { CompanyRead, EntryFilters, LineOrigin, VendorRead } from '#/lib/types'
+
+/** What each provenance means to a reader, who does not think in enum values. */
+const ORIGIN_LABELS: Record<LineOrigin, string> = {
+  document_ai: 'Read from document',
+  erp: 'From the ERP',
+  entry_fallback: 'Standing in for a posting',
+}
 
 /** The domain's fixed set. Kept explicit so a status with no rows yet — the
  *  failed ones especially — never vanishes from the filter. */
@@ -62,7 +70,9 @@ export function FilterBar({
   onVendorSearch,
 }: FilterBarProps) {
   // `page` is not a filter; it should not light up the clear control.
-  const active = (['company_id', 'entry_type', 'status', 'vendor_id', 'from', 'to'] as const).some(
+  const active = (
+    ['company_id', 'entry_type', 'status', 'vendor_id', 'origin', 'from', 'to'] as const
+  ).some(
     (key) => filters[key] !== undefined,
   )
   const selectedVendor = vendors.find((v) => v.id === filters.vendor_id)
@@ -152,6 +162,31 @@ export function FilterBar({
             {STATUSES.map((status) => (
               <SelectItem key={status} value={status}>
                 {status}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </label>
+
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">Line source</span>
+        {/* Finds the spend still standing on its postings — the vouchers whose
+            document has not been read, and whose descriptions are therefore the
+            bookkeeper's rather than what was bought. */}
+        <Select
+          value={filters.origin ?? ''}
+          onValueChange={(next: string | null) =>
+            onChange({ origin: next && next !== ALL ? (next as LineOrigin) : undefined })
+          }
+        >
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Any source" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>Any source</SelectItem>
+            {LINE_ORIGINS.map((value) => (
+              <SelectItem key={value} value={value}>
+                {ORIGIN_LABELS[value]}
               </SelectItem>
             ))}
           </SelectContent>

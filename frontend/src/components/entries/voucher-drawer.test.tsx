@@ -88,6 +88,9 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     base_amount: '900.00',
     fx_rate: '1',
     fx_rate_date: '2026-07-02',
+    origin: 'document_ai',
+    sequence: 0,
+    currency: 'DKK',
     status: 'ai_categorized',
     level_1: 'Facilities',
     level_2: 'Furniture',
@@ -122,6 +125,9 @@ function invoice(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetailRead 
     file_id: 'file-1',
     file_name: 'acme-invoice.pdf',
     has_document: true,
+    doc_status: 'processed',
+    doc_error: null,
+    doc_processed_at: '2026-07-02T10:00:00Z',
     lines: [line()],
     ...overrides,
   }
@@ -203,6 +209,8 @@ function props(overrides: Partial<VoucherDrawerProps> = {}): VoucherDrawerProps 
     onTabChange: vi.fn(),
     onOpenChange: vi.fn(),
     onVerifyLine: vi.fn().mockResolvedValue(undefined),
+    onReprocess: vi.fn().mockResolvedValue(undefined),
+    canRetrigger: true,
     onUpdateHeader: vi.fn().mockResolvedValue(undefined),
     hasUnsavedChanges: false,
     ...overrides,
@@ -317,7 +325,9 @@ describe('VoucherDrawer — tabs', () => {
 
   it('passes verify-line submissions through to the owner', async () => {
     const onVerifyLine = vi.fn().mockResolvedValue(undefined)
-    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'details', onVerifyLine })} />)
+    // The line editors live on the Lines tab: the line is the unit this
+    // product works in, not a footnote to a header nobody edits.
+    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'lines', onVerifyLine })} />)
     fireEvent.click(screen.getByRole('button', { name: /accept/i }))
     expect(onVerifyLine).toHaveBeenCalledWith('l1', {})
   })

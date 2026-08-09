@@ -165,6 +165,11 @@ class InvoiceLineRead(BaseModel):
     # keep the order after a client-side sort, and so the ordering is inspectable
     # rather than an implicit property of the response.
     sequence: int = 0
+    # The currency the line was posted in. A line has none of its own — it is
+    # its invoice's, and it is what `amount` above is denominated in. Resolved
+    # server-side for the same reason `ErpEntryRead` resolves its account: a
+    # client would otherwise fetch the invoice to render one row.
+    currency: str | None = None
     # The line in the company's base currency, at its invoice's rate. Null when
     # unconverted. A line's base amounts may not sum exactly to its invoice's —
     # each amount is converted from its own posted value, so a rounding

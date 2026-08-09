@@ -100,6 +100,11 @@ export interface EntriesPanelProps {
   onSelectEntry: (key: VoucherKey) => void
   onVerifyLine: (lineId: string, corrections: LineCorrections) => Promise<void>
   onUpdateHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
+  /** Queue an invoice's document to be read again. */
+  onReprocess: (invoiceId: string) => Promise<void>
+  /** Whether the signed-in user holds a management role — the reprocess
+   *  endpoint requires one, so the action is offered only where it will work. */
+  canRetrigger: boolean
 }
 
 /**
@@ -127,6 +132,8 @@ export function EntriesPanel({
   onSelectEntry,
   onVerifyLine,
   onUpdateHeader,
+  onReprocess,
+  canRetrigger,
 }: EntriesPanelProps) {
   const pageCount = result ? Math.max(1, Math.ceil(result.total / result.page_size)) : 1
   const open = filters.voucher !== undefined || filters.entry !== undefined
@@ -189,6 +196,8 @@ export function EntriesPanel({
         }}
         onVerifyLine={onVerifyLine}
         onUpdateHeader={onUpdateHeader}
+        onReprocess={onReprocess}
+        canRetrigger={canRetrigger}
         onHeaderDirtyChange={setHeaderDirty}
         hasUnsavedChanges={headerDirty}
       />

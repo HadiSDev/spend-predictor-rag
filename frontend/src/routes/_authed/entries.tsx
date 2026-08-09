@@ -2,7 +2,7 @@ import * as React from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { EntriesPanel } from '#/components/entries/entries-panel'
-import { useApi } from '#/lib/auth'
+import { canManageCompanies, useApi, usePrincipal } from '#/lib/auth'
 import { companiesQueryOptions } from '#/lib/companies'
 import {
   voucherAuditQueryOptions,
@@ -10,7 +10,11 @@ import {
   voucherGroupsQueryOptions,
 } from '#/lib/entries'
 import type { VoucherKey } from '#/lib/entries'
-import { updateInvoiceMutation, verifyInvoiceLineMutation } from '#/lib/invoices'
+import {
+  reprocessInvoiceMutation,
+  updateInvoiceMutation,
+  verifyInvoiceLineMutation,
+} from '#/lib/invoices'
 import { entriesSummaryOptions } from '#/lib/reports'
 import { applyFilterChange, listableEntryTypes, validateEntrySearch } from '#/lib/entry-search'
 import { vendorsQueryOptions } from '#/lib/vendors'
@@ -23,6 +27,7 @@ export const Route = createFileRoute('/_authed/entries')({
 
 function EntriesPage() {
   const api = useApi()
+  const principal = usePrincipal()
   const navigate = useNavigate({ from: Route.fullPath })
   const queryClient = useQueryClient()
   const filters = Route.useSearch()
@@ -48,6 +53,7 @@ function EntriesPage() {
 
   const verifyLine = useMutation(verifyInvoiceLineMutation(api, queryClient))
   const updateHeader = useMutation(updateInvoiceMutation(api, queryClient))
+  const reprocess = useMutation(reprocessInvoiceMutation(api, queryClient))
 
   const entryTypes = React.useMemo(
     () => listableEntryTypes((summary.data?.rows ?? []).map((row) => row.entry_type)),
@@ -80,6 +86,12 @@ function EntriesPage() {
       onUpdateHeader={async (invoiceId, changes) => {
         await updateHeader.mutateAsync({ id: invoiceId, body: changes })
       }}
+      onReprocess={async (invoiceId) => {
+        await reprocess.mutateAsync({ id: invoiceId })
+      }}
+      // The same role the endpoint requires. Offering the action to a viewer
+      // would only teach them the screen lies about what they can do.
+      canRetrigger={canManageCompanies(principal)}
     />
   )
 }

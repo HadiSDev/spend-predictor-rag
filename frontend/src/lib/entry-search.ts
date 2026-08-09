@@ -1,11 +1,22 @@
-import type { EntryFilters, VoucherTab } from './types'
+import type { EntryFilters, LineOrigin, VoucherTab } from './types'
 
 /** Read one search key, dropping empty values so they never reach the URL. */
 function str(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined
 }
 
-const VOUCHER_TABS: ReadonlyArray<VoucherTab> = ['details', 'postings', 'activity']
+const VOUCHER_TABS: ReadonlyArray<VoucherTab> = ['lines', 'details', 'postings', 'activity']
+
+/** The line provenances worth filtering by. See `LineOrigin`. */
+export const LINE_ORIGINS: ReadonlyArray<LineOrigin> = ['document_ai', 'erp', 'entry_fallback']
+
+/** Read the origin, ignoring anything not a known one — search params are user
+ *  input, and an unknown value would make the API 422 or silently return all. */
+function origin(value: unknown): LineOrigin | undefined {
+  return typeof value === 'string' && (LINE_ORIGINS as ReadonlyArray<string>).includes(value)
+    ? (value as LineOrigin)
+    : undefined
+}
 
 /** Read the tab, ignoring anything not a known tab — search params are user input. */
 function tab(value: unknown): VoucherTab | undefined {
@@ -29,6 +40,7 @@ export function validateEntrySearch(search: Record<string, unknown>): EntryFilte
     entry_type: str(search.entry_type),
     status: str(search.status),
     vendor_id: str(search.vendor_id),
+    origin: origin(search.origin),
     from: str(search.from),
     to: str(search.to),
     page: Number.isInteger(page) && page > 1 ? page : undefined,

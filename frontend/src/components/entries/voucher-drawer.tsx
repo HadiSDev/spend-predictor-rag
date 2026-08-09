@@ -32,6 +32,7 @@ import { InvoiceDocument } from './invoice-document'
 import type { LineCorrections } from './line-category-editor'
 import { VoucherActivityTab } from './voucher-activity-tab'
 import { VoucherDetailsTab } from './voucher-details-tab'
+import { VoucherLinesTab } from './voucher-lines-tab'
 import { VoucherPostingsTab } from './voucher-postings-tab'
 
 export interface VoucherDrawerProps {
@@ -52,6 +53,11 @@ export interface VoucherDrawerProps {
   /** Save a header correction on the Details tab. Forwarded straight to
    *  `VoucherDetailsTab` — see its own doc for when this fires. */
   onUpdateHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
+  /** Queue the document to be read again (`POST /invoices/{id}/reprocess`). */
+  onReprocess: (invoiceId: string) => Promise<void>
+  /** Whether the signed-in user may retrigger — the endpoint is
+   *  management-only, so a read-only member sees the state without the action. */
+  canRetrigger: boolean
   /** Whether the Details tab's header editor has edits not yet saved.
    *  Forwarded to `VoucherDetailsTab`; omit to ignore. */
   onHeaderDirtyChange?: (dirty: boolean) => void
@@ -127,6 +133,8 @@ export function VoucherDrawer({
   onOpenChange,
   onVerifyLine,
   onUpdateHeader,
+  onReprocess,
+  canRetrigger,
   onHeaderDirtyChange,
   hasUnsavedChanges,
 }: VoucherDrawerProps) {
@@ -144,7 +152,11 @@ export function VoucherDrawer({
   // If the controlled `tab` names a tab that does not exist for this voucher
   // (most often `details` on a journal-only voucher), fall back to the first
   // tab that does rather than rendering an empty panel.
-  const availableTabs: Array<VoucherTab> = hasInvoice ? ['details', 'postings', 'activity'] : ['postings', 'activity']
+  // Lines come before Postings, and Lines is the first tab: the line is what
+  // this product works in, and the postings are the evidence behind it.
+  const availableTabs: Array<VoucherTab> = hasInvoice
+    ? ['lines', 'details', 'postings', 'activity']
+    : ['postings', 'activity']
   const activeTab: VoucherTab = availableTabs.includes(tab) ? tab : availableTabs[0]
 
   const ready = detail !== undefined && !loading
@@ -239,16 +251,23 @@ export function VoucherDrawer({
                     className="flex min-h-0 flex-1 flex-col gap-3"
                   >
                     <TabsList>
+                      {invoice ? <TabsTab value="lines">Lines</TabsTab> : null}
                       {invoice ? <TabsTab value="details">Details</TabsTab> : null}
                       <TabsTab value="postings">Postings</TabsTab>
                       <TabsTab value="activity">Activity</TabsTab>
                     </TabsList>
                     <div className="min-h-0 flex-1 overflow-y-auto">
                       {invoice ? (
+                        <TabsPanel value="lines" className="ep-tab-fade">
+                          <VoucherLinesTab invoice={invoice} onVerifyLine={onVerifyLine} />
+                        </TabsPanel>
+                      ) : null}
+                      {invoice ? (
                         <TabsPanel value="details" className="ep-tab-fade">
                           <VoucherDetailsTab
                             invoice={invoice}
-                            onVerifyLine={onVerifyLine}
+                            canRetrigger={canRetrigger}
+                            onReprocess={onReprocess}
                             onUpdateHeader={onUpdateHeader}
                             onHeaderDirtyChange={onHeaderDirtyChange}
                           />

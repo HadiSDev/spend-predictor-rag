@@ -24,6 +24,25 @@ export function updateInvoiceMutation(
 }
 
 /**
+ * Queue an invoice's document to be read again (`POST /invoices/{id}/reprocess`).
+ *
+ * The same `entriesKey` invalidation as the others, and for a stronger reason:
+ * a successful extraction *replaces* the invoice's lines, so the voucher's rows
+ * in the table, the panel's Lines tab and the audit feed are all stale
+ * afterwards. Invalidating the whole prefix is what makes the panel reflect the
+ * new state without a manual reload.
+ */
+export function reprocessInvoiceMutation(
+  api: ApiClient,
+  queryClient: QueryClient,
+): UseMutationOptions<InvoiceRead, Error, { id: string }> {
+  return {
+    mutationFn: ({ id }) => api.post<InvoiceRead>(`/api/v1/invoices/${id}/reprocess`, {}),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: entriesKey }),
+  }
+}
+
+/**
  * Verify a line's categorization, optionally correcting it
  * (`POST /invoice-lines/{id}/verify`). Marks the line `verified` and
  * recomputes the invoice's status rollup server-side, so the same

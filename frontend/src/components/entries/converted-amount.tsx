@@ -66,6 +66,15 @@ export function ConvertedAmount({
 }: ConvertedAmountProps) {
   const tint = signed && base !== null && toNumber(base) < 0
 
+  // No amount at all — as opposed to an amount of zero. A line may genuinely
+  // carry none; a posting never reaches here, because `postingAmount` collapses
+  // debit and credit into a number (connectors send `0.00`, not null, for the
+  // side a posting does not use). Without this the `?? 0` below prints a
+  // confident "DKK 0.00" over a figure nobody stated.
+  if (base === null && posted === null) {
+    return <span className={cn('text-muted-foreground', className)}>—</span>
+  }
+
   if (row.base_currency === null) {
     const shown = formatMoney(posted ?? 0, postedCurrency)
     return (
