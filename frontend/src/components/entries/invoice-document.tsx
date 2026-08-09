@@ -14,6 +14,24 @@ import { invoiceDocumentQueryOptions } from '#/lib/entries'
 // invoice-document.ssr.test.tsx.
 const LazyViewer = React.lazy(() => import('./invoice-document-viewer'))
 
+/**
+ * How a fetched document can be shown. Decided from the blob's own media type,
+ * which the server took from the ERP's file record — never assumed to be PDF.
+ * A fair share of real attachments are phone photos of a receipt, and handing
+ * one to pdf.js produces "Invalid PDF structure" over a document that is
+ * perfectly fine.
+ */
+type DocumentKind = 'pdf' | 'image' | 'unsupported'
+
+function kindOf(blob: Blob): DocumentKind {
+  const type = blob.type.toLowerCase().split(';')[0].trim()
+  if (type === 'application/pdf') return 'pdf'
+  if (type.startsWith('image/')) return 'image'
+  // Deliberately not "try the PDF viewer anyway": the ERP told us what this
+  // is, and guessing is what produced the parse error in the first place.
+  return 'unsupported'
+}
+
 const MIN_SCALE = 0.4
 const MAX_SCALE = 3
 const ZOOM_STEP = 0.2
@@ -56,11 +74,29 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
   )
 }
 
+function UnsupportedState({ type, onDownload }: { type: string; onDownload: () => void }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 rounded-md p-8 text-center">
+      <FileWarning className="size-8 text-muted-foreground" aria-hidden="true" />
+      <p className="max-w-sm text-sm text-muted-foreground">
+        {type ? `This document is a ${type} file` : 'This document is of an unknown type'} and
+        cannot be previewed here.
+      </p>
+      <Button variant="secondary" size="sm" onClick={onDownload}>
+        <Download aria-hidden="true" />
+        Download
+      </Button>
+    </div>
+  )
+}
+
 function ViewerSkeleton() {
   return <Skeleton className="mx-auto h-200 w-150 rounded-md" />
 }
 
 interface ToolbarProps {
+  /** Page controls are hidden for a single-image document, which has no pages. */
+  paginated: boolean
   pageNumber: number
   numPages: number
   scale: number
@@ -75,9 +111,14 @@ interface ToolbarProps {
  *  system's default icon button is 40px, short of the accessibility floor. */
 const hitArea = 'size-11'
 
-function Toolbar({ pageNumber, numPages, scale, onPrev, onNext, onZoomOut, onZoomIn, onDownload }: ToolbarProps) {
+function Toolbar({ paginated, pageNumber, numPages, scale, onPrev, onNext, onZoomOut, onZoomIn, onDownload }: ToolbarProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-2 py-1.5">
+      {/* Not merely hidden: an image has no pages, so a control that could
+          only ever be disabled has no business being in the tree. The empty
+          span holds the zoom group to the right where it always sits. */}
+      {!paginated && <span />}
+      {paginated && (
       <div className="flex items-center gap-1">
         <IconButton
           aria-label="Previous page"
@@ -99,6 +140,7 @@ function Toolbar({ pageNumber, numPages, scale, onPrev, onNext, onZoomOut, onZoo
           <ChevronRight aria-hidden="true" />
         </IconButton>
       </div>
+      )}
       <div className="flex items-center gap-1">
         <IconButton
           aria-label="Zoom out"
@@ -176,14 +218,20 @@ export function InvoiceDocument({ invoiceId, filename }: InvoiceDocumentProps) {
     return <ErrorState message={renderError} onRetry={() => query.refetch()} />
   }
 
-  if (!objectUrl) {
+  const blob = query.data
+  if (!objectUrl || !blob) {
     return <LoadingState />
   }
+
+  const kind = kindOf(blob)
 
   const handleDownload = () => {
     const link = document.createElement('a')
     link.href = objectUrl
-    link.download = filename ?? 'document.pdf'
+    // No extension guessed here: `filename` is the ERP's own name for the file
+    // and already carries the right one. A bare 'document' beats appending
+    // '.pdf' to what may well be a JPEG.
+    link.download = filename ?? 'document'
     document.body.appendChild(link)
     link.click()
     link.remove()
@@ -191,7 +239,12 @@ export function InvoiceDocument({ invoiceId, filename }: InvoiceDocumentProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* Nothing in the toolbar applies to a file we cannot render — there are
+          no pages to step through and nothing to zoom — so that state owns its
+          own download action rather than being framed by dead controls. */}
+      {kind !== 'unsupported' && (
       <Toolbar
+        paginated={kind === 'pdf'}
         pageNumber={pageNumber}
         numPages={numPages}
         scale={scale}
@@ -201,21 +254,38 @@ export function InvoiceDocument({ invoiceId, filename }: InvoiceDocumentProps) {
         onZoomIn={() => setScale((s) => Math.min(MAX_SCALE, Number((s + ZOOM_STEP).toFixed(2))))}
         onDownload={handleDownload}
       />
+      )}
       {/* The page is a white sheet; a neutral surround keeps it from fighting
           the dark theme, and content-visibility/IntersectionObserver (in the
           lazy viewer) keep a long invoice from rasterizing all at once. */}
       <div className="min-h-0 flex-1 overflow-auto bg-muted p-4">
-        <ClientOnly fallback={<ViewerSkeleton />}>
-          <React.Suspense fallback={<ViewerSkeleton />}>
-            <LazyViewer
-              url={objectUrl}
-              scale={scale}
-              pageNumber={pageNumber}
-              onDocumentLoad={setNumPages}
-              onDocumentError={setRenderError}
-            />
-          </React.Suspense>
-        </ClientOnly>
+        {kind === 'pdf' && (
+          <ClientOnly fallback={<ViewerSkeleton />}>
+            <React.Suspense fallback={<ViewerSkeleton />}>
+              <LazyViewer
+                url={objectUrl}
+                scale={scale}
+                pageNumber={pageNumber}
+                onDocumentLoad={setNumPages}
+                onDocumentError={setRenderError}
+              />
+            </React.Suspense>
+          </ClientOnly>
+        )}
+        {kind === 'image' && (
+          // No pdf.js, no canvas, no worker — the browser already renders
+          // this. Zoom is the same control, applied as width so the surrounding
+          // scroll container behaves exactly as it does for a PDF page.
+          <img
+            src={objectUrl}
+            alt={filename ?? 'Scanned invoice document'}
+            style={{ width: `${scale * 100}%` }}
+            className="mx-auto block h-auto shadow-lg"
+          />
+        )}
+        {kind === 'unsupported' && (
+          <UnsupportedState type={blob.type} onDownload={handleDownload} />
+        )}
       </div>
     </div>
   )

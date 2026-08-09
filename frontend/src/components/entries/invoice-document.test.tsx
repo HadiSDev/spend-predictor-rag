@@ -175,6 +175,56 @@ describe('InvoiceDocument — states', () => {
   })
 })
 
+describe('InvoiceDocument — media types', () => {
+  // A real Billy organization served a JPEG receipt photo here and pdf.js
+  // answered "Invalid PDF structure" over a document that was perfectly fine.
+  it('renders an image attachment as an image, never through the PDF viewer', async () => {
+    getBlob.mockResolvedValue(new Blob(['\xff\xd8\xff'], { type: 'image/jpeg' }))
+    setup({ filename: 'receipt.jpg' })
+
+    const image = await screen.findByRole('img', { name: 'receipt.jpg' })
+    expect(image.getAttribute('src')).toBe('blob:mock-1')
+    expect(screen.queryByTestId('pdf-document')).toBeNull()
+  })
+
+  it('drops the page controls for an image, which has no pages', async () => {
+    getBlob.mockResolvedValue(new Blob(['\xff\xd8\xff'], { type: 'image/jpeg' }))
+    setup({ filename: 'receipt.jpg' })
+    await screen.findByRole('img')
+
+    expect(screen.queryByRole('button', { name: /previous page/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /next page/i })).toBeNull()
+    // Zoom and download still apply to an image.
+    expect(screen.getByRole('button', { name: /zoom in/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /download/i })).toBeTruthy()
+  })
+
+  it('zooms an image with the same control that zooms a PDF', async () => {
+    getBlob.mockResolvedValue(new Blob(['\xff\xd8\xff'], { type: 'image/jpeg' }))
+    setup({ filename: 'receipt.jpg' })
+    const image = await screen.findByRole('img')
+
+    expect(image.style.width).toBe('100%')
+    fireEvent.click(screen.getByRole('button', { name: /zoom in/i }))
+    expect((screen.getByRole('img') as HTMLElement).style.width).toBe('120%')
+  })
+
+  it('offers a download rather than a broken preview for a type it cannot show', async () => {
+    getBlob.mockResolvedValue(new Blob(['PK'], { type: 'application/octet-stream' }))
+    setup({ filename: 'scan.dat' })
+
+    expect(await screen.findByText(/cannot be previewed/i)).toBeTruthy()
+    expect(screen.queryByTestId('pdf-document')).toBeNull()
+    expect(screen.getByRole('button', { name: /download/i })).toBeTruthy()
+  })
+
+  it('reads the media type from the blob, ignoring any charset parameter', async () => {
+    getBlob.mockResolvedValue(new Blob(['%PDF-1.4'], { type: 'application/pdf; charset=binary' }))
+    setup()
+    expect(await screen.findByTestId('pdf-document')).toBeTruthy()
+  })
+})
+
 describe('InvoiceDocument — object URL lifecycle', () => {
   it('creates an object URL from the fetched blob and revokes it on unmount', async () => {
     const blob = new Blob(['%PDF-1.4'], { type: 'application/pdf' })
