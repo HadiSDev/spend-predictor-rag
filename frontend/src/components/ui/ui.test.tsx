@@ -280,6 +280,28 @@ describe('DatePicker', () => {
     expect(picked.getDate()).toBe(15)
     expect(picked.getMonth()).toBe(0)
   })
+
+  // It shipped as `Button variant="outline"` — a transparent pill in a row of
+  // rounded-rectangle fields. The shape is the contract here, not decoration.
+  it('wears the same field shape as the selects it sits beside', () => {
+    render(
+      <>
+        <DatePicker />
+        <Select value="">
+          <SelectTrigger aria-label="Company">
+            <SelectValue placeholder="All companies" />
+          </SelectTrigger>
+        </Select>
+      </>,
+    )
+
+    const trigger = screen.getByRole('button', { name: /Pick a date/ })
+    for (const shared of ['rounded-md', 'h-10', 'border-input', 'bg-card']) {
+      expect(trigger.className).toContain(shared)
+      expect(screen.getByRole('combobox', { name: 'Company' }).className).toContain(shared)
+    }
+    expect(trigger.className).not.toContain('rounded-full')
+  })
 })
 
 const FRUITS = ['Apple', 'Banana', 'Blueberry', 'Cherry']

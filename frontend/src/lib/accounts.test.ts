@@ -1,10 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
-import { accountsKey, accountsQueryOptions, refreshAccountsMutation, updateAccountMutation } from './accounts'
+import {
+  accountsKey,
+  accountsQueryOptions,
+  refreshAccountsMutation,
+  updateAccountMutation,
+} from './accounts'
 import type { ApiClient } from './api-client'
 
 function fakeApi() {
-  const calls = { get: vi.fn().mockResolvedValue([]), patch: vi.fn().mockResolvedValue({}), post: vi.fn().mockResolvedValue({ seen: 2, added: 0 }) }
+  const calls = {
+    get: vi.fn().mockResolvedValue([]),
+    patch: vi.fn().mockResolvedValue({}),
+    post: vi.fn().mockResolvedValue({ seen: 2, added: 0 }),
+  }
   return { api: calls as unknown as ApiClient, calls }
 }
 
@@ -12,7 +21,9 @@ describe('accountsQueryOptions', () => {
   it('reads the chart through the integration', async () => {
     const { api, calls } = fakeApi()
     await accountsQueryOptions(api, 'i1').queryFn!({} as never)
-    expect(calls.get.mock.calls[0][0]).toBe('/api/v1/erp-integrations/i1/accounts')
+    expect(calls.get.mock.calls[0][0]).toBe(
+      '/api/v1/erp-integrations/i1/accounts',
+    )
   })
 
   it('stays disabled without an integration, so a company with none fires nothing', () => {
@@ -27,21 +38,56 @@ describe('updateAccountMutation', () => {
     const { api, calls } = fakeApi()
     const options = updateAccountMutation(api, new QueryClient(), 'i1')
 
-    await options.mutationFn!({ id: 'a1', body: { with_vat: false } }, {} as never)
+    await options.mutationFn!(
+      { id: 'a1', body: { with_vat: false } },
+      {} as never,
+    )
 
     expect(calls.patch.mock.calls[0][0]).toBe('/api/v1/erp-accounts/a1')
     expect(calls.patch.mock.calls[0][1]).toEqual({ with_vat: false })
   })
 
-  it("invalidates that integration's chart on success", async () => {
+  it('writes the updated account into the cached chart without refetching it', async () => {
+    // Refetching the whole chart per switch is a request storm on a real ERP:
+    // Billy's chart is 98 accounts, so "enable all" fired 98 PATCHes and 98
+    // full GETs. The response is the updated row, so no GET is needed at all.
     const { api } = fakeApi()
     const queryClient = new QueryClient()
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    queryClient.setQueryData(accountsKey('i1'), [
+      { id: 'a1', sync_enabled: false },
+      { id: 'a2', sync_enabled: false },
+    ])
     const options = updateAccountMutation(api, queryClient, 'i1')
 
-    await options.onSuccess!({} as never, { id: 'a1', body: {} }, undefined as never, undefined as never)
+    await options.onSuccess!(
+      { id: 'a1', sync_enabled: true } as never,
+      { id: 'a1', body: {} },
+      undefined as never,
+      undefined as never,
+    )
 
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: accountsKey('i1') })
+    expect(queryClient.getQueryData(accountsKey('i1'))).toEqual([
+      { id: 'a1', sync_enabled: true },
+      // Untouched rows are left exactly as they were.
+      { id: 'a2', sync_enabled: false },
+    ])
+    expect(invalidate).not.toHaveBeenCalled()
+  })
+
+  it('leaves an uncached chart alone rather than inventing a chart of one', async () => {
+    const { api } = fakeApi()
+    const queryClient = new QueryClient()
+    const options = updateAccountMutation(api, queryClient, 'i1')
+
+    await options.onSuccess!(
+      { id: 'a1', sync_enabled: true } as never,
+      { id: 'a1', body: {} },
+      undefined as never,
+      undefined as never,
+    )
+
+    expect(queryClient.getQueryData(accountsKey('i1'))).toBeUndefined()
   })
 })
 
@@ -52,7 +98,9 @@ describe('refreshAccountsMutation', () => {
 
     const result = await options.mutationFn!(undefined as never, {} as never)
 
-    expect(calls.post.mock.calls[0][0]).toBe('/api/v1/erp-integrations/i1/refresh-accounts')
+    expect(calls.post.mock.calls[0][0]).toBe(
+      '/api/v1/erp-integrations/i1/refresh-accounts',
+    )
     expect(result).toEqual({ seen: 2, added: 0 })
   })
 })

@@ -86,12 +86,29 @@ export function AccountsPanel({
     }
   }
 
-  /** Bulk over the *shown* accounts only — never over rows a search is hiding. */
+  /** Bulk over the *shown* accounts only — never over rows a search is hiding.
+   *
+   * There is no bulk endpoint, so this is still one request per account. It runs
+   * a few at a time rather than strictly one after another: a real chart runs to
+   * ~100 accounts, and serialised round trips made "enable all" take seconds.
+   * Kept bounded rather than unleashed — `Promise.all` over a whole chart opens
+   * a hundred parallel requests and browsers queue them anyway.
+   *
+   * Concurrency is safe here because every failure is recorded against its own
+   * account id, so the rows still say individually what did not save.
+   */
   async function setAllShown(sync_enabled: boolean) {
     const targets = shown.filter((a) => a.sync_enabled !== sync_enabled)
-    for (const account of targets) {
-      await toggle(account, { sync_enabled })
-    }
+    const queue = [...targets]
+    const workers = Array.from(
+      { length: Math.min(6, queue.length) },
+      async () => {
+        for (let next = queue.shift(); next; next = queue.shift()) {
+          await toggle(next, { sync_enabled })
+        }
+      },
+    )
+    await Promise.all(workers)
   }
 
   async function refresh() {
@@ -139,37 +156,51 @@ export function AccountsPanel({
           {companyName} — ERP accounts
         </h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          <strong className="font-medium text-foreground">Sync</strong> controls whether future
-          syncs pull this account's entries; switching it off keeps everything already synced.{' '}
-          <strong className="font-medium text-foreground">VAT</strong> records whether the account
-          is assumed to include VAT, which is how a parsed invoice is read when reconciling it
-          against what was posted. It recalculates nothing on its own.
+          <strong className="font-medium text-foreground">Sync</strong> controls
+          whether future syncs pull this account's entries; switching it off
+          keeps everything already synced.{' '}
+          <strong className="font-medium text-foreground">VAT</strong> records
+          whether the account is assumed to include VAT, which is how a parsed
+          invoice is read when reconciling it against what was posted. It
+          recalculates nothing on its own.
         </p>
       </div>
 
       {!hasIntegration ? (
         <Card className="p-8 text-center">
-          <h3 className="font-display text-base font-medium">No ERP connection</h3>
+          <h3 className="font-display text-base font-medium">
+            No ERP connection
+          </h3>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            This company has no connected ERP integration, so there is no chart of accounts to
-            manage.
+            This company has no connected ERP integration, so there is no chart
+            of accounts to manage.
           </p>
         </Card>
       ) : accounts.length === 0 ? (
         <Card className="p-8 text-center">
-          <h3 className="font-display text-base font-medium">No accounts fetched yet</h3>
+          <h3 className="font-display text-base font-medium">
+            No accounts fetched yet
+          </h3>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            The chart of accounts has not been read from the ERP. Fetch it to choose which
-            accounts to sync.
+            The chart of accounts has not been read from the ERP. Fetch it to
+            choose which accounts to sync.
           </p>
           <div className="mt-4">
-            <Button variant="outline" onClick={refresh} disabled={!canManage || refreshing}>
-              <RefreshCw className={cn('size-4', refreshing && 'animate-spin')} />
+            <Button
+              variant="outline"
+              onClick={refresh}
+              disabled={!canManage || refreshing}
+            >
+              <RefreshCw
+                className={cn('size-4', refreshing && 'animate-spin')}
+              />
               Refresh from ERP
             </Button>
           </div>
           {refreshResult ? (
-            <p className="mt-3 text-sm text-muted-foreground">{refreshResult}</p>
+            <p className="mt-3 text-sm text-muted-foreground">
+              {refreshResult}
+            </p>
           ) : null}
         </Card>
       ) : (
@@ -203,8 +234,14 @@ export function AccountsPanel({
               >
                 Disable {shown.length} shown
               </Button>
-              <Button variant="outline" onClick={refresh} disabled={!canManage || refreshing}>
-                <RefreshCw className={cn('size-4', refreshing && 'animate-spin')} />
+              <Button
+                variant="outline"
+                onClick={refresh}
+                disabled={!canManage || refreshing}
+              >
+                <RefreshCw
+                  className={cn('size-4', refreshing && 'animate-spin')}
+                />
                 Refresh from ERP
               </Button>
             </div>
@@ -215,8 +252,8 @@ export function AccountsPanel({
           ) : null}
           {!canManage ? (
             <p className="text-sm text-muted-foreground">
-              You have read-only access to this organization's companies, so these settings cannot
-              be changed.
+              You have read-only access to this organization's companies, so
+              these settings cannot be changed.
             </p>
           ) : null}
 
@@ -244,7 +281,9 @@ export function AccountsPanel({
                       </Badge>
                     ) : null}
                     {errors[account.id] ? (
-                      <p className="mt-1 text-xs text-destructive">{errors[account.id]}</p>
+                      <p className="mt-1 text-xs text-destructive">
+                        {errors[account.id]}
+                      </p>
                     ) : null}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
@@ -255,7 +294,9 @@ export function AccountsPanel({
                       checked={account.sync_enabled}
                       disabled={!canManage || busy.has(account.id)}
                       aria-label={`Sync ${account.erp_account_code}`}
-                      onCheckedChange={(next) => toggle(account, { sync_enabled: next })}
+                      onCheckedChange={(next) =>
+                        toggle(account, { sync_enabled: next })
+                      }
                     />
                   </TableCell>
                   <TableCell>
@@ -263,7 +304,9 @@ export function AccountsPanel({
                       checked={account.with_vat}
                       disabled={!canManage || busy.has(account.id)}
                       aria-label={`VAT on ${account.erp_account_code}`}
-                      onCheckedChange={(next) => toggle(account, { with_vat: next })}
+                      onCheckedChange={(next) =>
+                        toggle(account, { with_vat: next })
+                      }
                     />
                   </TableCell>
                 </TableRow>

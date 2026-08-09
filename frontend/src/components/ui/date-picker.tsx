@@ -1,8 +1,8 @@
 import * as React from 'react'
 import { Calendar as CalendarIcon } from 'lucide-react'
 import { cn } from './cn'
-import { Button } from './button'
 import { Calendar } from './calendar'
+import { fieldTriggerClassName } from './input'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
 
 export interface DatePickerProps {
@@ -17,7 +17,14 @@ export interface DatePickerProps {
 
 const formatter = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' })
 
-/** A date picker: a themed trigger button + a calendar in a popover. */
+/**
+ * A date picker: a field-shaped trigger + a calendar in a popover.
+ *
+ * The trigger is a button but must not *look* like one. It holds a value and
+ * sits in filter rows beside selects and comboboxes, so it takes the same field
+ * shape they do (`fieldTriggerClassName`) rather than `Button`, whose pill
+ * radius and transparent fill made it read as an action among controls.
+ */
 export function DatePicker({
   value,
   onChange,
@@ -31,14 +38,14 @@ export function DatePicker({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
-          <Button
-            variant="outline"
-            disabled={disabled}
-            className={cn('w-56 justify-between font-normal', !value && 'text-muted-foreground', className)}
-          >
-            {value ? formatter.format(value) : placeholder}
-            <CalendarIcon className="size-4 opacity-70" />
-          </Button>
+          <button type="button" disabled={disabled} className={cn(fieldTriggerClassName, className)}>
+            {/* Muted only when it is a placeholder, so a set date carries the
+                same ink as a chosen select value beside it. */}
+            <span className={cn('truncate', !value && 'text-muted-foreground')}>
+              {value ? formatter.format(value) : placeholder}
+            </span>
+            <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
+          </button>
         }
       />
       <PopoverContent align="start" className="w-auto p-2">

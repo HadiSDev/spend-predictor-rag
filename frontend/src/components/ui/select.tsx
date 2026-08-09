@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Select as BaseSelect } from '@base-ui-components/react/select'
 import { Check, ChevronDown } from 'lucide-react'
 import { cn } from './cn'
+import { fieldTriggerClassName } from './input'
 
 export const Select = BaseSelect.Root
 export const SelectGroup = BaseSelect.Group
@@ -12,10 +13,7 @@ export const SelectTrigger = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
   <BaseSelect.Trigger
     ref={ref}
-    className={cn(
-      'flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-3 text-sm text-foreground outline-none transition focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
-      className,
-    )}
+    className={cn(fieldTriggerClassName, className)}
     {...props}
   >
     {children}

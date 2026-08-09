@@ -15,7 +15,11 @@ export const AlertDialogContent = React.forwardRef<
     <BaseAlertDialog.Popup
       ref={ref}
       className={cn(
-        'fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 rounded-card border border-border bg-card p-6 text-card-foreground shadow-popover outline-none transition duration-200 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0',
+        'fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-card border border-border bg-card p-6 text-card-foreground shadow-popover outline-none transition duration-200 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0',
+        // Same clipping trap as `Dialog`: centred with no height cap, a long
+        // body puts its buttons off-screen. This one has no pinned close button,
+        // so the whole popup can scroll.
+        'max-h-[calc(100dvh-2rem)]',
         className,
       )}
       {...props}
@@ -26,12 +30,26 @@ export const AlertDialogContent = React.forwardRef<
 ))
 AlertDialogContent.displayName = 'AlertDialogContent'
 
-export function AlertDialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+export function AlertDialogHeader({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn('flex flex-col gap-1.5', className)} {...props} />
 }
 
-export function AlertDialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', className)} {...props} />
+export function AlertDialogFooter({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end',
+        className,
+      )}
+      {...props}
+    />
+  )
 }
 
 export const AlertDialogTitle = React.forwardRef<

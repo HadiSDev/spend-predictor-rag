@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
   Badge,
   Button,
+  cn,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -37,11 +38,6 @@ import {
   FormMessage,
   IconButton,
   Input,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Switch,
   Table,
   TableBody,
@@ -60,8 +56,14 @@ import { findCountry } from '#/lib/countries'
 import { currencyForCountry, findCurrency } from '#/lib/currencies'
 import { serverErrorMessage } from '#/lib/form-errors'
 import { CountryField } from './country-field'
+import { ErpBrandMark } from './erp-brand-mark'
 import { CurrencyField } from './currency-field'
-import { ReadOnlyNotice, SettingsCard, SubmitRow, useSettingsSubmit } from './form'
+import {
+  ReadOnlyNotice,
+  SettingsCard,
+  SubmitRow,
+  useSettingsSubmit,
+} from './form'
 
 export interface CompanyValues {
   name: string
@@ -113,11 +115,18 @@ export interface CompaniesPanelProps {
   /** Only the changed fields are sent. */
   onUpdate: (id: string, changes: Partial<CompanyValues>) => Promise<unknown>
   /** Only the changed parts are sent; omitting `credentials` keeps the stored secret. */
-  onUpdateIntegration?: (id: string, changes: IntegrationChanges) => Promise<unknown>
+  onUpdateIntegration?: (
+    id: string,
+    changes: IntegrationChanges,
+  ) => Promise<unknown>
   /** Connect an ERP to a company that has none (created before this was required). */
   onConnectIntegration?: (
     companyId: string,
-    values: { erp_type: string; label: string; credentials: Record<string, string> },
+    values: {
+      erp_type: string
+      label: string
+      credentials: Record<string, string>
+    },
   ) => Promise<unknown>
   onSetActive: (id: string, active: boolean) => Promise<unknown>
   /**
@@ -165,14 +174,17 @@ function toValues(company: CompanyRead): CompanyValues {
     // Canonicalising on the way in means `before` and `after` agree, so merely
     // opening such a company does not look like an edit — while a code that
     // resolves to nothing is left alone for the validator to catch.
-    country_code: findCountry(company.country_code)?.code ?? company.country_code ?? '',
+    country_code:
+      findCountry(company.country_code)?.code ?? company.country_code ?? '',
     vat_number: company.vat_number ?? '',
     base_currency: company.base_currency,
   }
 }
 
 /** The credential inputs start from whatever defaults the connector declares. */
-function defaultCredentials(erpType: ErpTypeRead | undefined): Record<string, string> {
+function defaultCredentials(
+  erpType: ErpTypeRead | undefined,
+): Record<string, string> {
   if (!erpType) return {}
   return Object.fromEntries(
     erpType.credential_fields.map((field) => [field.name, field.default ?? '']),
@@ -196,7 +208,9 @@ export function changedFields(
   after: CompanyValues,
 ): Partial<CompanyValues> {
   const changes: Partial<CompanyValues> = {}
-  for (const key of Object.keys(companyFields(after)) as Array<keyof CompanyValues>) {
+  for (const key of Object.keys(companyFields(after)) as Array<
+    keyof CompanyValues
+  >) {
     if (after[key] !== before[key]) changes[key] = after[key]
   }
   return changes
@@ -238,20 +252,21 @@ function RecomputeDialog({
           <AlertDialogDescription>
             {result ? (
               <>
-                {result.converted} converted, {result.unchanged} already current, and{' '}
-                {result.unconverted} left unconverted — no rate was available for those.
+                {result.converted} converted, {result.unchanged} already
+                current, and {result.unconverted} left unconverted — no rate was
+                available for those.
               </>
             ) : state?.currency ? (
               <>
-                Everything already imported is still stored in the previous currency.
-                Recompute to restate it in {state.currency}, each amount at the exchange
-                rate from its own transaction date.
+                Everything already imported is still stored in the previous
+                currency. Recompute to restate it in {state.currency}, each
+                amount at the exchange rate from its own transaction date.
               </>
             ) : (
               <>
-                Restates every imported amount in {state?.company.base_currency}, each at
-                the exchange rate from its own transaction date. Amounts already converted
-                are left untouched.
+                Restates every imported amount in {state?.company.base_currency}
+                , each at the exchange rate from its own transaction date.
+                Amounts already converted are left untouched.
               </>
             )}
           </AlertDialogDescription>
@@ -286,6 +301,82 @@ function RecomputeDialog({
  * - `connect` — a company that has no integration; the full connect form, but
  *   optional, so saving a name change alone does not connect anything.
  */
+/**
+ * The connector picker: one card per registered connector.
+ *
+ * A dropdown of names was adequate with one connector. With several, this is
+ * the moment a customer decides whether we support their accounting system, and
+ * a row of marks answers that faster than a list of words — so the choice gets
+ * the visual weight rather than the field label.
+ *
+ * Everything shown comes from `GET /api/v1/erp-types`. There is deliberately no
+ * connector name, brand string or per-connector branch here: one registered
+ * later appears with no change to this file.
+ *
+ * Built on native radios rather than ARIA. They are one control with one name,
+ * so arrow keys, tab order, the accessible group and the checked state all come
+ * from the platform and cannot drift from what is painted.
+ */
+function ErpTypeGrid({
+  erpTypes,
+  value,
+  onSelect,
+}: {
+  erpTypes: Array<ErpTypeRead>
+  value: string
+  onSelect: (erpType: string) => void
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="ERP system"
+      className="grid gap-2 sm:grid-cols-2"
+    >
+      {erpTypes.map((type) => (
+        <label
+          key={type.erp_type}
+          className="group cursor-pointer"
+          data-testid={`erp-type-${type.erp_type}`}
+        >
+          <input
+            type="radio"
+            name="erp-type-choice"
+            className="peer sr-only"
+            value={type.erp_type}
+            checked={value === type.erp_type}
+            onChange={() => onSelect(type.erp_type)}
+          />
+          <span
+            className={cn(
+              'flex h-full items-start gap-3 rounded-lg border border-input bg-card p-3 transition',
+              'group-hover:border-ring group-hover:bg-muted/40',
+              // Selection has to read differently from hover, not just darker:
+              // the ring is what makes a chosen card unambiguous once the
+              // pointer is elsewhere.
+              'peer-checked:border-primary peer-checked:bg-primary/5 peer-checked:ring-1 peer-checked:ring-primary',
+              'peer-focus-visible:ring-2 peer-focus-visible:ring-ring',
+            )}
+          >
+            <ErpBrandMark slug={type.brand_slug} label={type.label} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-foreground">
+                {type.label}
+              </span>
+              {/* Omitted rather than filled with invented text: a connector the
+                  catalog describes gets a line, one it doesn't gets none. */}
+              {type.description ? (
+                <span className="mt-0.5 block text-sm text-muted-foreground">
+                  {type.description}
+                </span>
+              ) : null}
+            </span>
+          </span>
+        </label>
+      ))}
+    </div>
+  )
+}
+
 function ErpConnectionFields({
   form,
   erpTypes,
@@ -326,8 +417,9 @@ function ErpConnectionFields({
         </p>
         {otherCount > 0 ? (
           <p className="mt-1 text-sm text-muted-foreground">
-            This company has {otherCount} other {otherCount === 1 ? 'integration' : 'integrations'}
-            , managed outside this dialog.
+            This company has {otherCount} other{' '}
+            {otherCount === 1 ? 'integration' : 'integrations'}, managed outside
+            this dialog.
           </p>
         ) : null}
       </div>
@@ -336,7 +428,8 @@ function ErpConnectionFields({
         <p className="text-sm text-muted-foreground">Loading ERP systems…</p>
       ) : mode !== 'edit' && erpTypes.length === 0 ? (
         <p className="text-sm text-destructive">
-          No ERP systems are available to connect. Check the web API configuration.
+          No ERP systems are available to connect. Check the web API
+          configuration.
         </p>
       ) : (
         <>
@@ -346,10 +439,10 @@ function ErpConnectionFields({
               <div>
                 <p className="text-sm font-medium">ERP system</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {erpTypes.find((t) => t.erp_type === integration.erp_type)?.label ??
-                    integration.erp_type}{' '}
-                  — connecting a different system replaces the integration, which is
-                  not done from here.
+                  {erpTypes.find((t) => t.erp_type === integration.erp_type)
+                    ?.label ?? integration.erp_type}{' '}
+                  — connecting a different system replaces the integration,
+                  which is not done from here.
                 </p>
               </div>
 
@@ -379,7 +472,9 @@ function ErpConnectionFields({
                         'credentials',
                         next
                           ? defaultCredentials(
-                              erpTypes.find((t) => t.erp_type === integration.erp_type),
+                              erpTypes.find(
+                                (t) => t.erp_type === integration.erp_type,
+                              ),
                             )
                           : {},
                       )
@@ -403,46 +498,29 @@ function ErpConnectionFields({
               name="erp_type"
               // Optional when connecting an existing company: saving a name
               // change alone must not silently connect an ERP.
-              rules={mode === 'create' ? { required: 'Choose an ERP system.' } : undefined}
+              rules={
+                mode === 'create'
+                  ? { required: 'Choose an ERP system.' }
+                  : undefined
+              }
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>ERP system</FormLabel>
                   <FormControl>
-                    <Select
+                    <ErpTypeGrid
+                      erpTypes={erpTypes}
                       value={field.value}
-                      // Base UI passes an event detail second; the contract here
-                      // is the chosen value alone, and clearing means no choice.
-                      onValueChange={(next: string | null) => {
-                        field.onChange(next ?? '')
+                      onSelect={(next) => {
+                        field.onChange(next)
                         // Reseed the inputs from the newly chosen connector's defaults.
                         form.setValue(
                           'credentials',
-                          defaultCredentials(erpTypes.find((t) => t.erp_type === next)),
+                          defaultCredentials(
+                            erpTypes.find((t) => t.erp_type === next),
+                          ),
                         )
                       }}
-                    >
-                      {/* Named explicitly: the trigger's own text is the
-                          chosen connector, so without this its accessible name
-                          changes as soon as someone picks one. */}
-                      <SelectTrigger aria-label="ERP system">
-                        {/* The value is the erp_type key, so the trigger needs
-                            the mapping to show the connector's display label. */}
-                        <SelectValue
-                          placeholder="Choose an ERP system"
-                          items={erpTypes.map((type) => ({
-                            value: type.erp_type,
-                            label: type.label,
-                          }))}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {erpTypes.map((type) => (
-                          <SelectItem key={type.erp_type} value={type.erp_type}>
-                            {type.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -475,7 +553,8 @@ function ErpConnectionFields({
                 credential.required
                   ? {
                       validate: (value: string) =>
-                        value.trim().length > 0 || `Enter the ${credential.label.toLowerCase()}.`,
+                        value.trim().length > 0 ||
+                        `Enter the ${credential.label.toLowerCase()}.`,
                     }
                   : undefined
               }
@@ -486,7 +565,10 @@ function ErpConnectionFields({
                     {credential.required ? '' : ' (optional)'}
                   </FormLabel>
                   <FormControl>
-                    <Input type={credential.secret ? 'password' : 'text'} {...field} />
+                    <Input
+                      type={credential.secret ? 'password' : 'text'}
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -557,7 +639,8 @@ function CompanyDialog({
         <DialogHeader>
           <DialogTitle>{company ? 'Edit company' : 'Add company'}</DialogTitle>
           <DialogDescription>
-            A company is a legal entity whose ERP data this workspace reports on.
+            A company is a legal entity whose ERP data this workspace reports
+            on.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -604,7 +687,10 @@ function CompanyDialog({
                   <FormItem>
                     <FormLabel>Country</FormLabel>
                     <FormControl>
-                      <CountryField value={field.value} onChange={field.onChange} />
+                      <CountryField
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -630,17 +716,22 @@ function CompanyDialog({
               rules={{
                 required: 'Choose a reporting currency.',
                 validate: (value: string) =>
-                  findCurrency(value) !== undefined || 'Choose a currency from the list.',
+                  findCurrency(value) !== undefined ||
+                  'Choose a currency from the list.',
               }}
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Reporting currency</FormLabel>
                   <FormControl>
-                    <CurrencyField value={field.value} onChange={field.onChange} />
+                    <CurrencyField
+                      value={field.value}
+                      onChange={field.onChange}
+                    />
                   </FormControl>
                   <FormDescription>
-                    Every figure for this company is shown in this currency. Amounts posted
-                    in another are converted at the rate on the day of the transaction.
+                    Every figure for this company is shown in this currency.
+                    Amounts posted in another are converted at the rate on the
+                    day of the transaction.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -658,7 +749,10 @@ function CompanyDialog({
               <Button variant="ghost" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
-              <SubmitRow form={form} label={company ? 'Save changes' : 'Add company'} />
+              <SubmitRow
+                form={form}
+                label={company ? 'Save changes' : 'Add company'}
+              />
             </DialogFooter>
           </form>
         </Form>
@@ -693,9 +787,13 @@ export function CompaniesPanel({
   const [confirming, setConfirming] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [recomputing, setRecomputing] = React.useState<RecomputeState | null>(null)
+  const [recomputing, setRecomputing] = React.useState<RecomputeState | null>(
+    null,
+  )
 
-  const confirmingCompany = companies.find((company) => company.id === confirming)
+  const confirmingCompany = companies.find(
+    (company) => company.id === confirming,
+  )
 
   /**
    * Save an edit. The company and its integration are separate resources with
@@ -711,22 +809,31 @@ export function CompaniesPanel({
     // stay in the old currency until a recompute. Say so while the user is
     // still here, rather than letting them find out from a stale report.
     if (changes.base_currency && onRecomputeFx) {
-      setRecomputing({ company, currency: changes.base_currency, result: null, busy: false })
+      setRecomputing({
+        company,
+        currency: changes.base_currency,
+        result: null,
+        busy: false,
+      })
     }
 
     const [integration] = integrationsFor(integrations, company.id)
     // Blank inputs are dropped so the connector falls back to its own defaults
     // rather than storing empty strings.
     const credentials = Object.fromEntries(
-      Object.entries(values.credentials).filter(([, value]) => value.trim() !== ''),
+      Object.entries(values.credentials).filter(
+        ([, value]) => value.trim() !== '',
+      ),
     )
 
     if (integration) {
       const integrationChanges: IntegrationChanges = {}
-      if ((integration.label ?? '') !== values.label) integrationChanges.label = values.label
+      if ((integration.label ?? '') !== values.label)
+        integrationChanges.label = values.label
       // Omitted unless replacement was explicitly chosen — sending it at all
       // would overwrite the stored secret.
-      if (values.replaceCredentials) integrationChanges.credentials = credentials
+      if (values.replaceCredentials)
+        integrationChanges.credentials = credentials
       if (Object.keys(integrationChanges).length > 0) {
         await onUpdateIntegration?.(integration.id, integrationChanges)
       }
@@ -746,10 +853,14 @@ export function CompaniesPanel({
     setError(null)
     try {
       const result = await onRecomputeFx(recomputing.company.id)
-      setRecomputing((current) => (current ? { ...current, busy: false, result } : null))
+      setRecomputing((current) =>
+        current ? { ...current, busy: false, result } : null,
+      )
     } catch (failure) {
       setError(serverErrorMessage(failure))
-      setRecomputing((current) => (current ? { ...current, busy: false } : null))
+      setRecomputing((current) =>
+        current ? { ...current, busy: false } : null,
+      )
     }
   }
 
@@ -801,7 +912,8 @@ export function CompaniesPanel({
           <div className="rounded-lg border border-dashed border-border p-8 text-center">
             <p className="text-sm font-medium">No companies yet</p>
             <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-              Add the legal entity whose ERP data you want to categorize and report on.
+              Add the legal entity whose ERP data you want to categorize and
+              report on.
             </p>
             {canManage ? (
               <Button
@@ -825,7 +937,9 @@ export function CompaniesPanel({
                 <TableHead>Currency</TableHead>
                 <TableHead>VAT number</TableHead>
                 <TableHead>Status</TableHead>
-                {canManage ? <TableHead className="text-right">Actions</TableHead> : null}
+                {canManage ? (
+                  <TableHead className="text-right">Actions</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -874,7 +988,8 @@ export function CompaniesPanel({
                             <DropdownMenuItem
                               disabled={
                                 onManageAccounts === undefined ||
-                                integrationsFor(integrations, company.id).length === 0
+                                integrationsFor(integrations, company.id)
+                                  .length === 0
                               }
                               onClick={() => onManageAccounts?.(company.id)}
                             >
@@ -911,7 +1026,9 @@ export function CompaniesPanel({
                                 Deactivate
                               </DropdownMenuItem>
                             ) : (
-                              <DropdownMenuItem onClick={() => void toggleActive(company)}>
+                              <DropdownMenuItem
+                                onClick={() => void toggleActive(company)}
+                              >
                                 <RotateCcw />
                                 Reactivate
                               </DropdownMenuItem>
@@ -953,23 +1070,32 @@ export function CompaniesPanel({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Deactivate {confirmingCompany?.name}?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Deactivate {confirmingCompany?.name}?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              It stops appearing in the default company list and syncs nothing further. Its
-              invoices and ledger entries are kept, and you can reactivate it at any time.
+              It stops appearing in the default company list and syncs nothing
+              further. Its invoices and ledger entries are kept, and you can
+              reactivate it at any time.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {/* A rejection has to be readable from inside the dialog — behind the
               backdrop, the panel's own error message is invisible. */}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <AlertDialogFooter>
-            <Button variant="ghost" onClick={() => setConfirming(null)} disabled={busy}>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirming(null)}
+              disabled={busy}
+            >
               Cancel
             </Button>
             <Button
               variant="destructive"
               disabled={busy}
-              onClick={() => confirmingCompany && void toggleActive(confirmingCompany)}
+              onClick={() =>
+                confirmingCompany && void toggleActive(confirmingCompany)
+              }
             >
               {busy ? 'Deactivating…' : 'Deactivate'}
             </Button>
@@ -992,7 +1118,9 @@ export function CompaniesPanel({
           company={editing}
           erpTypes={erpTypes}
           erpTypesLoading={erpTypesLoading}
-          companyIntegrations={editing ? integrationsFor(integrations, editing.id) : []}
+          companyIntegrations={
+            editing ? integrationsFor(integrations, editing.id) : []
+          }
           onOpenChange={setDialogOpen}
           onSubmit={(values) =>
             editing
