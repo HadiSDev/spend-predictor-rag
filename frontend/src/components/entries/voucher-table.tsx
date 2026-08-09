@@ -15,6 +15,7 @@ import {
   cn,
 } from '#/components/ui'
 import { basePostingAmount, postingAmount } from '#/lib/entry-amount'
+import type { VoucherKey } from '#/lib/entries'
 import { formatMoney, toNumber } from '#/lib/format'
 import type { ErpEntryRead, VoucherGroupRead } from '#/lib/types'
 import { ConvertedAmount } from './converted-amount'
@@ -166,7 +167,7 @@ function EntryRow({
   onSelect,
 }: {
   entry: ErpEntryRead
-  onSelect: (id: string) => void
+  onSelect: () => void
 }) {
   const amount = postingAmount(entry)
   const base = basePostingAmount(entry)
@@ -176,7 +177,7 @@ function EntryRow({
       <TableCell className="pl-8">
         <button
           type="button"
-          onClick={() => onSelect(entry.id)}
+          onClick={onSelect}
           className="text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span className="font-medium tabular-nums">{entry.erp_account_code}</span>{' '}
@@ -209,7 +210,10 @@ function EntryRow({
 
 export interface VoucherTableProps {
   groups: Array<VoucherGroupRead>
-  onSelectEntry: (id: string) => void
+  /** Opens the voucher-wide panel — by voucher id when the group has one,
+   *  by the clicked posting's entry id otherwise (a voucherless group has no
+   *  other shareable key). */
+  onSelectEntry: (key: VoucherKey) => void
 }
 
 /**
@@ -259,6 +263,10 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
           // always fetched and was previously unreachable.
           const expandable = postings.length > 1
           const isOpen = expanded.has(key)
+          // Voucher id when the group has one, else the entry id of its lone
+          // posting — a voucherless group has no other shareable key.
+          const openGroup = () =>
+            onSelectEntry({ voucher: group.voucher_id ?? undefined, entry: postings[0]?.id })
           return (
             <React.Fragment key={key}>
               <TableRow className={cn(expandable && 'cursor-pointer')}>
@@ -275,23 +283,22 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
                   ) : null}
                 </TableCell>
                 <TableCell className="font-medium">
-                  {/* A group of one posting has nothing to expand, so the row
-                      itself has to be the way into the detail, or the drawer
-                      becomes unreachable for it. */}
-                  {expandable ? (
-                    group.voucher_id
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => onSelectEntry(postings[0].id)}
-                      className={cn(
-                        'text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring',
-                        group.voucher_id === null && 'text-muted-foreground italic',
-                      )}
-                    >
-                      {group.voucher_id ?? 'No voucher'}
-                    </button>
-                  )}
+                  {/* The name is always its own control, separate from the
+                      expand/collapse chevron: expanding reveals the postings
+                      inline, opening the panel is a different action, and a
+                      group of one posting has nothing to expand at all — the
+                      row itself has to be the way into the panel for it. */}
+                  <button
+                    type="button"
+                    onClick={openGroup}
+                    aria-label={`View voucher ${group.voucher_id ?? 'with no id'}`}
+                    className={cn(
+                      'text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring',
+                      group.voucher_id === null && 'text-muted-foreground italic',
+                    )}
+                  >
+                    {group.voucher_id ?? 'No voucher'}
+                  </button>
                   {hasFailure(group) ? (
                     <Badge variant="destructive" className="ml-2">
                       failed
@@ -308,7 +315,13 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
                 <>
                   <PostingHeaderRow />
                   {postings.map((entry) => (
-                    <EntryRow key={entry.id} entry={entry} onSelect={onSelectEntry} />
+                    <EntryRow
+                      key={entry.id}
+                      entry={entry}
+                      onSelect={() =>
+                        onSelectEntry({ voucher: group.voucher_id ?? undefined, entry: entry.id })
+                      }
+                    />
                   ))}
                 </>
               ) : null}

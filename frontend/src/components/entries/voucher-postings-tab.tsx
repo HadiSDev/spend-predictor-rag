@@ -7,9 +7,8 @@ import type { ErpEntryRead } from '#/lib/types'
 import { wasConverted } from './converted-amount'
 
 /**
- * A labelled field in a posting's detail. Shared by the Postings tab and
- * `EntryDrawer` (the single-posting drawer, kept around until the entries
- * table stops using it) so the two never drift on how a field is laid out.
+ * A labelled field in a posting's detail, used throughout this tab so every
+ * field is laid out identically.
  */
 export function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (

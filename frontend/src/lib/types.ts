@@ -343,6 +343,11 @@ export interface RefreshAccountsResult {
   added: number
 }
 
+/** Fields `POST /invoice-lines/{id}/verify` accepts as corrections. Only the
+ *  levels are editable here — everything else on the line is either evidence
+ *  (amount, description) or derived server-side (account_code/name). */
+export type LineCorrections = Partial<Record<'level_1' | 'level_2' | 'level_3', string>>
+
 /** One line of an invoice, holding its categorization result directly. */
 export interface InvoiceLineRead {
   id: string
@@ -402,6 +407,21 @@ export interface InvoiceRead {
 /** `InvoiceRead` plus its lines — the shape a voucher's detail panel needs. */
 export interface InvoiceDetailRead extends InvoiceRead {
   lines: Array<InvoiceLineRead>
+}
+
+/**
+ * `PATCH /invoices/{id}` — corrections to an AI-parsed invoice header. Only
+ * fields the extraction produced, never one the ERP posted: the endpoint
+ * answers 409 for an `erp`-sourced invoice, and the UI never offers this
+ * action for one in the first place.
+ */
+export interface InvoiceUpdate {
+  invoice_number?: string | null
+  invoice_date?: string | null
+  currency?: string | null
+  total?: number | null
+  tax?: number | null
+  vendor_id?: string | null
 }
 
 /** The document attached to a voucher's invoice. Derived from

@@ -1,8 +1,27 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { EntriesPanel } from './entries-panel'
 import type { EntriesPanelProps } from './entries-panel'
-import type { CompanyRead, ErpEntryRead, VendorRead, VoucherGroupRead } from '#/lib/types'
+import type {
+  CompanyRead,
+  ErpEntryRead,
+  InvoiceDetailRead,
+  VendorRead,
+  VoucherDetailRead,
+  VoucherGroupRead,
+} from '#/lib/types'
+
+// `VoucherDrawer` fetches nothing itself — it is presentational, same as this
+// panel. `InvoiceDocument`, nested inside it, does fetch (needs a Clerk
+// bearer token via `useApi`), which this file has no `ClerkProvider` for — so
+// it is stubbed down to its identifying props, same as `voucher-drawer.test.tsx`.
+vi.mock('./invoice-document', () => ({
+  InvoiceDocument: ({ invoiceId, filename }: { invoiceId: string | null; filename: string | null }) => (
+    <div data-testid="invoice-document">
+      invoice:{invoiceId ?? 'none'} file:{filename ?? 'none'}
+    </div>
+  ),
+}))
 
 const ACME: CompanyRead = {
   id: 'c1',
@@ -165,6 +184,45 @@ const MIXED: VoucherGroupRead = {
   ],
 }
 
+function invoiceDetail(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetailRead {
+  return {
+    id: 'inv1',
+    company_id: 'c1',
+    vendor_id: 'v1',
+    invoice_number: 'INV-2026-0412',
+    invoice_date: '2026-07-02',
+    currency: 'DKK',
+    total: '1200.00',
+    tax: '300.00',
+    base_currency: 'DKK',
+    base_total: '1200.00',
+    base_tax: '300.00',
+    fx_rate: '1',
+    fx_rate_date: '2026-07-02',
+    status: 'categorized',
+    source: 'erp',
+    error_message: null,
+    file_id: null,
+    file_name: null,
+    has_document: false,
+    lines: [],
+    ...overrides,
+  }
+}
+
+/** The voucher detail payload the panel would fetch after `VOUCHER` is opened. */
+const DETAIL: VoucherDetailRead = {
+  voucher_id: 'V-1042',
+  company_id: 'c1',
+  accounting_date: '2026-07-02',
+  currency: 'DKK',
+  amount: '1200.00',
+  entry_count: 3,
+  entries: VOUCHER.entries,
+  invoice: invoiceDetail(),
+  document: null,
+}
+
 /** Everything a rendered panel needs that no test varies. */
 function common() {
   return {
@@ -178,10 +236,15 @@ function common() {
     onClearFilters: vi.fn(),
     onPageChange: vi.fn(),
     onVendorSearch: vi.fn(),
-    selectedEntry: undefined,
-    selectedEntryLoading: false,
-    selectedEntryId: null,
+    voucherDetail: undefined,
+    voucherLoading: false,
+    auditRows: [],
+    auditLoading: false,
+    tab: 'details' as const,
+    onTabChange: vi.fn(),
     onSelectEntry: vi.fn(),
+    onVerifyLine: vi.fn().mockResolvedValue(undefined),
+    onUpdateHeader: vi.fn().mockResolvedValue(undefined),
   }
 }
 
@@ -193,6 +256,16 @@ function setup(overrides: Partial<EntriesPanelProps> = {}) {
   }
   render(<EntriesPanel {...props} />)
   return props
+}
+
+/** Props for a bare `render` — `setup` renders for us, this one does not. */
+function setupProps(overrides: Partial<EntriesPanelProps> = {}): EntriesPanelProps {
+  return {
+    result: { items: [VOUCHER], page: 1, page_size: 25, total: 1 },
+    ...common(),
+    entryTypes: ['purchase_invoice'],
+    ...overrides,
+  }
 }
 
 describe('EntriesPanel — voucher rows', () => {
@@ -222,10 +295,11 @@ describe('EntriesPanel — voucher rows', () => {
     expect(screen.getByText('Payables')).toBeTruthy()
   })
 
-  it('opens detail from the row when there is nothing to expand', () => {
+  it('opens the panel from the row when there is nothing to expand', () => {
     const props = setup({ result: { items: [LONE], page: 1, page_size: 25, total: 1 } })
     fireEvent.click(screen.getByText('No voucher'))
-    expect(props.onSelectEntry).toHaveBeenCalledWith('e9')
+    // No voucher id to address it by, so it opens by its lone posting's id.
+    expect(props.onSelectEntry).toHaveBeenCalledWith({ voucher: undefined, entry: 'e9' })
   })
 
   it('gives a voucherless posting no expand affordance', () => {
@@ -493,57 +567,6 @@ describe('EntriesPanel — states', () => {
   })
 })
 
-describe('EntriesPanel — entry drawer', () => {
-  it('opens detail for a posting inside an expanded voucher', async () => {
-    const props = setup({ result: { items: [SPLIT], page: 1, page_size: 25, total: 1 } })
-    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-SPLIT/ }))
-    fireEvent.click(await screen.findByText('Travel'))
-
-    expect(props.onSelectEntry).toHaveBeenCalledWith('s2')
-  })
-
-  it('opens detail for a voucherless posting from its row', () => {
-    const props = setup({ result: { items: [LONE], page: 1, page_size: 25, total: 1 } })
-    fireEvent.click(screen.getByText('No voucher'))
-    expect(props.onSelectEntry).toHaveBeenCalledWith('e9')
-  })
-
-  it('renders the failed posting’s error message', async () => {
-    const failed = LONE.entries[0]
-    render(
-      <EntriesPanel
-        {...setupProps({ selectedEntryId: failed.id, selectedEntry: failed })}
-      />,
-    )
-    const drawer = await screen.findByRole('dialog')
-    expect(within(drawer).getByText('ERP rejected the posting')).toBeTruthy()
-    expect(within(drawer).getByText('6200')).toBeTruthy()
-  })
-
-  it('reports dismissal back to the owner of the selection', async () => {
-    const onSelectEntry = vi.fn()
-    render(
-      <EntriesPanel
-        {...setupProps({ selectedEntryId: 'e1', selectedEntry: entry(), onSelectEntry })}
-      />,
-    )
-    await screen.findByRole('dialog')
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
-
-    await waitFor(() => expect(onSelectEntry).toHaveBeenCalledWith(null))
-  })
-})
-
-/** Props for a bare `render` — `setup` renders for us, this one does not. */
-function setupProps(overrides: Partial<EntriesPanelProps> = {}): EntriesPanelProps {
-  return {
-    result: { items: [VOUCHER], page: 1, page_size: 25, total: 1 },
-    ...common(),
-    entryTypes: ['purchase_invoice'],
-    ...overrides,
-  }
-}
-
 /**
  * A voucher posted in EUR and USD, both converted into the company's DKK. As
  * posted these two cannot be added at all — converted, they are one figure.
@@ -665,41 +688,143 @@ describe('EntriesPanel — currency conversion', () => {
   })
 })
 
-describe('EntryDrawer — currency conversion', () => {
-  it('shows the conversion as labelled fields', async () => {
-    setup({
-      selectedEntryId: 'm1',
-      selectedEntry: CONVERTED_MIX.entries[0],
-      result: { items: [CONVERTED_MIX], page: 1, page_size: 25, total: 1 },
-    })
-
-    const drawer = within(await screen.findByLabelText('Entry detail'))
-    expect(drawer.getByText('Debit (DKK)')).toBeTruthy()
-    expect(drawer.getByText('DKK 746.00')).toBeTruthy()
-    expect(drawer.getByText('Exchange rate')).toBeTruthy()
-    expect(drawer.getByText('7.46')).toBeTruthy()
-    expect(drawer.getByText('Rate date')).toBeTruthy()
-    // The posted figure is still right there as the evidence.
-    expect(drawer.getByText('€100.00')).toBeTruthy()
+describe('EntriesPanel — voucher panel', () => {
+  it('opens the panel for the voucher named in the URL', () => {
+    render(<EntriesPanel {...setupProps({ filters: { voucher: '4821' }, voucherDetail: DETAIL })} />)
+    expect(screen.getByLabelText('Voucher detail')).toBeTruthy()
   })
 
-  it('says plainly when an entry was not converted', async () => {
-    setup({
-      selectedEntryId: 'g2',
-      selectedEntry: PARTLY_UNCONVERTED.entries[1],
-      result: { items: [PARTLY_UNCONVERTED], page: 1, page_size: 25, total: 1 },
-    })
-
-    const drawer = within(await screen.findByLabelText('Entry detail'))
-    expect(drawer.getByText(/Not converted/)).toBeTruthy()
-    expect(drawer.queryByText('Exchange rate')).toBeNull()
+  it('stays closed when neither a voucher nor an entry is named', () => {
+    setup()
+    expect(screen.queryByLabelText('Voucher detail')).toBeNull()
   })
 
-  it('adds no conversion rows for a posting already in the company’s currency', async () => {
-    setup({ selectedEntryId: 'e1', selectedEntry: entry() })
+  it('opens when only an entry is named — the voucherless case', () => {
+    render(<EntriesPanel {...setupProps({ filters: { entry: 'e9' }, voucherDetail: DETAIL })} />)
+    expect(screen.getByLabelText('Voucher detail')).toBeTruthy()
+  })
 
-    const drawer = within(await screen.findByLabelText('Entry detail'))
-    expect(drawer.queryByText('Exchange rate')).toBeNull()
-    expect(drawer.queryByText('Rate date')).toBeNull()
+  it('asks to open a voucher by its id, and by entry id when it has none', () => {
+    const onSelectEntry = vi.fn()
+    render(<EntriesPanel {...setupProps({ onSelectEntry })} />)
+    fireEvent.click(screen.getAllByRole('button', { name: /view voucher/i })[0])
+    expect(onSelectEntry).toHaveBeenCalledWith({ voucher: 'V-1042', entry: 'e1' })
+  })
+
+  it('opens a posting inside an expanded voucher as that voucher, not as a lone entry', async () => {
+    const onSelectEntry = vi.fn()
+    render(
+      <EntriesPanel
+        {...setupProps({
+          result: { items: [SPLIT], page: 1, page_size: 25, total: 1 },
+          onSelectEntry,
+        })}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-SPLIT/ }))
+    fireEvent.click(await screen.findByText('Travel'))
+
+    expect(onSelectEntry).toHaveBeenCalledWith({ voucher: 'V-SPLIT', entry: 's2' })
+  })
+
+  it('reports dismissal back to the owner by clearing the selection', async () => {
+    const onSelectEntry = vi.fn()
+    render(
+      <EntriesPanel
+        {...setupProps({
+          filters: { voucher: '4821' },
+          voucherDetail: DETAIL,
+          onSelectEntry,
+        })}
+      />,
+    )
+    await screen.findByLabelText('Voucher detail')
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+
+    await waitFor(() => expect(onSelectEntry).toHaveBeenCalledWith({}))
+  })
+
+  it('shows a loading skeleton while the voucher detail is in flight', () => {
+    render(
+      <EntriesPanel
+        {...setupProps({ filters: { voucher: '4821' }, voucherDetail: undefined, voucherLoading: true })}
+      />,
+    )
+    expect(document.body.querySelectorAll('[class*="animate-pulse"]').length).toBeGreaterThan(0)
+  })
+
+  it('renders the audit feed passed to it', () => {
+    render(
+      <EntriesPanel
+        {...setupProps({
+          filters: { voucher: '4821', tab: 'activity' },
+          voucherDetail: DETAIL,
+          tab: 'activity',
+          auditRows: [
+            {
+              id: 'a1',
+              entity_type: 'invoice_line',
+              entity_id: 'l1',
+              entity_label: 'Office chairs',
+              action: 'verify',
+              actor: 'user_123',
+              changes: null,
+              created_at: '2026-07-02T09:05:00Z',
+            },
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByText(/Office chairs/)).toBeTruthy()
+  })
+
+  it('reports a tab click back to the owner', () => {
+    const onTabChange = vi.fn()
+    render(
+      <EntriesPanel
+        {...setupProps({ filters: { voucher: '4821' }, voucherDetail: DETAIL, onTabChange })}
+      />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: /postings/i }))
+    expect(onTabChange).toHaveBeenCalledWith('postings')
+  })
+
+  it('forwards a line verification to the owner', async () => {
+    const onVerifyLine = vi.fn().mockResolvedValue(undefined)
+    render(
+      <EntriesPanel
+        {...setupProps({
+          filters: { voucher: '4821' },
+          voucherDetail: { ...DETAIL, invoice: invoiceDetail({ lines: [
+            {
+              id: 'l1',
+              invoice_id: 'inv1',
+              company_id: 'c1',
+              description: 'Office chairs',
+              quantity: '2',
+              unit_price: '450.00',
+              amount: '900.00',
+              native_account_code: null,
+              base_currency: 'DKK',
+              base_amount: '900.00',
+              fx_rate: '1',
+              fx_rate_date: '2026-07-02',
+              status: 'ai_categorized',
+              level_1: 'Facilities',
+              level_2: 'Furniture',
+              level_3: 'Office chairs',
+              account_code: '6100',
+              account_name: 'Office equipment',
+              confidence: '0.62',
+              rationale: null,
+              spend_category_id: null,
+            },
+          ] }) },
+          onVerifyLine,
+        })}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /accept/i }))
+    expect(onVerifyLine).toHaveBeenCalledWith('l1', {})
   })
 })

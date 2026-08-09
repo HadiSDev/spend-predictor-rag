@@ -203,6 +203,7 @@ function props(overrides: Partial<VoucherDrawerProps> = {}): VoucherDrawerProps 
     onTabChange: vi.fn(),
     onOpenChange: vi.fn(),
     onVerifyLine: vi.fn().mockResolvedValue(undefined),
+    onUpdateHeader: vi.fn().mockResolvedValue(undefined),
     hasUnsavedChanges: false,
     ...overrides,
   }
@@ -231,6 +232,26 @@ describe('VoucherDrawer — layout', () => {
     // rendering nothing.
     render(<VoucherDrawer {...props({ detail: journalOnly, tab: 'details' })} />)
     expect(screen.getByRole('tabpanel', { name: /postings/i })).toBeTruthy()
+  })
+
+  it('corrects the URL to match the tab it fell back to, rather than leaving the two disagreeing', () => {
+    const onTabChange = vi.fn()
+    render(<VoucherDrawer {...props({ detail: journalOnly, tab: 'details', onTabChange })} />)
+    expect(onTabChange).toHaveBeenCalledWith('postings')
+  })
+
+  it('leaves the URL alone once it already names a tab this voucher has', () => {
+    const onTabChange = vi.fn()
+    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'details', onTabChange })} />)
+    expect(onTabChange).not.toHaveBeenCalled()
+  })
+
+  it('does not correct the URL while the detail is still loading', () => {
+    // `hasInvoice` defaults to false with no detail yet — correcting now would
+    // "fall back" a tab that turns out to be valid the moment it loads.
+    const onTabChange = vi.fn()
+    render(<VoucherDrawer {...props({ detail: undefined, loading: true, tab: 'details', onTabChange })} />)
+    expect(onTabChange).not.toHaveBeenCalled()
   })
 
   it('shows a loading skeleton rather than a blank drawer while the detail loads', () => {
@@ -299,6 +320,17 @@ describe('VoucherDrawer — tabs', () => {
     render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'details', onVerifyLine })} />)
     fireEvent.click(screen.getByRole('button', { name: /accept/i }))
     expect(onVerifyLine).toHaveBeenCalledWith('l1', {})
+  })
+
+  it('passes a header save through to the owner, for a correctable invoice', async () => {
+    const onUpdateHeader = vi.fn().mockResolvedValue(undefined)
+    const parsed = { ...withInvoice, invoice: invoice({ source: 'pdf_extraction' }) }
+    render(<VoucherDrawer {...props({ detail: parsed, tab: 'details', onUpdateHeader })} />)
+
+    fireEvent.change(screen.getByLabelText(/invoice number/i), { target: { value: 'INV-9' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(onUpdateHeader).toHaveBeenCalledWith('inv1', { invoice_number: 'INV-9' })
   })
 })
 

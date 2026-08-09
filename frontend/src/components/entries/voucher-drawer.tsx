@@ -21,7 +21,13 @@ import {
   cn,
 } from '#/components/ui'
 import { formatMoney } from '#/lib/format'
-import type { ErpEntryRead, VoucherAuditRead, VoucherDetailRead, VoucherTab } from '#/lib/types'
+import type {
+  ErpEntryRead,
+  InvoiceUpdate,
+  VoucherAuditRead,
+  VoucherDetailRead,
+  VoucherTab,
+} from '#/lib/types'
 import { InvoiceDocument } from './invoice-document'
 import type { LineCorrections } from './line-category-editor'
 import { VoucherActivityTab } from './voucher-activity-tab'
@@ -35,12 +41,20 @@ export interface VoucherDrawerProps {
   /** Newest-first, exactly as the API returns it — passed straight through. */
   auditRows: Array<VoucherAuditRead>
   auditLoading: boolean
-  /** Controlled so the owner (Task 14) can keep it in the URL. */
+  /** Controlled so the owner (Task 14) can keep it in the URL. Self-corrected
+   *  back out to the owner (via `onTabChange`) when it names a tab that does
+   *  not exist for this voucher — see the effect below. */
   tab: VoucherTab
   open: boolean
   onTabChange: (tab: VoucherTab) => void
   onOpenChange: (open: boolean) => void
   onVerifyLine: (lineId: string, corrections: LineCorrections) => Promise<void>
+  /** Save a header correction on the Details tab. Forwarded straight to
+   *  `VoucherDetailsTab` — see its own doc for when this fires. */
+  onUpdateHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
+  /** Whether the Details tab's header editor has edits not yet saved.
+   *  Forwarded to `VoucherDetailsTab`; omit to ignore. */
+  onHeaderDirtyChange?: (dirty: boolean) => void
   /** True while the Details tab has edits not yet accepted. Dismissing while
    *  true asks for confirmation instead of closing outright. */
   hasUnsavedChanges: boolean
@@ -112,6 +126,8 @@ export function VoucherDrawer({
   onTabChange,
   onOpenChange,
   onVerifyLine,
+  onUpdateHeader,
+  onHeaderDirtyChange,
   hasUnsavedChanges,
 }: VoucherDrawerProps) {
   // Which pane a narrow (< lg) viewport is showing — the PDF has no room
@@ -131,6 +147,22 @@ export function VoucherDrawer({
   const availableTabs: Array<VoucherTab> = hasInvoice ? ['details', 'postings', 'activity'] : ['postings', 'activity']
   const activeTab: VoucherTab = availableTabs.includes(tab) ? tab : availableTabs[0]
 
+  const ready = detail !== undefined && !loading
+
+  // The `tab` prop is URL state (Task 14 owns it) and can name a tab that
+  // does not exist for *this* voucher — most often `details` on a
+  // journal-only one, e.g. from a stale link or switching from a voucher
+  // that had an invoice. `activeTab` above already renders the right pane
+  // either way, but without this the URL is left permanently disagreeing
+  // with what's on screen: reload, or copy the link, and the fallback has to
+  // be recomputed from scratch instead of just being there. Corrects only
+  // once the detail has actually loaded — while it's still in flight
+  // `hasInvoice` defaults to false and would "correct" a URL that turns out
+  // to be fine the moment the invoice arrives.
+  React.useEffect(() => {
+    if (ready && activeTab !== tab) onTabChange(activeTab)
+  }, [ready, activeTab, tab, onTabChange])
+
   function handleOpenChange(next: boolean) {
     if (!next && hasUnsavedChanges) {
       setConfirmOpen(true)
@@ -143,8 +175,6 @@ export function VoucherDrawer({
     setConfirmOpen(false)
     onOpenChange(false)
   }
-
-  const ready = detail !== undefined && !loading
 
   return (
     <>
@@ -216,7 +246,12 @@ export function VoucherDrawer({
                     <div className="min-h-0 flex-1 overflow-y-auto">
                       {invoice ? (
                         <TabsPanel value="details" className="ep-tab-fade">
-                          <VoucherDetailsTab invoice={invoice} onVerifyLine={onVerifyLine} />
+                          <VoucherDetailsTab
+                            invoice={invoice}
+                            onVerifyLine={onVerifyLine}
+                            onUpdateHeader={onUpdateHeader}
+                            onHeaderDirtyChange={onHeaderDirtyChange}
+                          />
                         </TabsPanel>
                       ) : null}
                       <TabsPanel value="postings" className="ep-tab-fade">

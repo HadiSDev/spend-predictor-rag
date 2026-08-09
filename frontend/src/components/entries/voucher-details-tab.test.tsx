@@ -63,13 +63,13 @@ const erpInvoice = invoice()
 describe('VoucherDetailsTab', () => {
   it('renders ERP header values as evidence, not as inputs', () => {
     // Provenance decides affordance. A disabled input still reads as tappable.
-    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={vi.fn()} />)
+    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={vi.fn()} onUpdateHeader={vi.fn().mockResolvedValue(undefined)} />)
     expect(screen.getByText('INV-2026-0412')).toBeTruthy()
     expect(screen.queryByLabelText(/invoice number/i)).toBeNull()
   })
 
   it('carries the ERP provenance as text, not colour alone', () => {
-    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={vi.fn()} />)
+    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={vi.fn()} onUpdateHeader={vi.fn().mockResolvedValue(undefined)} />)
     expect(screen.getByText(/erp posting/i)).toBeTruthy()
   })
 
@@ -78,10 +78,101 @@ describe('VoucherDetailsTab', () => {
       <VoucherDetailsTab
         invoice={{ ...erpInvoice, source: 'pdf_extraction' }}
         onVerifyLine={vi.fn()}
+        onUpdateHeader={vi.fn().mockResolvedValue(undefined)}
       />,
     )
     expect(screen.getByLabelText(/invoice number/i)).toBeTruthy()
     expect(screen.getByText(/pdf extraction/i)).toBeTruthy()
+  })
+
+  it('saves only the header fields that changed', async () => {
+    const onUpdateHeader = vi.fn().mockResolvedValue(undefined)
+    const parsed = invoice({ source: 'pdf_extraction' })
+    render(
+      <VoucherDetailsTab invoice={parsed} onVerifyLine={vi.fn()} onUpdateHeader={onUpdateHeader} />,
+    )
+
+    fireEvent.change(screen.getByLabelText(/invoice number/i), { target: { value: 'INV-CORRECTED' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() =>
+      expect(onUpdateHeader).toHaveBeenCalledWith(parsed.id, { invoice_number: 'INV-CORRECTED' }),
+    )
+  })
+
+  it('disables save and cancel until the header has an edit', () => {
+    render(
+      <VoucherDetailsTab
+        invoice={invoice({ source: 'pdf_extraction' })}
+        onVerifyLine={vi.fn()}
+        onUpdateHeader={vi.fn().mockResolvedValue(undefined)}
+      />,
+    )
+    // "Cancel" is ambiguous with the line editor's own Cancel button below —
+    // the header's is the first of the two in document order.
+    expect(screen.getByRole('button', { name: /^save$/i })).toHaveProperty('disabled', true)
+    expect(screen.getAllByRole('button', { name: /^cancel$/i })[0]).toHaveProperty('disabled', true)
+  })
+
+  it('resets the header without saving when cancelled', () => {
+    const onUpdateHeader = vi.fn().mockResolvedValue(undefined)
+    render(
+      <VoucherDetailsTab
+        invoice={invoice({ source: 'pdf_extraction' })}
+        onVerifyLine={vi.fn()}
+        onUpdateHeader={onUpdateHeader}
+      />,
+    )
+
+    const field = screen.getByLabelText<HTMLInputElement>(/invoice number/i)
+    fireEvent.change(field, { target: { value: 'INV-DRAFT' } })
+    fireEvent.click(screen.getAllByRole('button', { name: /^cancel$/i })[0])
+
+    expect(screen.getByLabelText<HTMLInputElement>(/invoice number/i).value).toBe('INV-2026-0412')
+    expect(onUpdateHeader).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a save failure rather than swallowing it', async () => {
+    const onUpdateHeader = vi.fn().mockRejectedValue(new Error('boom'))
+    render(
+      <VoucherDetailsTab
+        invoice={invoice({ source: 'pdf_extraction' })}
+        onVerifyLine={vi.fn()}
+        onUpdateHeader={onUpdateHeader}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText(/invoice number/i), { target: { value: 'INV-BAD' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(await screen.findByText(/boom/i)).toBeTruthy()
+  })
+
+  it('reports the header dirty while an edit is uncommitted, and clean again once saved', async () => {
+    const onUpdateHeader = vi.fn().mockResolvedValue(undefined)
+    const onHeaderDirtyChange = vi.fn()
+    render(
+      <VoucherDetailsTab
+        invoice={invoice({ source: 'pdf_extraction' })}
+        onVerifyLine={vi.fn()}
+        onUpdateHeader={onUpdateHeader}
+        onHeaderDirtyChange={onHeaderDirtyChange}
+      />,
+    )
+    expect(onHeaderDirtyChange).toHaveBeenLastCalledWith(false)
+
+    fireEvent.change(screen.getByLabelText(/invoice number/i), { target: { value: 'INV-DRAFT' } })
+    expect(onHeaderDirtyChange).toHaveBeenLastCalledWith(true)
+
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(onHeaderDirtyChange).toHaveBeenLastCalledWith(false))
+  })
+
+  it('never renders save/cancel controls for an ERP-sourced header, which is not editable', () => {
+    render(
+      <VoucherDetailsTab invoice={erpInvoice} onVerifyLine={vi.fn()} onUpdateHeader={vi.fn()} />,
+    )
+    expect(screen.queryByRole('button', { name: /^save$/i })).toBeNull()
   })
 
   it('tracks the invoice prop rather than only its value at mount', () => {
@@ -99,17 +190,17 @@ describe('VoucherDetailsTab', () => {
     })
 
     const { rerender } = render(
-      <VoucherDetailsTab invoice={invoiceA} onVerifyLine={vi.fn()} />,
+      <VoucherDetailsTab invoice={invoiceA} onVerifyLine={vi.fn()} onUpdateHeader={vi.fn().mockResolvedValue(undefined)} />,
     )
     expect(screen.getByLabelText<HTMLInputElement>(/invoice number/i).value).toBe('INV-A')
 
-    rerender(<VoucherDetailsTab invoice={invoiceB} onVerifyLine={vi.fn()} />)
+    rerender(<VoucherDetailsTab invoice={invoiceB} onVerifyLine={vi.fn()} onUpdateHeader={vi.fn().mockResolvedValue(undefined)} />)
     expect(screen.getByLabelText<HTMLInputElement>(/invoice number/i).value).toBe('INV-B')
   })
 
   it('does not resend a level reverted back to its original value', async () => {
     const onVerifyLine = vi.fn().mockResolvedValue(undefined)
-    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} />)
+    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} onUpdateHeader={vi.fn().mockResolvedValue(undefined)} />)
 
     const level2 = screen.getByLabelText<HTMLInputElement>(/level 2/i)
     fireEvent.change(level2, { target: { value: 'Office supplies' } })
@@ -121,7 +212,7 @@ describe('VoucherDetailsTab', () => {
 
   it('submits a corrected category and shows the confidence being judged', async () => {
     const onVerifyLine = vi.fn().mockResolvedValue(undefined)
-    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} />)
+    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} onUpdateHeader={vi.fn().mockResolvedValue(undefined)} />)
 
     fireEvent.change(screen.getByLabelText(/level 2/i), { target: { value: 'Office supplies' } })
     fireEvent.click(screen.getByRole('button', { name: /accept/i }))
@@ -135,7 +226,7 @@ describe('VoucherDetailsTab', () => {
     render(
       <VoucherDetailsTab
         invoice={invoice({ lines: [line({ confidence: '0.62' })] })}
-        onVerifyLine={vi.fn()}
+        onVerifyLine={vi.fn()} onUpdateHeader={vi.fn().mockResolvedValue(undefined)}
       />,
     )
     expect(screen.getByText(/62%/)).toBeTruthy()
@@ -143,7 +234,7 @@ describe('VoucherDetailsTab', () => {
 
   it('sends an empty corrections object on a plain accept, so it records as a verify', async () => {
     const onVerifyLine = vi.fn().mockResolvedValue(undefined)
-    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} />)
+    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} onUpdateHeader={vi.fn().mockResolvedValue(undefined)} />)
 
     fireEvent.click(screen.getByRole('button', { name: /accept/i }))
 
@@ -158,7 +249,7 @@ describe('VoucherDetailsTab', () => {
           resolve = r
         }),
     )
-    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} />)
+    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} onUpdateHeader={vi.fn().mockResolvedValue(undefined)} />)
 
     fireEvent.click(screen.getByRole('button', { name: /accept/i }))
 
@@ -171,7 +262,7 @@ describe('VoucherDetailsTab', () => {
 
   it('resets edits without submitting when cancelled', () => {
     const onVerifyLine = vi.fn().mockResolvedValue(undefined)
-    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} />)
+    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={onVerifyLine} onUpdateHeader={vi.fn().mockResolvedValue(undefined)} />)
 
     const level2 = screen.getByLabelText<HTMLInputElement>(/level 2/i)
     fireEvent.change(level2, { target: { value: 'Office supplies' } })
@@ -184,7 +275,7 @@ describe('VoucherDetailsTab', () => {
   })
 
   it('renders the rationale de-emphasised, distinct from the editable fields', () => {
-    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={vi.fn()} />)
+    render(<VoucherDetailsTab invoice={erpInvoice} onVerifyLine={vi.fn()} onUpdateHeader={vi.fn().mockResolvedValue(undefined)} />)
     expect(screen.getByText(/matched on "chair"/i)).toBeTruthy()
   })
 
@@ -194,7 +285,7 @@ describe('VoucherDetailsTab', () => {
         invoice={invoice({
           lines: [line({ id: 'l2' }), line({ id: 'l3', description: 'Standing desk' })],
         })}
-        onVerifyLine={vi.fn()}
+        onVerifyLine={vi.fn()} onUpdateHeader={vi.fn().mockResolvedValue(undefined)}
       />,
     )
     expect(screen.getAllByRole('button', { name: /^accept$/i })).toHaveLength(2)

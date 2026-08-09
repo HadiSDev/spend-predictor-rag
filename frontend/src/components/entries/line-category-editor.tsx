@@ -2,12 +2,13 @@ import * as React from 'react'
 import { Badge, Button, Field, FieldControl, FieldLabel, Progress } from '#/components/ui'
 import { formatMoney, toNumber } from '#/lib/format'
 import { serverErrorMessage } from '#/lib/form-errors'
-import type { InvoiceLineRead } from '#/lib/types'
+import type { InvoiceLineRead, LineCorrections } from '#/lib/types'
 
-/** Fields `POST /invoice-lines/{id}/verify` accepts as corrections. Only the
- *  levels are editable here — everything else on the line is either evidence
- *  (amount, description) or derived server-side (account_code/name). */
-export type LineCorrections = Partial<Record<'level_1' | 'level_2' | 'level_3', string>>
+/** Re-exported for existing importers (`voucher-details-tab.tsx`,
+ *  `voucher-drawer.tsx`) — the canonical definition now lives in
+ *  `lib/types.ts` alongside the other API-shape types, so `lib/invoices.ts`
+ *  (a mutation, not a component) can use it without importing a component. */
+export type { LineCorrections }
 
 export interface LineCategoryEditorProps {
   line: InvoiceLineRead

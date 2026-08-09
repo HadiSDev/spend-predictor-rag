@@ -1,15 +1,21 @@
+import * as React from 'react'
 import { Button, Card, Pagination, Skeleton } from '#/components/ui'
-import { FilterBar } from './filter-bar'
-import { VoucherTable } from './voucher-table'
-import { EntryDrawer } from './entry-drawer'
+import type { VoucherKey } from '#/lib/entries'
 import type {
   CompanyRead,
   EntryFilters,
-  ErpEntryRead,
+  InvoiceUpdate,
+  LineCorrections,
   Page,
   VendorRead,
+  VoucherAuditRead,
+  VoucherDetailRead,
   VoucherGroupRead,
+  VoucherTab,
 } from '#/lib/types'
+import { FilterBar } from './filter-bar'
+import { VoucherDrawer } from './voucher-drawer'
+import { VoucherTable } from './voucher-table'
 
 /** The filter keys that narrow results; `page` is navigation, not a filter. */
 const FILTER_KEYS = ['company_id', 'entry_type', 'status', 'vendor_id', 'from', 'to'] as const
@@ -79,11 +85,21 @@ export interface EntriesPanelProps {
   onClearFilters: () => void
   onPageChange: (page: number) => void
   onVendorSearch: (query: string) => void
-  /** The posting whose detail is open, and its loading state. */
-  selectedEntry: ErpEntryRead | undefined
-  selectedEntryLoading: boolean
-  selectedEntryId: string | null
-  onSelectEntry: (id: string | null) => void
+  /** The open voucher's full detail, and its loading state. `undefined`
+   *  while in flight — never an empty object. */
+  voucherDetail: VoucherDetailRead | undefined
+  voucherLoading: boolean
+  /** The open voucher's change history, newest first. */
+  auditRows: Array<VoucherAuditRead>
+  auditLoading: boolean
+  /** Which face of the panel is showing — URL state, owned by the route. */
+  tab: VoucherTab
+  onTabChange: (tab: VoucherTab) => void
+  /** Opens the panel for a voucher (or, lacking one, a lone posting). Also
+   *  the way the panel is closed: `onSelectEntry({})` clears both. */
+  onSelectEntry: (key: VoucherKey) => void
+  onVerifyLine: (lineId: string, corrections: LineCorrections) => Promise<void>
+  onUpdateHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
 }
 
 /**
@@ -102,12 +118,25 @@ export function EntriesPanel({
   onClearFilters,
   onPageChange,
   onVendorSearch,
-  selectedEntry,
-  selectedEntryLoading,
-  selectedEntryId,
+  voucherDetail,
+  voucherLoading,
+  auditRows,
+  auditLoading,
+  tab,
+  onTabChange,
   onSelectEntry,
+  onVerifyLine,
+  onUpdateHeader,
 }: EntriesPanelProps) {
   const pageCount = result ? Math.max(1, Math.ceil(result.total / result.page_size)) : 1
+  const open = filters.voucher !== undefined || filters.entry !== undefined
+  // Local to the panel: whether the Details tab's header editor has edits not
+  // yet saved. `VoucherDetailsTab` remounts (`key={invoice.id}`) whenever the
+  // open voucher's invoice changes, which fires its cleanup and resets this —
+  // so a discard on one voucher never bleeds into the next one opened. Also
+  // reset explicitly on close, in case the drawer's content stays mounted
+  // through its close animation rather than unmounting immediately.
+  const [headerDirty, setHeaderDirty] = React.useState(false)
 
   return (
     <div className="flex flex-col gap-6">
@@ -144,13 +173,24 @@ export function EntriesPanel({
         </>
       )}
 
-      <EntryDrawer
-        entry={selectedEntry}
-        loading={selectedEntryLoading}
-        open={selectedEntryId !== null}
-        onOpenChange={(open) => {
-          if (!open) onSelectEntry(null)
+      <VoucherDrawer
+        detail={voucherDetail}
+        loading={voucherLoading}
+        auditRows={auditRows}
+        auditLoading={auditLoading}
+        tab={tab}
+        open={open}
+        onTabChange={onTabChange}
+        onOpenChange={(next) => {
+          if (!next) {
+            onSelectEntry({})
+            setHeaderDirty(false)
+          }
         }}
+        onVerifyLine={onVerifyLine}
+        onUpdateHeader={onUpdateHeader}
+        onHeaderDirtyChange={setHeaderDirty}
+        hasUnsavedChanges={headerDirty}
       />
     </div>
   )
