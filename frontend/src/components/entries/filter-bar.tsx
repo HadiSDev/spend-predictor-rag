@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { X } from 'lucide-react'
 import {
   Button,
@@ -15,13 +16,50 @@ import {
   SelectValue,
 } from '#/components/ui'
 import { LINE_ORIGINS } from '#/lib/entry-search'
+import { humanizeKey } from '#/lib/format'
+import { CountryFlag } from '#/components/settings/country-flag'
 import type { CompanyRead, EntryFilters, LineOrigin, VendorRead } from '#/lib/types'
 
-/** What each provenance means to a reader, who does not think in enum values. */
+/** What each provenance means to a reader, who does not think in enum values.
+ *  Phrased to match the mark the table puts on a stand-in line ("from
+ *  posting"), so the filter and the row it selects use the same words. */
 const ORIGIN_LABELS: Record<LineOrigin, string> = {
-  document_ai: 'Read from document',
-  erp: 'From the ERP',
-  entry_fallback: 'Standing in for a posting',
+  document_ai: 'From document',
+  erp: 'From ERP',
+  entry_fallback: 'From posting',
+}
+
+/**
+ * One width for every control in the bar.
+ *
+ * They were six different widths, which turned a row of peers into a ragged
+ * edge and made the bar read as an accident rather than a set of equals. An
+ * option too long for it wraps inside the popup (see `SelectItem`) rather than
+ * driving the width of every other control up to match.
+ */
+const CONTROL = 'w-44'
+
+const ORIGIN_OPTIONS = LINE_ORIGINS.map((value) => ({
+  value,
+  label: ORIGIN_LABELS[value],
+}))
+
+
+/**
+ * A company's country, as the flag coin the settings pickers already use.
+ *
+ * Reused rather than reinvented for the reason that component documents: emoji
+ * flags are the obvious route and the wrong one, because Windows ships no flag
+ * glyphs and renders 🇩🇰 as two boxed capitals. It falls back to the lettered
+ * coin for a country we hold no artwork for, so a row is never blank.
+ *
+ * A company with no country keeps the coin's footprint as a spacer, so the
+ * names below it stay in one column instead of stepping left on the rows that
+ * have no flag.
+ */
+function CompanyFlag({ country }: { country: string | null }) {
+  if (!country) return <span aria-hidden className="size-5 shrink-0" />
+  return <CountryFlag country={country} className="mt-px" />
 }
 
 /** The domain's fixed set. Kept explicit so a status with no rows yet — the
@@ -35,6 +73,9 @@ const STATUSES = ['pending', 'posted', 'synced', 'failed'] as const
  * the option that clears it carries this sentinel.
  */
 const ALL = '__all__'
+
+/** Statuses as a reader sees them, not as the column stores them. */
+const STATUS_OPTIONS = STATUSES.map((value) => ({ value, label: humanizeKey(value) }))
 
 /** `<input type=date>`-shaped string, which is also what the API takes. */
 function toIsoDate(date: Date | undefined): string | undefined {
@@ -69,6 +110,15 @@ export function FilterBar({
   onClear,
   onVendorSearch,
 }: FilterBarProps) {
+  // Humanized here rather than in a lookup table: the types come from the org's
+  // own data and connectors are free to emit their own, so a table would fall
+  // back to the raw key for anything it had not been told about — which is the
+  // behaviour this replaces.
+  const entryTypeOptions = React.useMemo(
+    () => entryTypes.map((value) => ({ value, label: humanizeKey(value) })),
+    [entryTypes],
+  )
+
   // `page` is not a filter; it should not light up the clear control.
   const active = (
     ['company_id', 'entry_type', 'status', 'vendor_id', 'origin', 'from', 'to'] as const
@@ -87,16 +137,26 @@ export function FilterBar({
             onChange({ company_id: next && next !== ALL ? next : undefined })
           }
         >
-          <SelectTrigger className="w-48">
+          <SelectTrigger className={CONTROL}>
             <SelectValue
               placeholder="All companies"
               items={companies.map((c) => ({ value: c.id, label: c.name }))}
             />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All companies</SelectItem>
+            {/* The icon sits on every row, the "all" option included: give it
+                only to the real companies and their names indent past a row
+                that has none, which reads as a rendering fault rather than a
+                distinction. */}
+            {/* The "all" row takes the same footprint as a flag, so the names
+                below it stay in one column rather than indenting past it. */}
+            <SelectItem value={ALL}>
+              <CompanyFlag country={null} />
+              All companies
+            </SelectItem>
             {companies.map((company) => (
               <SelectItem key={company.id} value={company.id}>
+                <CompanyFlag country={company.country_code} />
                 {company.name}
               </SelectItem>
             ))}
@@ -110,7 +170,7 @@ export function FilterBar({
           value={fromIsoDate(filters.from)}
           placeholder="Any date"
           onChange={(date) => onChange({ from: toIsoDate(date) })}
-          className="w-40"
+          className={CONTROL}
         />
       </label>
 
@@ -120,7 +180,7 @@ export function FilterBar({
           value={fromIsoDate(filters.to)}
           placeholder="Any date"
           onChange={(date) => onChange({ to: toIsoDate(date) })}
-          className="w-40"
+          className={CONTROL}
         />
       </label>
 
@@ -132,14 +192,17 @@ export function FilterBar({
             onChange({ entry_type: next && next !== ALL ? next : undefined })
           }
         >
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="All types" />
+          <SelectTrigger className={CONTROL}>
+            {/* `items` so the trigger reads "Purchase invoice" too. Without it
+                the list is humanized and the selected value still shows the raw
+                `purchase_invoice`, which is worse than never humanizing at all. */}
+            <SelectValue placeholder="All types" items={entryTypeOptions} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>All types</SelectItem>
-            {entryTypes.map((type) => (
-              <SelectItem key={type} value={type}>
-                {type}
+            {entryTypeOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -154,14 +217,14 @@ export function FilterBar({
             onChange({ status: next && next !== ALL ? next : undefined })
           }
         >
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="Any status" />
+          <SelectTrigger className={CONTROL}>
+            <SelectValue placeholder="Any status" items={STATUS_OPTIONS} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>Any status</SelectItem>
-            {STATUSES.map((status) => (
-              <SelectItem key={status} value={status}>
-                {status}
+            {STATUS_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -179,14 +242,14 @@ export function FilterBar({
             onChange({ origin: next && next !== ALL ? (next as LineOrigin) : undefined })
           }
         >
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="Any source" />
+          <SelectTrigger className={CONTROL}>
+            <SelectValue placeholder="Any source" items={ORIGIN_OPTIONS} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>Any source</SelectItem>
-            {LINE_ORIGINS.map((value) => (
-              <SelectItem key={value} value={value}>
-                {ORIGIN_LABELS[value]}
+            {ORIGIN_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -205,7 +268,7 @@ export function FilterBar({
           onValueChange={(next: VendorRead | null) => onChange({ vendor_id: next?.id })}
           onInputValueChange={onVendorSearch}
         >
-          <ComboboxInput placeholder="All suppliers" className="w-52" />
+          <ComboboxInput placeholder="All suppliers" className={CONTROL} />
           <ComboboxContent>
             <ComboboxEmpty>No suppliers found.</ComboboxEmpty>
             <ComboboxList>

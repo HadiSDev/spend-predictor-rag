@@ -687,6 +687,46 @@ describe('EntriesPanel — filters', () => {
     expect(props.onVendorSearch).toHaveBeenCalledWith('cont', expect.anything())
   })
 
+  it('offers filter options by their display name, never a raw key', async () => {
+    setup({ entryTypes: ['purchase_invoice', 'journal_entry'] })
+
+    fireEvent.click(screen.getByRole('combobox', { name: /entry type/i }))
+
+    expect(await screen.findByRole('option', { name: 'Purchase invoice' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Journal entry' })).toBeTruthy()
+    // The underscored key must not survive anywhere in the list.
+    expect(screen.queryByRole('option', { name: /purchase_invoice/ })).toBeNull()
+  })
+
+  it('shows the display name on the trigger too, not only in the list', () => {
+    // Humanizing the list while the trigger still reads `entry_fallback` is
+    // worse than never humanizing at all: the two disagree in front of the user.
+    setup({ filters: { origin: 'entry_fallback' } })
+
+    expect(screen.getByText('From posting')).toBeTruthy()
+    expect(screen.queryByText('entry_fallback')).toBeNull()
+  })
+
+  it('gives every filter control the same width', () => {
+    // Six different widths turned a row of peers into a ragged edge. An option
+    // too long for the shared width wraps inside the popup rather than driving
+    // every other control wider to match it.
+    setup()
+
+    // The controls themselves, not the decoration inside them: a date picker
+    // nests a `w-0` sizing helper that is not a control and would fail this on
+    // a technicality.
+    const controls = [...document.querySelectorAll('label button, label input')].filter((el) =>
+      /\bw-\d+\b/.test(el.className),
+    )
+    const widths = new Set(
+      controls.map((el) => /\bw-\d+\b/.exec(el.className)?.[0]),
+    )
+
+    expect(controls.length).toBeGreaterThanOrEqual(6)
+    expect([...widths]).toHaveLength(1)
+  })
+
   it('offers a clear control only once a filter is set', () => {
     const { onClearFilters } = setup({ filters: { status: 'failed' } })
     fireEvent.click(screen.getByRole('button', { name: /Clear filters/ }))

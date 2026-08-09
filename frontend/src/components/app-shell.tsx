@@ -128,7 +128,7 @@ function UserMenu() {
  * when there is an invoice review page to point at. */
 export const NAV_ITEMS = [
   { label: 'Dashboard', icon: LayoutDashboard, to: '/' },
-  { label: 'Entries', icon: Receipt, to: '/entries' },
+  { label: 'Spend Lines', icon: Receipt, to: '/entries' },
   { label: 'Vendors', icon: Users },
   { label: 'Settings', icon: Settings, to: '/settings' },
 ] as const

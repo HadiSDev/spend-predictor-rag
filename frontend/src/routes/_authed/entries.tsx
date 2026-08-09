@@ -21,7 +21,9 @@ import { vendorsQueryOptions } from '#/lib/vendors'
 
 export const Route = createFileRoute('/_authed/entries')({
   component: EntriesPage,
-  staticData: { title: 'Entries' },
+  // The label, not the path: `/entries` is what every shared voucher link
+  // carries, and the panel's whole design rests on those links resolving.
+  staticData: { title: 'Spend Lines' },
   validateSearch: validateEntrySearch,
 })
 

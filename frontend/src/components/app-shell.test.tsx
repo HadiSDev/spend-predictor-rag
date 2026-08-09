@@ -57,10 +57,12 @@ describe('AppSidebar', () => {
     expect(screen.getByRole('button', { name: 'Vendors' }).hasAttribute('disabled')).toBe(true)
   })
 
-  it('links Entries to its page, and no longer promises an Invoices one', () => {
+  it('links Spend Lines to its page, and no longer promises an Invoices one', () => {
     render(<AppSidebar pathname="/entries" />)
 
-    const entries = screen.getByRole('link', { name: 'Entries' })
+    // Named for what the page lists. The *path* stays `/entries`: every shared
+    // voucher link carries it, and the panel's design rests on those resolving.
+    const entries = screen.getByRole('link', { name: 'Spend Lines' })
     expect(entries.getAttribute('href')).toBe('/entries')
     expect(entries.getAttribute('aria-current')).toBe('page')
     // The disabled Invoices placeholder is gone rather than merely unlinked.

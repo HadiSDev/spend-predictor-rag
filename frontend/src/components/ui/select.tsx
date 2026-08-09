@@ -17,7 +17,9 @@ export const SelectTrigger = React.forwardRef<
     {...props}
   >
     {children}
-    <BaseSelect.Icon className="text-muted-foreground">
+    {/* `shrink-0`: a long value truncates (see `SelectValue`) instead of
+        squeezing the chevron until it disappears. */}
+    <BaseSelect.Icon className="shrink-0 text-muted-foreground">
       <ChevronDown className="size-4" />
     </BaseSelect.Icon>
   </BaseSelect.Trigger>
@@ -41,7 +43,11 @@ export function SelectValue({
   items?: ReadonlyArray<{ value: unknown; label: React.ReactNode }>
 }) {
   return (
-    <BaseSelect.Value className={className}>
+    // `min-w-0 truncate`: the trigger is a fixed width and the values are user
+    // data — a company or supplier name has no bound — so a long one is cut off
+    // here rather than pushing the chevron out of the control. The full label is
+    // never lost: the popup wraps it (see `SelectItem`).
+    <BaseSelect.Value className={cn('min-w-0 truncate', className)}>
       {(value: unknown) => {
         if (value === null || value === undefined || value === '') {
           return <span className="text-muted-foreground">{placeholder}</span>
@@ -81,7 +87,13 @@ export const SelectItem = React.forwardRef<
   <BaseSelect.Item
     ref={ref}
     className={cn(
-      'relative flex cursor-default items-center rounded-md py-1.5 pr-8 pl-3 text-sm outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-muted',
+      // `whitespace-normal`: an option longer than the trigger wraps onto a
+      // second line rather than being clipped. The popup is only as wide as the
+      // control that anchors it, and every filter's options are user data —
+      // company and supplier names — so there is no width at which clipping is
+      // safe. `items-start` keeps the check mark aligned with the first line of
+      // a wrapped label instead of floating at its vertical centre.
+      'relative flex cursor-default items-start gap-2 rounded-md py-1.5 pr-8 pl-3 text-sm whitespace-normal outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-muted',
       className,
     )}
     {...props}
