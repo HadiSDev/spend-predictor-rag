@@ -72,6 +72,9 @@ def list_erp_types(_: User = Depends(current_user)) -> list[ErpTypeRead]:
             erp_type=name,
             label=cls.label(),
             credential_fields=list(cls.credential_fields),
+            brand_slug=cls.brand_slug,
+            description=cls.description,
+            docs_url=cls.docs_url,
         )
         for name, cls in connector_catalog()
     ]

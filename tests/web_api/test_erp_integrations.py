@@ -61,8 +61,18 @@ class _BadConn(_FakeConn):
         raise RuntimeError("boom: unreachable")
 
 
+class _BrandedConn(_FakeConn):
+    """Declares the optional brand metadata, so the catalog can project it."""
+
+    display_label = "Branded ERP"
+    brand_slug = "branded"
+    description = "An ERP with a face."
+    docs_url = "https://example.invalid/docs"
+
+
 register_connector("faketest", _FakeConn)
 register_connector("faketest_bad", _BadConn)
+register_connector("faketest_branded", _BrandedConn)
 
 
 @pytest.fixture(autouse=True)
@@ -323,6 +333,73 @@ def test_erp_types_lists_registered_connectors(client, seed):
 
     # Registering a connector is all it takes to appear.
     assert by_type["faketest"]["label"] == "Fake ERP"
+
+
+def test_erp_types_projects_brand_metadata_when_a_connector_declares_it(client, seed):
+    by_type = {t["erp_type"]: t
+               for t in client.get("/api/v1/erp-types", headers=auth("tokA")).json()}
+
+    branded = by_type["faketest_branded"]
+    assert branded["brand_slug"] == "branded"
+    assert branded["description"] == "An ERP with a face."
+    assert branded["docs_url"] == "https://example.invalid/docs"
+
+
+def test_erp_types_entry_is_unchanged_for_a_connector_declaring_no_brand(client, seed):
+    """The brand fields are additive: an existing connector's entry must not move.
+
+    A client written before brand metadata existed reads `erp_type`, `label` and
+    `credential_fields` exactly as it did, and the three new keys are null rather
+    than invented.
+    """
+    by_type = {t["erp_type"]: t
+               for t in client.get("/api/v1/erp-types", headers=auth("tokA")).json()}
+
+    plain = by_type["faketest"]
+    assert plain["label"] == "Fake ERP"
+    assert {f["name"] for f in plain["credential_fields"]} == {"base_url", "api_key"}
+    assert plain["brand_slug"] is None
+    assert plain["description"] is None
+    assert plain["docs_url"] is None
+
+
+def test_erp_types_offers_billy_with_its_brand_and_credentials(client, seed):
+    by_type = {t["erp_type"]: t
+               for t in client.get("/api/v1/erp-types", headers=auth("tokA")).json()}
+
+    billy = by_type["billy"]
+    assert billy["label"] == "Billy"
+    assert billy["brand_slug"] == "billy"
+    assert billy["description"] and billy["docs_url"]
+
+    fields = {f["name"]: f for f in billy["credential_fields"]}
+    assert set(fields) == {"access_token", "organization_id", "base_url"}
+    # The token is the only thing a customer must supply, and it is write-only.
+    assert fields["access_token"]["required"] is True
+    assert fields["access_token"]["secret"] is True
+    assert fields["organization_id"]["required"] is False
+    assert fields["base_url"]["default"] == "https://api.billysbilling.com/v2"
+    # Billy also supports email/password Basic auth; we deliberately do not.
+    assert "password" not in fields
+
+
+def test_billy_integration_requires_its_access_token(client, seed):
+    ok = _create(client, "tokA", seed["comp_a"], erp_type="billy",
+                 creds={"access_token": SECRET})
+    assert ok.status_code == 201
+    assert ok.json()["has_credentials"] is True
+    # And never returns it.
+    assert "credentials" not in ok.json()
+
+    missing = _create(client, "tokA", seed["comp_a"], erp_type="billy", creds={})
+    assert missing.status_code == 422
+
+
+def test_billy_integration_rejects_a_password_credential(client, seed):
+    """Undeclared keys are refused, so nobody can smuggle in Basic auth."""
+    r = _create(client, "tokA", seed["comp_a"], erp_type="billy",
+                creds={"access_token": SECRET, "password": "hunter2"})
+    assert r.status_code == 422
 
 
 def test_erp_types_readable_by_any_authenticated_role(client, seed):

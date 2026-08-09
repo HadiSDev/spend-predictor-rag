@@ -1,0 +1,61 @@
+{
+  "meta": {
+    "statusCode": 200,
+    "success": true,
+    "time": 0.016676902770996
+  },
+  "bill": {
+    "id": "615d7cd6b6e9528db0b9b3",
+    "organizationId": "f1d0f752e2a4362b0a74c3",
+    "type": "bill",
+    "createdTime": "2026-04-21T06:40:43",
+    "approvedTime": "2026-04-21T06:40:43",
+    "externalId": null,
+    "contactId": "ca22e937e6a0973a250545",
+    "contactName": null,
+    "entryDate": "2026-04-21",
+    "paymentAccountId": null,
+    "paymentDate": null,
+    "dueDate": null,
+    "isBare": false,
+    "state": "approved",
+    "suppliersInvoiceNo": null,
+    "taxMode": "incl",
+    "voucherNo": "",
+    "scanType": "none",
+    "scannedState": null,
+    "origin": "api",
+    "scannedCode": null,
+    "scannedValidation": false,
+    "amount": 85,
+    "tax": 0,
+    "grossAmount": 85,
+    "currencyId": "DKK",
+    "exchangeRate": 1,
+    "balance": 0,
+    "isPaid": true,
+    "lineDescription": "Company Free plan fee",
+    "creditedBillId": null,
+    "lineIds": [
+      "1yzM6K3dQbGA2IYfIDxQBg"
+    ],
+    "source": null,
+    "subject": null,
+    "accountingBasis": "accrual"
+  },
+  "billLines": [
+    {
+      "id": "33677799d7759499c03366",
+      "billId": "615d7cd6b6e9528db0b9b3",
+      "accountId": "c068a48537e6e767ce99c1",
+      "taxRateId": "ce0f3e20d38f52fc4a3078",
+      "productId": null,
+      "description": "Company Free plan fee",
+      "bookkeepingTag": "",
+      "quantity": 1,
+      "amount": 85,
+      "tax": 0,
+      "priority": 0
+    }
+  ]
+}

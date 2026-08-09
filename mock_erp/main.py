@@ -6,20 +6,17 @@ MockErpConnector can exercise the full sync pipeline.
 
 from __future__ import annotations
 
-import hashlib
 import os
 from datetime import date, datetime
-from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
-
-from .auth import verify_auth
-from .data.accounts import ACCOUNTS
-from .data.entries import generate as generate_entries
-from .data.invoices import generate as generate_invoices
-from .data.vendors import build_vendors, get_cheaper_alternatives
-from .documents import clear_cache, render_for_voucher
+import uvicorn
+from mock_erp.data.accounts import ACCOUNTS
+from mock_erp.data.entries import generate as generate_entries
+from mock_erp.data.invoices import generate as generate_invoices
+from mock_erp.data.vendors import build_vendors, get_cheaper_alternatives
+from mock_erp.documents import clear_cache, render_for_voucher
 
 _GENERATION_SEED = int(os.getenv("MOCK_ERP_SEED", "42"))
 _N_MONTHS = int(os.getenv("MOCK_ERP_MONTHS", "12"))
@@ -235,3 +232,7 @@ async def auth_middleware(request, call_next):
         if token != "mock-secret":
             return JSONResponse(status_code=401, content={"detail": "Invalid token"})
     return await call_next(request)
+
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=False)

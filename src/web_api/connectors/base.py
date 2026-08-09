@@ -120,7 +120,16 @@ class ErpAuthError(Exception):
 
 
 class ErpRateLimitError(Exception):
-    """Rate-limited by ERP. Retry after X seconds."""
+    """Rate-limited by ERP. Retry after X seconds.
+
+    ``retry_after`` is the delay the ERP asked for, in seconds, or ``None`` when
+    it named none. It is what separates this from ``ErpDataError``: a caller can
+    back off and come back, rather than treating the response as nonsense.
+    """
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class ErpDataError(Exception):
@@ -142,6 +151,19 @@ class ErpConnector(ABC):
     display_label: str = ""
     #: The credentials this connector accepts, in the order to present them.
     credential_fields: list[CredentialField] = []
+
+    # -- Brand metadata (all optional) --------------------------------------
+    # A client must be able to present a connector recognisably without knowing
+    # any connector by name, so a connector's identity is declared here and
+    # nowhere else. Omitting all three yields exactly the catalog entry a
+    # connector produced before these existed.
+
+    #: Key for locating vendored artwork, e.g. ``"billy"`` → ``billy.svg``.
+    brand_slug: str | None = None
+    #: One line describing the ERP, for a picker card.
+    description: str | None = None
+    #: Where a user can read about the ERP or find their credentials.
+    docs_url: str | None = None
 
     def __init__(self, config: dict) -> None:
         self.config = config

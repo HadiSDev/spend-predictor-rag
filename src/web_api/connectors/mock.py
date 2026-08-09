@@ -1,32 +1,28 @@
 """Mock ERP connector — calls the mock-erp-api FastAPI server."""
 from __future__ import annotations
 
-import re
 from datetime import date
 from typing import Any
-
-import httpx
 
 from . import register_connector
 from .base import (
     CredentialField,
     DocumentPayload,
     ErpAccountData,
-    ErpAuthError,
     ErpConnectionError,
-    ErpConnector,
-    ErpDataError,
     ErpEntryData,
     ErpInvoiceData,
     ErpInvoiceLineData,
     ErpVendorData,
 )
+from .http import HttpErpConnector
+from .pagination import PageNumberPaginator
 
 DEFAULT_BASE_URL = "http://localhost:8001"
 DEFAULT_API_KEY = "mock-secret"
 
 
-class MockErpConnector(ErpConnector):
+class MockErpConnector(HttpErpConnector):
     """Connector that talks to the mock-erp-api server.
 
     Config:
@@ -35,6 +31,19 @@ class MockErpConnector(ErpConnector):
     """
 
     display_label = "Debug ERP"
+    brand_slug = "mock"
+    description = "A local fake ERP for development and demos."
+    # Numbered pages against a reported total — the shape the debug server
+    # serves. Spelled out rather than inherited so the server's contract is
+    # readable here, next to the mappers that depend on it.
+    paginator = PageNumberPaginator(
+        items_key="collection",
+        total_path=("pagination", "total"),
+        page_param="page",
+        size_param="pageSize",
+        page_size=100,
+        first_page=1,
+    )
     # Both optional: the defaults below are what the debug server expects, so an
     # integration with no credentials at all is valid.
     credential_fields = [
@@ -47,76 +56,15 @@ class MockErpConnector(ErpConnector):
         self.base_url = config.get("base_url") or DEFAULT_BASE_URL
         self.api_key = config.get("api_key") or DEFAULT_API_KEY
         self._token: str | None = None
-        self._http: httpx.Client | None = None
         self._invoice_by_voucher: dict[str, dict] | None = None
 
-    # -- HTTP helpers --------------------------------------------------------
+    # -- HTTP seams ----------------------------------------------------------
 
-    def _http_client(self) -> httpx.Client:
-        if self._http is None:
-            self._http = httpx.Client(base_url=self.base_url, timeout=30)
-        return self._http
+    def _base_url(self) -> str:
+        return self.base_url
 
-    def _get(self, path: str, **params: Any) -> dict:
-        headers = {"x-app-secret-token": self.api_key}
-        try:
-            resp = self._http_client().get(path, headers=headers, params=params)
-        except httpx.RequestError as exc:
-            raise ErpConnectionError(str(exc)) from exc
-
-        if resp.status_code == 401:
-            raise ErpAuthError(f"Auth failed: {resp.text}")
-        if resp.status_code == 429:
-            raise ErpDataError(f"Rate limited: {resp.text}")
-        if resp.status_code >= 500:
-            raise ErpConnectionError(f"ERP error {resp.status_code}: {resp.text}")
-        if resp.status_code != 200:
-            raise ErpDataError(f"Unexpected {resp.status_code}: {resp.text}")
-
-        return resp.json()
-
-    def _request_raw(self, path: str) -> tuple[bytes, str | None] | None:
-        """GET a non-JSON resource. Returns ``(content, filename)``.
-
-        ``None`` on a 404 (nothing at this path — an ordinary, expected case for
-        a voucher with no document). Any other non-2xx or transport failure
-        raises ``ErpConnectionError``, so a caller can tell "nothing there" from
-        "couldn't reach the ERP".
-        """
-        headers = {"x-app-secret-token": self.api_key}
-        try:
-            resp = self._http_client().get(path, headers=headers)
-        except httpx.RequestError as exc:
-            raise ErpConnectionError(str(exc)) from exc
-
-        if resp.status_code == 404:
-            return None
-        if resp.status_code != 200:
-            raise ErpConnectionError(f"ERP error {resp.status_code}: {resp.text}")
-
-        filename = None
-        disposition = resp.headers.get("content-disposition")
-        if disposition:
-            match = re.search(r'filename="?([^";]+)"?', disposition)
-            if match:
-                filename = match.group(1)
-        return resp.content, filename
-
-    # -- Pagination helper ---------------------------------------------------
-
-    def _paginate(self, path: str, **params: Any) -> list[dict]:
-        all_items: list[dict] = []
-        page = 1
-        while True:
-            body = self._get(path, page=page, pageSize=100, **params)
-            items = body.get("collection", [])
-            all_items.extend(items)
-            pagination = body.get("pagination", {})
-            total = pagination.get("total", 0)
-            if len(all_items) >= total:
-                break
-            page += 1
-        return all_items
+    def _auth_headers(self) -> dict[str, str]:
+        return {"x-app-secret-token": self.api_key}
 
     # -- Connector interface -------------------------------------------------
 

@@ -423,11 +423,22 @@ class CredentialFieldRead(BaseModel):
 
 
 class ErpTypeRead(BaseModel):
-    """A registered connector type, as offered to a client picker."""
+    """A registered connector type, as offered to a client picker.
+
+    The brand fields are what let a client render a recognisable, branded
+    chooser without knowing any connector by name — the catalog is the only
+    place a connector's identity is declared. All three are optional, so a
+    connector declaring none produces the payload this model always produced.
+    """
 
     erp_type: str
     label: str
     credential_fields: list[CredentialFieldRead] = Field(default_factory=list)
+    #: Key for locating vendored artwork client-side. Never a URL: artwork is
+    #: bundled, so a catalog entry can't point a client at a third-party host.
+    brand_slug: str | None = None
+    description: str | None = None
+    docs_url: str | None = None
 
 
 class ErpIntegrationRead(BaseModel):

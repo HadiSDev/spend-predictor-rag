@@ -1,0 +1,29 @@
+{
+  "attachments": [
+    {
+      "id": "4b2e6a9caf9476f6cbbb20",
+      "organizationId": "f1d0f752e2a4362b0a74c3",
+      "createdTime": "2026-04-21T06:40:43",
+      "ownerReference": "bill:615d7cd6b6e9528db0b9b3",
+      "ownerId": "615d7cd6b6e9528db0b9b3",
+      "fileId": "b341a420fdc48dc11c7a1c",
+      "priority": 1,
+      "amount": 85,
+      "exchangeRate": 1,
+      "currencyId": "DKK",
+      "supplier": "Meridian Facilities ApS",
+      "documentDate": "2026-04-21",
+      "comment": null,
+      "type": null,
+      "eInvoiceId": null
+    }
+  ],
+  "meta": {
+    "paging": {
+      "page": 1,
+      "pageSize": 100,
+      "pageCount": 1,
+      "total": 1
+    }
+  }
+}

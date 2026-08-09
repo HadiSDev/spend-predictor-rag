@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "statusCode": 200,
+    "success": true,
+    "time": 0.01692008972168
+  },
+  "file": {
+    "id": "b341a420fdc48dc11c7a1c",
+    "createdTime": "2026-04-21T06:36:37",
+    "fileName": "transaction-statement.pdf",
+    "fileSize": 38735,
+    "fileType": "pdf",
+    "thumbnailOfId": null,
+    "isImage": false,
+    "isPdf": true,
+    "imageWidth": null,
+    "imageHeight": null,
+    "downloadUrl": "https://billysbilling-eu.s3.eu-north-1.amazonaws.com/scrubbed.pdf",
+    "originalUrl": "https://billysbilling-eu.s3.eu-north-1.amazonaws.com/scrubbed.pdf",
+    "dataJson": "",
+    "thumbnailNo": null,
+    "isDuplicate": null,
+    "parentDuplicateFileId": null
+  }
+}

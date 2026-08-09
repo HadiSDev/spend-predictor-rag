@@ -1,0 +1,45 @@
+{
+  "meta": {
+    "statusCode": 200,
+    "success": true,
+    "paging": {
+      "page": 1,
+      "pageSize": 100,
+      "pageCount": 1,
+      "total": 5
+    },
+    "time": 0.016251087188721
+  },
+  "accountNatures": [
+    {
+      "id": "revenue",
+      "reportType": "incomeStatement",
+      "name": "Income",
+      "normalBalance": "credit"
+    },
+    {
+      "id": "expense",
+      "reportType": "incomeStatement",
+      "name": "Expenses",
+      "normalBalance": "debit"
+    },
+    {
+      "id": "asset",
+      "reportType": "balanceSheet",
+      "name": "Assets",
+      "normalBalance": "debit"
+    },
+    {
+      "id": "liability",
+      "reportType": "balanceSheet",
+      "name": "Liabilities",
+      "normalBalance": "credit"
+    },
+    {
+      "id": "equity",
+      "reportType": "balanceSheet",
+      "name": "Equity",
+      "normalBalance": "credit"
+    }
+  ]
+}

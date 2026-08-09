@@ -54,3 +54,4 @@ def connector_class(name: str) -> type[ErpConnector] | None:
 # Import built-in connectors for their registration side effects. Kept at the
 # bottom so ``register_connector`` is defined before they import it.
 from . import mock as _mock  # noqa: E402,F401
+from . import billy as _billy  # noqa: E402,F401
