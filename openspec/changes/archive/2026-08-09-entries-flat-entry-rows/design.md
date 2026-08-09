@@ -216,6 +216,74 @@ cannot drift, and a client never fetches the line per row. The new columns are
 appended after index 5, because `_net_spend` reads `erp_account_type`
 positionally off that tuple.
 
+### The account toggle now governs reading, not only fetching
+
+`sync_enabled` gated `fetch_entries` and nothing else. Two facts make that
+insufficient on its own: an account is **enabled when first discovered**, and
+disabling one **deletes nothing**. So every tenant accumulates entries on
+accounts the customer later switched off, and the listings kept showing them —
+474 of 832 rows in the local database, across three accounts.
+
+The condition goes in `_entry_conditions()`, the same chokepoint as the payment
+exclusion, so the flat list and the groups cannot disagree and the groups get it
+*before* grouping — a voucher left with no postings yields no group, and a
+group's `entry_count` and totals never cover a row it does not show.
+
+Expressed as a subquery, `erp_account_id IN (SELECT id FROM erp_accounts WHERE
+sync_enabled)`, rather than a predicate on the account join: the same conditions
+build the `select(count()).select_from(ErpEntry)` total, which has no join to
+hang it on.
+
+**Filtered, not deleted.** Deleting would reach the same screen today and be
+irreversible; filtering means re-enabling an account restores its history with
+no re-sync. That reversibility is the argument for it.
+
+**Not applied to `reporting.py`**, on the same reasoning as the payment rule: the
+reports stay ledger-complete and their figures do not move under a settings
+toggle. This is a stated choice, not an oversight, and it is the point at which
+a report placed beside the entries page would start to look inconsistent.
+
+**Consequence**: with the VAT and payable accounts deselected, an expanded
+voucher shows expense postings only, and its rows sum to the group figure again
+instead of to zero. Both readings are correct depending on which accounts are
+enabled, which is exactly why the column is named *Total Spend* rather than
+*Total* — a name that is true in either configuration.
+
+### The base amounts were frozen, which is what made the table lie
+
+Renumbering the mock's entries surfaced a bug that had nothing to do with the
+generator. `FxService.convert_row` short-circuited on:
+
+```python
+if row.fx_rate is not None and row.base_currency == base_currency:
+    return UNCHANGED
+```
+
+That is only sound if a row's posted amounts never change once converted. But
+entries are **upserted in place** under a deterministic id, and `_persist_entries`
+rewrites `debit_amount`/`credit_amount` on every run. So a row whose content
+changed kept the base amounts of the *previous* posting — and the entries table
+renders the base amounts, so it showed a figure belonging to an unrelated row.
+When the earlier posting had used the other side of the ledger, the sign flipped
+too: an input-VAT debit displaying as a negative, a payable credit as a positive.
+
+The fix is to test the invariant `convert()` already documents — "a stored base
+amount must be reproducible from the stored original amount and the stored rate"
+— rather than trusting the presence of a rate. Reproducibility is arithmetic
+against the stored rate, so the short-circuit stays free of rate lookups, which
+is what it existed for; `_eur_rates` is memoized per date anyway, so the lookup
+was never the expensive part.
+
+This also unbroke the repair path: `recompute_company` goes through the same
+`convert_row`, so before the fix it reported every corrupt row as UNCHANGED and
+repaired nothing.
+
+Not covered, and stated rather than left implicit: a row whose amounts are
+unchanged but whose *accounting date* moved to a day with a different rate still
+short-circuits. Catching that needs a rate lookup per row, which would defeat the
+optimization; it is a narrower case than a changed amount, and no connector in
+this codebase does it.
+
 ### `nulls_last` on the flat list's ordering — kept as an independent fix
 
 `GET /erp-entries` is not what this page calls, so this does not serve the
@@ -257,6 +325,9 @@ ascending sort.
   entry numbers shift, so a re-sync writes new `_det_id`-derived rows rather
   than updating the old ones. → It is synthetic data behind a `--reset`-less
   runner; a fresh database is the intended way to pick up a generator change.
+- **Existing rows keep frozen base amounts until repaired.** The code fix stops
+  new ones appearing; it does not rewrite history. → `recompute-fx` (or the
+  backfill CLI) now actually repairs them, because it shares `convert_row`.
 - **The link only fills on a re-sync.** Migration 0017 backfills nothing —
   the source line is data only a connector can supply — so every existing row
   stays null until it is synced again. → Expected; the column reads empty, which

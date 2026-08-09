@@ -180,8 +180,35 @@
   missing level leaves no dangling separator.
 - [x] 11.9 Run `uv run pytest`, `vitest run` and `tsc --noEmit`.
 
-## 12. Documentation
+## 12. Fix frozen FX on re-posted rows
 
-- [x] 12.1 Note the flat list's ordering guarantee in `CLAUDE.md` alongside the
+- [x] 12.1 In `web_api/fx/service.py`, make `convert_row`'s short-circuit require
+  that the stored base amounts still reproduce from the posted amounts at the
+  stored rate, not merely that a rate is present. Materialize `amount_fields`,
+  which is now iterated twice on that path.
+- [x] 12.2 Add tests: a changed posted amount is reconverted; a posting that
+  swaps ledger sides clears the side it no longer uses; an untouched row still
+  costs no rate lookup.
+- [x] 12.3 Correct the two requirements that authored the wrong rule — they live
+  in the unarchived `company-base-currency` change, not in `openspec/specs/`.
+
+## 13. Listings honour the account selection
+
+- [x] 13.1 Add the `sync_enabled` condition to `_entry_conditions()` as a
+  subquery (the count query has no account join), with a comment on why the
+  fetch-time gate alone leaves rows visible.
+- [x] 13.2 Leave `GET /erp-entries/{id}` and `reporting.py` alone, consistent
+  with the payment rule.
+- [x] 13.3 Tests: a deselected account's entries are absent from both listings
+  and from `total`; absent from their voucher group's `entries`/`entry_count`;
+  a voucher of only deselected postings yields no group; re-enabling restores
+  them with no re-sync; detail by id still resolves.
+- [x] 13.4 Amend the `domain-model` requirement that said entries "SHALL NOT be
+  deleted or hidden by the toggle" — the retention half stands, the visibility
+  half flips.
+
+## 14. Documentation
+
+- [x] 14.1 Note the flat list's ordering guarantee in `CLAUDE.md` alongside the
   `/erp-entries` filters.
-- [x] 12.2 Note the `payment` exclusion in `CLAUDE.md`, on both entry listings.
+- [x] 14.2 Note the `payment` exclusion in `CLAUDE.md`, on both entry listings.

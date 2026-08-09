@@ -190,17 +190,42 @@ unconverted by consumers.
 
 ### Requirement: Conversion is idempotent across repeated runs
 
-Conversion SHALL be skipped for any row that already carries a rate and whose
-stored base currency matches its company's: no rate SHALL be re-fetched and the
-stored base amount, rate, and rate date SHALL NOT change. Only a row that is
-unconverted, or whose stored base currency differs from its company's, SHALL be
-(re)converted.
+Conversion SHALL be skipped for a row whose stored conversion is already the one
+that would be written: its stored base currency matches its company's, and its
+stored base amounts are still **reproducible** from its posted amounts at its
+stored rate. For such a row no rate SHALL be re-fetched and the stored base
+amount, rate, and rate date SHALL NOT change.
 
-#### Scenario: A re-sync does not churn converted rows
+- Reproducibility SHALL be the test, not the mere presence of a rate. Rows are
+  upserted in place under a deterministic id, so a row's *posted* amounts can
+  change while it still carries a rate that was correct for the previous ones.
+  Treating a stored rate as proof of a current conversion freezes the earlier
+  posting's base amounts onto the new one — which then reads as a figure from an
+  unrelated row, and with the sign inverted when the earlier posting used the
+  other side of the ledger.
+- A row whose base amounts no longer reproduce SHALL be reconverted at the rate
+  for its current date, exactly as an unconverted row would be.
+- The test SHALL remain cheap enough not to reintroduce a rate lookup for a row
+  that has genuinely not changed: it is arithmetic against the stored rate.
+
+#### Scenario: A re-sync does not churn unchanged rows
 
 - **WHEN** the sync runs twice over the same source data
 - **THEN** the second run makes no rate requests for already-converted rows and
   leaves their base amounts byte-identical
+
+#### Scenario: A changed posted amount is reconverted
+
+- **WHEN** a row that already carries a rate is re-posted with a different
+  amount
+- **THEN** its base amounts are recomputed from the new posted amounts rather
+  than left at the previous conversion
+
+#### Scenario: A posting that swaps ledger sides keeps no stale side
+
+- **WHEN** a row that was converted with a credit amount is re-posted as a debit
+- **THEN** its base debit is written and its base credit is cleared, so no
+  amount survives on the side the posting no longer uses
 
 #### Scenario: A stale base currency is recognised
 

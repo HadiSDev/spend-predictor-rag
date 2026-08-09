@@ -64,6 +64,27 @@ posting shown, each carrying its own `debit_amount − credit_amount`.
   had a `description` and the sync already wrote it; the text simply had nothing
   in it worth reading. A generated invoice now produces 3–5 postings rather than
   always 3, and the accordion's expanded rows read like the invoice.
+- **Both entry listings honour the account selection.** Entries on an account
+  with `sync_enabled = false` are no longer returned. The toggle previously gated
+  only the *fetch*, and since accounts are enabled when first discovered, every
+  tenant accumulates rows on accounts the customer later deselected — which then
+  kept showing on a page whose settings said otherwise. Filtered, not deleted, so
+  re-enabling an account restores its history with no re-sync. Like the payment
+  rule, this governs listings, not `GET /erp-entries/{id}`.
+- **Consequence worth stating**: with the VAT and payable accounts deselected, an
+  expanded voucher shows its expense postings only — no VAT, no payable, and its
+  rows sum to Total Spend again rather than to zero. Enabling those accounts
+  brings the full ledger view back. This is why the column is named *Total
+  Spend*: it is correct in both configurations.
+- **Bug fix — frozen base amounts.** `FxService.convert_row` treated the mere
+  presence of a rate as proof that a row's stored conversion was current. Entries
+  are upserted in place, so a row whose posted amounts changed kept the previous
+  posting's base amounts — and since the table renders base amounts, it showed
+  figures from unrelated rows, with the sign inverted where the old posting used
+  the other ledger side. The short-circuit now requires the stored base amounts
+  to still reproduce from the posted amounts at the stored rate. This also
+  unbroke `POST /companies/{id}/recompute-fx`, which shares the same function and
+  previously reported every corrupt row as unchanged.
 - **Backend**: `GET /api/v1/erp-entries` gains a defined, stable ordering —
   `accounting_date` descending with undated entries last, then `voucher_id`,
   then `id`. This is retained as an **independent fix**: the endpoint had no
@@ -97,7 +118,9 @@ None.
   line, carrying that line's description, net amount and `lineNumber`, rather
   than one netted posting per account.
 - `domain-model`: `ErpEntry` gains a nullable `source_invoice_line_id`, relating
-  entries to lines as many-to-one.
+  entries to lines as many-to-one; and the `sync_enabled` toggle now hides an
+  account's entries from the listings as well as stopping future ingestion
+  (retaining them, so it stays reversible).
 
 ## Impact
 

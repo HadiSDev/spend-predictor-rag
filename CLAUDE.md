@@ -38,7 +38,15 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 - Run web API: `uvicorn web_api.app:app --reload`
 - Run dashboard: `streamlit run src/web_api/dashboard/app.py`
 - Test: `uv run pytest`
-- Migrate DB: `uv run alembic upgrade head`
+- Migrate DB: `uv run alembic upgrade head`. The chain is **one squashed
+  baseline** (`0001_baseline_schema`); the original 20 migrations never created
+  a base table, so `upgrade` from empty had in fact never worked — the schema was
+  built out-of-band by `create_all()`. A database that predates the squash is
+  brought across once with `uv run alembic stamp 0001_baseline_schema --purge`
+  (`--purge` because plain `stamp` first resolves the *current* revision, whose
+  script was deleted). `tests/web_api/test_migrations.py` runs the chain from
+  base against a throwaway PostgreSQL database, so this cannot silently rot
+  again; it skips explicitly when no PostgreSQL is reachable.
 - Infra: `docker compose up` (Qdrant on :6333, PostgreSQL on :5432)
 
 ## Web API auth (Clerk)
@@ -85,12 +93,21 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   invoice already accounted for, so it is noise in a spend tool. It is a product
   rule, not a default — `?entry_type=payment` returns an empty page — and it is
   narrow: `credit_note` and `journal_entry` both move real spend and stay.
+  **Both listings also exclude entries on accounts with `sync_enabled=false`** —
+  the toggle gates the fetch, but accounts are enabled when discovered and
+  disabling one deletes nothing, so deselected accounts otherwise keep showing.
+  Filtered, not deleted: re-enabling restores the history with no re-sync.
   `GET /erp-entries/{id}` is **not** gated (a lookup, not a listing), and
   `reporting.py` is untouched, so the reports stay ledger-complete; that is why
   the frontend filters `payment` out of its entry-type options
   (`listableEntryTypes`). Then `/erp-entries/{id}`, `/erp-integrations`, `/erp-integrations/{id}`,
   `/erp-integrations/{id}/accounts` (the chart of accounts; readable by any
-  authenticated member, writes are management-gated), `/erp-types` (the connector catalog:
+  authenticated member, writes are management-gated), the **voucher detail**
+  quartet — `GET /erp-entries/vouchers/{voucher_id}`, `/erp-entries/vouchers/`
+  `by-entry/{entry_id}` (the same voucher addressed by one of its postings, for
+  a link that names an entry), and each one's `/audit` sibling —
+  `GET /invoices/{id}/document` (streams the scan **live from the ERP**; nothing
+  is copied locally, so there is no second copy to keep in sync), `/erp-types` (the connector catalog:
   which ERP systems this deployment supports and the credential fields each
   declares — authenticated, not management-gated), `/organization`, and **reports** —
   `GET /reports/entries-summary`, `/reports/entries-by-account`,
@@ -103,6 +120,8 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   `PATCH /companies/{id}`, `POST /companies/{id}/deactivate|activate`,
   `POST /companies/{id}/recompute-fx` (rewrite stored base amounts),
   `POST /invoice-lines/{id}/verify` (accept or correct the categorization),
+  `PATCH /invoices/{id}` (correct the parsed header — **409 unless
+  `Invoice.source == 'pdf_extraction'`**; see below),
   `PATCH /organization`. **ERP integrations** — `POST /erp-integrations` (with
   credentials), `PATCH /erp-integrations/{id}`, `POST /erp-integrations/{id}/`
   `disconnect|reconnect|test-connection|refresh-accounts`, `PATCH /erp-accounts/{id}`
@@ -110,7 +129,8 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   customer settings, not ERP metadata**: the ERP's value seeds a newly
   discovered account, and from then on neither `refresh-accounts` nor the sync
   runner may overwrite them — both upsert sites refresh only name, type, parent
-  and `is_active`. `with_vat` records whether an account is *assumed* VAT-
+  and `is_active`. `sync_enabled` governs **both** what the sync fetches and what
+  the entry listings return. `with_vat` records whether an account is *assumed* VAT-
   inclusive, which is what lets reconciliation tell a VAT difference from a
   total difference; it recomputes no stored amount. Managed from
   `/settings/companies/$companyId/accounts` in the frontend. Both creation paths share
@@ -236,6 +256,42 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   every filter through one `_entry_conditions()`, so the flat list, the voucher
   groups, and the detail endpoint cannot drift apart.
 
+## Voucher detail panel
+
+- One **URL-addressable** side panel on `/entries`, driven by search params
+  (`?voucher=` / `?entry=` / `?tab=`) so a pasted link opens the same voucher on
+  the same tab for whoever receives it. `by-entry` exists for the second form:
+  a link that names a posting still opens its whole voucher.
+- **Provenance decides affordance.** Only what our AI produced is correctable —
+  the parsed invoice header and a line's spend category. ERP-posted values are
+  flat evidence text, never a disabled input, because a disabled input claims a
+  permission that will never be granted. `Invoice.source`
+  (`'erp' | 'pdf_extraction'`) is what enforces it: `PATCH /invoices/{id}`
+  **409s** on an ERP-sourced invoice rather than silently letting an edit
+  diverge from the ledger.
+- **An attached document is not necessarily a PDF.** The viewer dispatches on
+  the blob's own media type — PDF through pdf.js, `image/*` as a plain `<img>`,
+  anything else as a download rather than a broken preview. Real Billy
+  attachments include JPEG photos of receipts, and handing one to pdf.js
+  produces "Invalid PDF structure" over a document that is perfectly fine.
+  The type comes from the ERP's file record, so it is never guessed.
+- Correcting `currency`/`total`/`tax` **nulls that invoice's base amounts**
+  rather than keeping figures derived from values that no longer exist — the
+  same "visibly stale, not silently wrong" rule the FX section states.
+  `POST /companies/{id}/recompute-fx` restores them.
+- The panel's header total comes from the server, via the very same
+  `_voucher_amount()` the voucher *groups* use, and honours `currency_mode`.
+  Summing the embedded entries client-side would show a different number **and a
+  different currency** from the row the panel was opened from.
+- `AuditLog.seq` is a **DB-generated** monotonic column (a PostgreSQL sequence,
+  `server_default=FetchedValue()`) because the voucher-wide audit feed orders by
+  insertion, and a same-transaction timestamp tie is otherwise unordered.
+  `FetchedValue()` is load-bearing: it makes the ORM **omit** `seq` from the
+  INSERT so the sequence default applies. `default=None` instead sends an
+  explicit `NULL` and every audit write fails on PostgreSQL — invisible to the
+  SQLite suite, so change this only with a PostgreSQL check that goes **through
+  the ORM**, not raw SQL.
+
 ## Sync pipeline
 
 - **The runner reads its work from the database, never from arguments.**
@@ -259,6 +315,79 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 - The runner needs `WEB_API_CREDENTIAL_ENC_KEY` whenever an integration has
   stored credentials, since it decrypts them.
 
+## Tenant scope: active vs. reachable
+
+`TenantScope` carries **two** company sets, and the distinction is load-bearing:
+
+- **`company_ids`** — every company in the org, active or not. The
+  **authorization** set: what the caller may reach at all. A deactivated company
+  is still theirs, so its detail must load and it must be reactivatable. Never
+  narrow this.
+- **`active_company_ids`** — the active subset. The **listing** set.
+  `resolve_company_ids(scope, None)` returns it, so an unfiltered "all
+  companies" view — `/erp-entries`, `/erp-entries/vouchers`, `/invoices`,
+  `/invoice-lines`, `/vendors` and every `/reports/*` — covers active companies
+  only.
+
+The reason is that `GET /companies` defaults to active, so a client's company
+picker offers only those: rows from a deactivated company appearing under "all"
+could not be filtered out by any request the client is able to make.
+**Asking for a company by id still works**, active or not — history is retained
+(companies are soft-deactivated, never deleted) and an explicit request for it is
+deliberate, exactly as `?include_inactive` reaches them in the company list.
+
+## ERP connectors
+
+- **`ErpConnector`** (`connectors/base.py`) is the contract; `connectors/http.py`
+  carries the plumbing every HTTP connector shares — client, status→exception
+  mapping, bounded retry — behind two seams: **`_auth_headers()`, evaluated per
+  request** (so a connector whose token expires refreshes there, with nothing
+  above it changing), and a declared **paginator** (`connectors/pagination.py`:
+  page-number, skip-pages, OData next-link). 429 raises `ErpRateLimitError`,
+  carrying `retry_after`.
+- A connector may declare **brand metadata** — `brand_slug`, `description`,
+  `docs_url` — which `GET /erp-types` projects. That is the *only* place a
+  connector's identity is declared: the frontend renders its picker from the
+  catalog and knows no connector by name, so registering one is the whole of the
+  work needed for it to appear, with a lettered fallback tile when we have no
+  artwork (`frontend/src/assets/erp/`, `erp-brand-mark.tsx`).
+- **Billy** (`connectors/billy.py`, `erp_type = "billy"`) is the first real ERP.
+  Billy API v2, authenticated with a customer's revocable `X-Access-Token`
+  (stored encrypted like any credential — **never** an env var); the
+  organization is discovered from the token. Its ledger maps
+  transaction→voucher, postings→entries, originating bill→invoice scan.
+  Four behaviours **contradict Billy's own documentation** and are load-bearing:
+  1. The originator is a `"kind:id"` string in `originatorReference`; the
+     documented `originatorType` field is null on every row.
+  2. `/transactions` accepts date filters and **ignores** them, so `since` is an
+     early stop on an `entryDate DESC` scan. (`/postings` and `/bills` do filter
+     — the escape hatch if the scan gets slow.)
+  3. A document's `downloadUrl` is on S3 and **accepts** the access token, so the
+     credential is withheld by an explicit host check; nothing would otherwise
+     fail to reveal it being sent to AWS.
+  4. Voided transactions come in pairs (`isVoided` original + `isVoid`
+     reversal) and **both** are skipped — they net to zero, and counting them
+     would present one bill under two vouchers and duplicate the invoice.
+  Postings name their account by `accountId`, so the connector maps it through
+  the chart; a posting on an unknown account is dropped, not stored blank. Bills
+  carry `contactName: null`, so the supplier's name comes from the contact book.
+  A bill's **scan is not on the bill**: it hangs off an org-wide `/attachments`
+  listing keyed by an `ownerReference` of `"bill:<id>"`, with no per-owner
+  filter — so the connector fetches that listing **once** and indexes it, rather
+  than once per invoice. `_map_bill` records the resulting `file_ref`, which is
+  what makes the sync write a `File` row; without it `has_document` is false and
+  `GET /invoices/{id}/document` 404s on a document Billy would have served. The
+  attachment names no file, so the name costs one `/files/{id}` lookup per
+  invoice — memoised and shared with the document route, which needs the same
+  record for the download URL and the media type. Worth it: a good share of
+  Billy attachments are phone photos of a receipt, and the runner's `scan.pdf`
+  placeholder would be an outright lie about what the customer downloads.
+  Tests run against scrubbed captures in `tests/fixtures/billy/` and never touch
+  the network; `scripts/billy_fixtures.py` re-captures them and is opt-in.
+- Connecting Billy needs `WEB_API_CREDENTIAL_ENC_KEY` set (unlike the Debug ERP,
+  whose fields all have defaults) and outbound access to
+  `api.billysbilling.com` plus the S3 host its documents live on.
+
 ## Model Hosting
 
 - Local vLLM at `http://localhost:8000/v1`, model `google/gemma-4-E4B-it`
@@ -279,7 +408,8 @@ src/
 │   ├── fx/                   historical FX: rate provider + cache, convert,
 │   │                         recompute, backfill CLI
 │   ├── routers/              companies, invoices, invoice-lines (verify + audit)
-│   ├── connectors/           ERP connector interface + MockErpConnector
+│   ├── connectors/           ERP connector interface, shared HTTP base,
+│   │                         pagination strategies, Billy + Debug ERP
 │   ├── dashboard/app.py      Streamlit dashboard (stub)
 │   └── db/
 │       ├── models/           SQLModel ORM (one file per entity)

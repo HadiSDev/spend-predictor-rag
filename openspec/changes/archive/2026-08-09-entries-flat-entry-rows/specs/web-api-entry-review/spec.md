@@ -26,7 +26,13 @@ The API SHALL expose `GET /api/v1/erp-entries` returning a paginated list of `Er
   empty page rather than overriding the exclusion, and `total` SHALL count only
   what is returned. The exclusion SHALL be narrow — `credit_note` and
   `journal_entry` both move real spend and SHALL be returned.
-- The exclusion SHALL be expressed once, in the condition set shared by the flat
+- Entries posted to an account with `sync_enabled = false` SHALL NOT be
+  returned. The toggle is the customer's statement of which accounts are part of
+  their spend picture; accounts are enabled when first discovered and disabling
+  one deletes nothing, so without this the listings keep showing rows from
+  accounts the settings say are excluded. Filtering rather than deleting keeps it
+  reversible: re-enabling an account restores its entries with no re-sync.
+- Both exclusions SHALL be expressed once, in the condition set shared by the flat
   list and the voucher groups, so the two can never disagree about what exists.
 - Entries SHALL be ordered by `accounting_date` descending with **undated
   entries last**, then by `voucher_id`, then by `id`. Ordering by voucher within
@@ -74,6 +80,22 @@ The API SHALL expose `GET /api/v1/erp-entries` returning a paginated list of `Er
 - **THEN** no entry of type `payment` appears in either response, and the
   purchase invoices, credit notes and journal entries are all still returned
 
+#### Scenario: A deselected account's entries are not listed
+
+- **WHEN** an account is set `sync_enabled = false` and it has entries already
+  persisted
+- **THEN** neither listing returns them, and `total` counts only what is returned
+
+#### Scenario: Re-enabling an account restores its entries
+
+- **WHEN** that account is set back to `sync_enabled = true`
+- **THEN** its entries appear in the listings again, without a re-sync
+
+#### Scenario: A voucher of only deselected postings produces no group
+
+- **WHEN** every posting of a voucher sits on deselected accounts
+- **THEN** no group is returned for it
+
 #### Scenario: Asking for payments returns nothing
 
 - **WHEN** a client requests `GET /api/v1/erp-entries?entry_type=payment`
@@ -111,10 +133,11 @@ The API SHALL expose `GET /api/v1/erp-entries/vouchers` returning a paginated li
 - The endpoint SHALL be tenant-scoped and SHALL accept the same filters as
   `GET /api/v1/erp-entries` (`company_id`, `entry_type`, `status`, `from`, `to`,
   `vendor_id`, `source_invoice_id`), applied to the entries before grouping.
-- Entries of type `payment` SHALL be excluded before grouping, by the same rule
-  and the same shared condition set as `GET /api/v1/erp-entries`. A voucher made
-  entirely of payment postings therefore produces no group at all, rather than a
-  group with a null `amount`.
+- Entries of type `payment`, and entries on accounts with `sync_enabled = false`,
+  SHALL both be excluded **before grouping**, by the same shared condition set as
+  `GET /api/v1/erp-entries`. A voucher left with no postings therefore produces
+  no group at all, and a group's `entry_count` and totals SHALL cover only the
+  entries it actually returns — a group must never total a row it does not show.
 - Pagination (`page`, `page_size`) SHALL be **over groups, not entries**, so a
   voucher's postings are never split across a page boundary and a group's totals
   always reflect all of its entries.

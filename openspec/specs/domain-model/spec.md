@@ -216,7 +216,7 @@ A raw financial entry from an ERP system. In double-entry accounting, every tran
 
 ErpEntry is the universal atomic financial record. Invoice + InvoiceLine is a higher-level view specific to purchase invoices. ErpEntry captures everything, including non-purchase transactions (adjustments, payments, accruals).
 
-The categorizer maps ErpEntry records to the spend tree by looking at their ERP account, description, and associated invoice context.
+Entries are never categorized. The categorizer works on `InvoiceLine`; an entry's spend category, when it has one, is read through the invoice line it was posted from.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -233,19 +233,11 @@ The categorizer maps ErpEntry records to the spend tree by looking at their ERP 
 | currency | text | ISO 4217 |
 | erp_entry_id | text | Native entry ID in the ERP |
 | status | text | "pending" | "categorized" | "failed" |
-| level1 | text | "Direct" | "Indirect", nullable until categorized |
-| level2 | text | From spend tree, nullable until categorized |
-| level3 | text | Nullable |
-| account_code | text | Chosen spend tree leaf code, nullable until categorized |
-| account_name | text | Chosen spend tree leaf name, nullable |
-| confidence | numeric(4,3) | Nullable until categorized |
-| rationale | text | Nullable |
-| gt_level1 | text | Ground truth (synthetic only) |
-| gt_level2 | text | Ground truth (synthetic only) |
-| gt_level3 | text | Ground truth (synthetic only) |
-| gt_account_code | text | Ground truth (synthetic only) |
 | raw_json | jsonb | Original ERP entry data |
 | created_at | timestamptz | |
+
+Entries carry **no** categorization or ground-truth columns — see "ErpEntry
+stores no categorization fields".
 
 ### Recommendation
 
@@ -358,6 +350,22 @@ The `Company` entity SHALL carry activation state: `is_active` (boolean, default
 
 - **WHEN** a company is deactivated
 - **THEN** its `Invoice` and `InvoiceLine` rows are unchanged and still reference the company
+
+### Requirement: Company carries a base currency
+
+`Company` SHALL carry a non-null `base_currency` holding an ISO 4217 alphabetic
+code. It is a customer setting, not ERP metadata: no connector, sync, or
+refresh SHALL overwrite it.
+
+#### Scenario: Base currency is required on the row
+
+- **WHEN** a `Company` is persisted
+- **THEN** it has a `base_currency`, and a company without one cannot be stored
+
+#### Scenario: A sync never rewrites it
+
+- **WHEN** an ERP sync or account refresh runs for the company
+- **THEN** `base_currency` is left exactly as the customer set it
 
 ### Requirement: Platform and organization roles
 
@@ -525,8 +533,16 @@ sync pipeline; entries are persisted as raw financial context only.
 - `is_active` SHALL continue to reflect the ERP's active flag and MUST NOT be
   overloaded as the sync toggle.
 - `sync_enabled` is scoped per `ErpAccount`, i.e. per `ErpIntegration` per Company.
-- Disabling an account SHALL govern future ingestion only; entries already
-  persisted for it SHALL NOT be deleted or hidden by the toggle.
+- Disabling an account SHALL NOT delete entries already persisted for it. The
+  history is retained.
+- Disabling an account SHALL, however, **hide** its entries from the entry
+  listings. An account is enabled when first discovered, so anything pulled
+  before a customer narrowed their selection stays in the database; leaving it
+  visible contradicts the setting that says the account is not part of their
+  spend picture. Hiding rather than deleting is what makes the toggle
+  reversible — re-enabling an account brings its history straight back.
+- The toggle SHALL govern *listings*, not lookup by id, exactly as the
+  excluded-entry-type rule does.
 
 #### Scenario: Disabled account is excluded from entry ingestion
 
@@ -540,10 +556,17 @@ sync pipeline; entries are persisted as raw financial context only.
 - **THEN** the account's `sync_enabled` stays `false` while its name, type and
   parent metadata are refreshed
 
-#### Scenario: Disabling an account leaves its history intact
+#### Scenario: Disabling an account leaves its history intact but unlisted
 
 - **WHEN** an account with already-synced entries is set to `sync_enabled = false`
-- **THEN** its existing `ErpEntry` rows remain, and only future ingestion stops
+- **THEN** its existing `ErpEntry` rows remain in the database, future ingestion
+  stops, and those rows no longer appear in the entry listings
+
+#### Scenario: Re-enabling an account restores its entries
+
+- **WHEN** a deselected account with retained history is set back to
+  `sync_enabled = true`
+- **THEN** its existing entries appear in the listings again, with no re-sync
 
 ### Requirement: ErpAccount records whether it is with or without VAT
 
@@ -695,4 +718,127 @@ through `ErpAccount`.
 - **THEN** it joins `ErpEntry` to `ErpAccount` and filters
   `ErpAccount.erp_integration_id`, and re-syncing the same source upserts the
   same entry rows (idempotent)
+
+### Requirement: ErpEntry stores no categorization fields
+
+`ErpEntry` SHALL NOT store any categorization output or ground truth. Entries are raw financial context and are never categorized, so the table SHALL carry no `level_1/2/3`, `account_code`, `account_name`, `confidence`, `rationale`, or `gt_*` columns.
+
+- The native account is referenced via `erp_account_id`; it SHALL NOT be
+  duplicated as categorization `account_code`/`account_name` on the entry.
+- Categorization belongs to the invoice line, and an entry that came from a line
+  only *reads through* that link — no per-entry categorization record exists.
+
+#### Scenario: Persisted entry carries no categorization columns
+
+- **WHEN** the sync pipeline persists `ErpEntry` rows
+- **THEN** each entry exposes its raw financial fields, `erp_account_id`, and
+  `status`, and the table has no categorization or ground-truth columns
+
+### Requirement: Entries link to the invoice line they were posted from
+
+`ErpEntry` SHALL carry a nullable `source_invoice_line_id` foreign key to
+`InvoiceLine`, relating the two as **many entries → one line**. A single invoice
+line may be posted across several accounts, so the link points from the posting
+to the line and never the other way; `InvoiceLine` gains no reference back.
+
+- The column SHALL be nullable, and NULL SHALL be the ordinary case rather than
+  a defect. Input VAT, the accounts-payable counterparty, journal entries and
+  payments are properties of a whole voucher and have no line behind them.
+- The link SHALL be set only when the connector states which line a posting came
+  from (`ErpEntryData.source_line_erp_id`). It SHALL NOT be inferred by matching
+  on amount, account or description — an ERP that nets several lines into one
+  posting would make any such guess silently wrong.
+- The linked line SHALL be resolved by *deriving* its id from the same
+  `(invoice, line_erp_id)` pair the invoice persistence uses, so the two agree by
+  construction rather than by resemblance.
+- A posting naming a line its invoice scan did not deliver SHALL be persisted
+  with the link NULL rather than aborting the sync on a dangling key.
+- `ErpEntry` SHALL still carry no categorization of its own. This link exists so
+  that a posting can be read against the line whose category applies to it; the
+  categorization remains the line's.
+
+#### Scenario: A posting is linked to its line
+
+- **WHEN** a connector reports a posting carrying the ERP's line id, and that
+  invoice line was imported with the voucher's scan
+- **THEN** the `ErpEntry` row's `source_invoice_line_id` points at that
+  `InvoiceLine`
+
+#### Scenario: Several postings share one line
+
+- **WHEN** one invoice line is posted as more than one entry
+- **THEN** every one of those entries points at the same `InvoiceLine`, and the
+  line stores no reference back to them
+
+#### Scenario: A posting with no line behind it
+
+- **WHEN** an input-VAT, payable, or journal-entry posting is persisted
+- **THEN** its `source_invoice_line_id` is NULL
+
+#### Scenario: A dangling line reference does not fail the sync
+
+- **WHEN** a connector names a line id that the invoice scan never delivered
+- **THEN** the entry is persisted with `source_invoice_line_id` NULL and the sync
+  continues
+
+### Requirement: FxRate stores one daily reference rate per currency and date
+
+A `FxRate` entity SHALL store the daily reference rate for one currency on one
+date, expressed as units of that currency per 1 EUR, together with the source
+that produced it and when it was fetched. `(quote_currency, rate_date)` SHALL be
+unique.
+
+- A row SHALL also record the `published_date` the rate was actually published
+  for, which differs from `rate_date` when a non-publication date resolved
+  backwards to an earlier publication. Caching the resolved rate under the
+  requested date keeps that date from being re-requested without passing a
+  lookup date off as a publication date.
+
+`FxRate` is reference data, not tenant data: it SHALL carry no
+`organization_id` and no `company_id`, and one row SHALL serve every company.
+
+#### Scenario: A rate is stored once per currency and date
+
+- **WHEN** the same currency and date are looked up by two different companies
+- **THEN** one `FxRate` row serves both, and no duplicate row is written
+
+#### Scenario: Rates are not tenant-scoped
+
+- **WHEN** an `FxRate` row is inspected
+- **THEN** it references no organization or company
+
+### Requirement: Money-bearing rows carry their base-currency conversion
+
+`Invoice`, `InvoiceLine` and `ErpEntry` SHALL each carry, alongside their
+as-posted currency and amounts, a nullable `base_currency`, nullable base
+amount column(s) mirroring their money columns, a nullable `fx_rate`, and a
+nullable `fx_rate_date`.
+
+- `Invoice` SHALL mirror `total` and `tax`.
+- `InvoiceLine` SHALL mirror `amount`.
+- `ErpEntry` SHALL mirror `debit_amount` and `credit_amount`.
+- Base amounts SHALL use the same numeric scale as the columns they mirror;
+  `fx_rate` SHALL be stored with enough precision that a stored base amount can
+  be re-derived from the original amount and the rate.
+- Null base fields SHALL mean "not converted" — never "converted to zero".
+- The existing `currency` and amount columns SHALL retain their meaning: the
+  value exactly as the ERP posted it.
+
+#### Scenario: An entry carries both figures
+
+- **WHEN** a converted `ErpEntry` is read
+- **THEN** it exposes its posted currency and debit/credit amounts, and its base
+  currency, base debit/credit amounts, rate, and rate date
+
+#### Scenario: Unconverted means null, not zero
+
+- **WHEN** a row could not be converted
+- **THEN** its base amount columns are null, and no consumer reads them as `0`
+
+#### Scenario: The posted amount is never rewritten
+
+- **WHEN** a row is converted or later recomputed
+- **THEN** its `currency` and posted amounts are byte-identical to before
+
+
 

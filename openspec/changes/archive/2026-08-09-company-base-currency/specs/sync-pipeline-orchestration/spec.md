@@ -67,14 +67,25 @@ fillable later by a recompute.
 - **THEN** the previously unconverted rows are converted at their own historical
   rates, without re-fetching the ERP
 
-### Requirement: Re-syncing does not re-convert already-converted rows
+### Requirement: Re-syncing does not re-convert rows that have not changed
 
-A re-sync SHALL skip conversion for any row that already carries a rate and
-whose stored base currency matches its company's current one, leaving its base
-amount, rate, and rate date untouched and issuing no rate lookup for it.
+A re-sync SHALL skip conversion for a row whose stored base currency matches its
+company's current one **and** whose stored base amounts still reproduce from its
+posted amounts at its stored rate, leaving its base amount, rate, and rate date
+untouched and issuing no rate lookup for it.
+
+- The runner rewrites a row's posted amounts in place on every run, so "carries
+  a rate" is not evidence that the stored conversion belongs to the amounts now
+  on the row. A row whose posted amounts changed SHALL be reconverted.
 
 #### Scenario: The second run is idempotent
 
 - **WHEN** the runner syncs the same source data twice
 - **THEN** the second run issues no rate lookups for already-converted rows and
   their stored base amounts are unchanged
+
+#### Scenario: A re-posted amount is reconverted on the next sync
+
+- **WHEN** the ERP re-posts an entry under the same id with a different amount
+- **THEN** the next sync rewrites that entry's base amounts to match the new
+  posted amounts
