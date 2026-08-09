@@ -92,4 +92,29 @@ describe('createApiClient', () => {
 
     await expect(api.del('/api/v1/organization')).resolves.toBeUndefined()
   })
+
+  it('fetches a binary body with an Accept: application/pdf header', async () => {
+    const blob = new Blob(['%PDF-1.4'], { type: 'application/pdf' })
+    const fetchMock = mockFetch(new Response(blob, { status: 200 }))
+    const api = createApiClient(async () => 'tok-123')
+
+    const result = await api.getBlob('/api/v1/documents/f1')
+
+    expect(result).toBeInstanceOf(Blob)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/v1/documents/f1')
+    expect(init.headers.Accept).toBe('application/pdf')
+    expect(init.headers.Authorization).toBe('Bearer tok-123')
+  })
+
+  it('surfaces the JSON detail when a blob fetch fails', async () => {
+    mockFetch(jsonResponse({ detail: 'Document not found' }, 404))
+    const api = createApiClient(async () => 'tok-123')
+
+    const error = (await api.getBlob('/api/v1/documents/missing').catch((e: unknown) => e)) as ApiError
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error.status).toBe(404)
+    expect(error.detail).toBe('Document not found')
+  })
 })

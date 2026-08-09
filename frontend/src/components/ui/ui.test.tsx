@@ -125,6 +125,21 @@ describe('Drawer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     await waitFor(() => expect(screen.queryByText('Entry detail')).toBeNull())
   })
+
+  it('renders a wide drawer when asked for one', () => {
+    render(
+      <Drawer open>
+        <DrawerContent size="wide" aria-label="Wide panel">
+          <p>content</p>
+        </DrawerContent>
+      </Drawer>,
+    )
+    const panel = screen.getByLabelText('Wide panel')
+    // The default drawer is max-w-md; the split layout needs room for a PDF
+    // beside a field list.
+    expect(panel.className).toContain('max-w-[1100px]')
+    expect(panel.className).not.toContain('max-w-md')
+  })
 })
 
 type Row = { name: string; amount: number }

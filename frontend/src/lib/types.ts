@@ -55,6 +55,11 @@ export interface ErpTypeRead {
   erp_type: string
   label: string
   credential_fields: Array<CredentialFieldRead>
+  /** Names vendored artwork in `src/assets/erp`. Absent when we have none. */
+  brand_slug?: string | null
+  /** One line about the ERP, for the picker card. */
+  description?: string | null
+  docs_url?: string | null
 }
 
 /** The ERP connection to provision alongside a company. */
@@ -329,4 +334,101 @@ export interface ErpAccountUpdate {
 export interface RefreshAccountsResult {
   seen: number
   added: number
+}
+
+/** One line of an invoice, holding its categorization result directly. */
+export interface InvoiceLineRead {
+  id: string
+  invoice_id: string
+  company_id: string
+  description: string | null
+  quantity: Money | null
+  unit_price: Money | null
+  amount: Money | null
+  native_account_code: string | null
+  /** The line in the company's base currency, at its invoice's rate. Null when
+   *  unconverted. */
+  base_currency: string | null
+  base_amount: Money | null
+  fx_rate: Money | null
+  fx_rate_date: string | null
+  /** `uncategorized` | `ai_failed` | `ai_categorized` | `verified`. */
+  status: string
+  level_1: string | null
+  level_2: string | null
+  level_3: string | null
+  account_code: string | null
+  account_name: string | null
+  confidence: Money | null
+  rationale: string | null
+  spend_category_id: string | null
+}
+
+/** An invoice header. */
+export interface InvoiceRead {
+  id: string
+  company_id: string
+  vendor_id: string | null
+  invoice_number: string | null
+  invoice_date: string | null
+  currency: string | null
+  total: Money | null
+  tax: Money | null
+  /** The invoice in the company's base currency, at the rate in force on
+   *  `invoice_date`. Null when unconverted. */
+  base_currency: string | null
+  base_total: Money | null
+  base_tax: Money | null
+  fx_rate: Money | null
+  fx_rate_date: string | null
+  status: string
+  /** `erp` | `pdf_extraction`. */
+  source: string
+  error_message: string | null
+  file_id: string | null
+  /** Resolved from the linked File so a client never needs a second lookup to
+   *  decide whether to render a viewer. */
+  file_name: string | null
+  has_document: boolean
+}
+
+/** `InvoiceRead` plus its lines — the shape a voucher's detail panel needs. */
+export interface InvoiceDetailRead extends InvoiceRead {
+  lines: Array<InvoiceLineRead>
+}
+
+/** The document attached to a voucher's invoice. Derived from
+ *  `Invoice.file_id`/`File.filename` — never an independent source of truth. */
+export interface DocumentRead {
+  file_id: string
+  filename: string
+}
+
+/** Everything one voucher's detail panel needs, in one request. */
+export interface VoucherDetailRead {
+  voucher_id: string | null
+  company_id: string
+  accounting_date: string | null
+  currency: string | null
+  entry_count: number
+  entries: Array<ErpEntryRead>
+  invoice: InvoiceDetailRead | null
+  document: DocumentRead | null
+}
+
+/** One audit-log row (`web_api/schemas.py::AuditLogRead`). */
+export interface AuditLogRead {
+  id: string
+  entity_type: string
+  entity_id: string
+  action: string
+  actor: string
+  /** `diff_changes` in `web_api/audit.py` emits `{field, old, new}`. */
+  changes: Array<{ field: string; old: unknown; new: unknown }> | null
+  created_at: string
+}
+
+/** An audit row with the thing it happened to already named. */
+export interface VoucherAuditRead extends AuditLogRead {
+  entity_label: string
 }

@@ -18,13 +18,21 @@ const sideClass = {
   left: 'inset-y-0 left-0 border-r data-[ending-style]:-translate-x-full data-[starting-style]:-translate-x-full',
 } as const
 
+const sizeClass = {
+  default: 'max-w-md',
+  // Wide enough for the PDF and the field list to sit side by side; capped so
+  // it stays a panel over the table rather than becoming a page.
+  wide: 'max-w-[1100px] w-[92vw]',
+} as const
+
 export interface DrawerContentProps extends React.ComponentProps<typeof BaseDialog.Popup> {
   side?: keyof typeof sideClass
+  size?: keyof typeof sizeClass
   showClose?: boolean
 }
 
 export const DrawerContent = React.forwardRef<HTMLDivElement, DrawerContentProps>(
-  ({ className, children, side = 'right', showClose = true, ...props }, ref) => (
+  ({ className, children, side = 'right', size = 'default', showClose = true, ...props }, ref) => (
     <BaseDialog.Portal>
       <BaseDialog.Backdrop className="fixed inset-0 z-50 bg-black/40 transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
       <BaseDialog.Popup
@@ -32,8 +40,9 @@ export const DrawerContent = React.forwardRef<HTMLDivElement, DrawerContentProps
         className={cn(
           // Scrolls internally: a drawer's content is usually a long field list,
           // and the page behind it is already scroll-locked.
-          'fixed z-50 flex w-[calc(100%-3rem)] max-w-md flex-col gap-4 overflow-y-auto border-border bg-card p-6 text-card-foreground shadow-popover outline-none transition-transform duration-200',
+          'fixed z-50 flex w-[calc(100%-3rem)] flex-col gap-4 overflow-y-auto border-border bg-card p-6 text-card-foreground shadow-popover outline-none transition-transform duration-200',
           sideClass[side],
+          sizeClass[size],
           className,
         )}
         {...props}

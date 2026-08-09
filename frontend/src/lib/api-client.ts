@@ -60,6 +60,8 @@ export interface ApiClient {
   patch: <T>(path: string, body?: unknown, params?: QueryParams) => Promise<T>
   /** `delete` is a reserved word; this is the DELETE verb. */
   del: <T>(path: string, params?: QueryParams) => Promise<T>
+  /** Fetch a binary response (a PDF). `get` would try to parse it as JSON. */
+  getBlob: (path: string, params?: QueryParams) => Promise<Blob>
 }
 
 function withQuery(path: string, params?: QueryParams): string {
@@ -109,5 +111,24 @@ export function createApiClient(getToken: TokenGetter): ApiClient {
     post: (path, body, params) => request('POST', path, { body, params }),
     patch: (path, body, params) => request('PATCH', path, { body, params }),
     del: (path, params) => request('DELETE', path, { params }),
+    getBlob: async (path, params) => {
+      const token = await getToken()
+      const res = await fetch(`${API_BASE_URL}${withQuery(path, params)}`, {
+        headers: {
+          Accept: 'application/pdf',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      })
+      if (!res.ok) {
+        let body: unknown
+        try {
+          body = await res.json()
+        } catch {
+          // non-JSON error body; leave undefined
+        }
+        throw new ApiError(res.status, `Request to ${path} failed with ${res.status}`, body)
+      }
+      return res.blob()
+    },
   }
 }
