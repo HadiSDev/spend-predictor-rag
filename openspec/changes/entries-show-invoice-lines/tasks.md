@@ -20,27 +20,27 @@
 
 ## 3. Document-processing stage
 
-- [ ] 3.1 Create `src/ai_api/documents/` with a `runner.py` that discovers `doc_status='pending'` invoices across every connected integration, oldest `invoice_date` first, mirroring `connected_integrations()` in the sync runner
-- [ ] 3.2 Claim each invoice by committing `doc_status='processing'` before any work, so two overlapping runs cannot take the same invoice
-- [ ] 3.3 Fetch the document through the invoice's integration connector (the path `GET /invoices/{id}/document` uses); persist no bytes
-- [ ] 3.4 Dispatch on the payload's media type: PDFs through `ai_api/pdf_loader.py`; record a clean unsupported-media failure for types with no extractor
-- [ ] 3.5 Extract lines using the `flow.py` extraction agents, reusing `ai_api/parsing.py` for JSON repair (prompt for JSON, do not use guided decoding)
-- [ ] 3.6 Reconcile: accept if the lines sum to `total` or to `total − tax` within `max(1% × |total|, one currency unit)`; skip the check when `total` is null; otherwise reject
-- [ ] 3.7 On rejection, record `doc_status='failed'` with both sums in `doc_error`, increment `doc_attempts`, and leave the invoice's lines untouched
-- [ ] 3.8 Cap attempts at a configured ceiling; skip invoices that have reached it until retriggered
-- [ ] 3.9 Isolate failure per invoice — an exception records `failed` on that invoice and the run continues; exit non-zero if any invoice failed
-- [ ] 3.10 Add `--company-id`, `--invoice-id` and `--limit`, which filter the discovered set and never create work
-- [ ] 3.11 Add stage settings to `ai_api/config.py`: attempt ceiling, reconciliation tolerance, stale-claim age
-- [ ] 3.12 Tests against fixture documents with no network and no live LLM: discovery, claiming, per-invoice isolation, the attempt ceiling, and each reconciliation branch
+- [x] 3.1 Create `src/ai_api/documents/` with a `runner.py` that discovers `doc_status='pending'` invoices across every connected integration, oldest `invoice_date` first, mirroring `connected_integrations()` in the sync runner
+- [x] 3.2 Claim each invoice by committing `doc_status='processing'` before any work, so two overlapping runs cannot take the same invoice
+- [x] 3.3 Fetch the document through the invoice's integration connector (the path `GET /invoices/{id}/document` uses); persist no bytes
+- [x] 3.4 Dispatch on the payload's media type: PDFs through `ai_api/pdf_loader.py`; record a clean unsupported-media failure for types with no extractor
+- [x] 3.5 Extract lines using the `flow.py` extraction agents, reusing `ai_api/parsing.py` for JSON repair (prompt for JSON, do not use guided decoding)
+- [x] 3.6 Reconcile: accept if the lines sum to `total` or to `total − tax` within `max(1% × |total|, one currency unit)`; skip the check when `total` is null; otherwise reject
+- [x] 3.7 On rejection, record `doc_status='failed'` with both sums in `doc_error`, increment `doc_attempts`, and leave the invoice's lines untouched
+- [x] 3.8 Cap attempts at a configured ceiling; skip invoices that have reached it until retriggered
+- [x] 3.9 Isolate failure per invoice — an exception records `failed` on that invoice and the run continues; exit non-zero if any invoice failed
+- [x] 3.10 Add `--company-id`, `--invoice-id` and `--limit`, which filter the discovered set and never create work
+- [x] 3.11 Add stage settings to `ai_api/config.py`: attempt ceiling, reconciliation tolerance, stale-claim age
+- [x] 3.12 Tests against fixture documents with no network and no live LLM: discovery, claiming, per-invoice isolation, the attempt ceiling, and each reconciliation branch
 
 ## 4. Line replacement
 
-- [ ] 4.1 Write the replacement in one transaction: delete the invoice's `erp`/`entry_fallback` lines, null `source_invoice_line_id` on any posting that referenced them, insert the `document_ai` lines
-- [ ] 4.2 Convert the new lines at the invoice's `invoice_date` through the existing FX path; leave them `uncategorized` — the stage never categorizes
-- [ ] 4.3 Append an `AuditLog` row per removed line via `web_api/audit.py`, `actor='system'`, carrying the removed line's categorization result and status
-- [ ] 4.4 Recompute `Invoice.status` through `web_api/rollup.py` in the same transaction
-- [ ] 4.5 Set `doc_status='processed'`, `doc_processed_at`, and clear `doc_error`
-- [ ] 4.6 Tests: stand-ins are fully replaced; a verified line's values survive in the audit log; a re-extraction leaves exactly one set of lines; a `verified` invoice rolls back to `uncategorized`; postings are unlinked and their category reads null
+- [x] 4.1 Write the replacement in one transaction: delete the invoice's `erp`/`entry_fallback` lines, null `source_invoice_line_id` on any posting that referenced them, insert the `document_ai` lines
+- [x] 4.2 Convert the new lines at the invoice's `invoice_date` through the existing FX path; leave them `uncategorized` — the stage never categorizes
+- [x] 4.3 Append an `AuditLog` row per removed line via `web_api/audit.py`, `actor='system'`, carrying the removed line's categorization result and status
+- [x] 4.4 Recompute `Invoice.status` through `web_api/rollup.py` in the same transaction
+- [x] 4.5 Set `doc_status='processed'`, `doc_processed_at`, and clear `doc_error`
+- [x] 4.6 Tests: stand-ins are fully replaced; a verified line's values survive in the audit log; a re-extraction leaves exactly one set of lines; a `verified` invoice rolls back to `uncategorized`; postings are unlinked and their category reads null
 
 ## 5. Web API
 

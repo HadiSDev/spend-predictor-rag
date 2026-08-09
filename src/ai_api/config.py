@@ -47,6 +47,25 @@ CHROMA_DIR = os.getenv("CHROMA_DIR", str(PROJECT_ROOT / "chroma_db"))
 # handles; 1 means strictly sequential (deterministic ledger order).
 INVOICE_CONCURRENCY = int(os.getenv("INVOICE_CONCURRENCY", "4"))
 
+# -- Document processing stage (python -m ai_api.documents.runner) -----------
+
+# How many times one invoice may be attempted before the stage stops picking it
+# up. A document that has failed this often will not start succeeding on its own;
+# the way back is POST /invoices/{id}/reprocess, which resets the count.
+DOC_MAX_ATTEMPTS = int(os.getenv("DOC_MAX_ATTEMPTS", "3"))
+
+# How far the extracted lines may be from the invoice's own total before the
+# extraction is rejected. Relative *and* absolute, taking the larger: a
+# percentage alone rejects a small invoice over one øre of rounding, and a fixed
+# amount alone accepts a large invoice that is missing a whole line.
+DOC_RECONCILE_TOLERANCE_PCT = float(os.getenv("DOC_RECONCILE_TOLERANCE_PCT", "0.01"))
+DOC_RECONCILE_TOLERANCE_ABS = float(os.getenv("DOC_RECONCILE_TOLERANCE_ABS", "1.00"))
+
+# An invoice claimed for processing whose run died leaves it stuck in
+# `processing` forever. After this long a claim is treated as abandoned and the
+# invoice is picked up again.
+DOC_STALE_CLAIM_MINUTES = int(os.getenv("DOC_STALE_CLAIM_MINUTES", "60"))
+
 
 def get_llm() -> LLM:
     """Return a CrewAI LLM pointed at the local vLLM OpenAI-compatible endpoint."""
