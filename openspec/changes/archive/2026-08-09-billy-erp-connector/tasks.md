@@ -183,24 +183,27 @@ All fixture-based against an injected transport. No test may touch the network.
 
 ## 7. End-to-end verification against the real Billy organization
 
-- [ ] 7.1 Create a company in Settings against the real Billy organization
+- [x] 7.1 Create a company in Settings against the real Billy organization
       through the new card grid, and confirm the credential is stored encrypted
       and never returned.
-- [ ] 7.2 Run `POST /erp-integrations/{id}/test-connection` and
+- [x] 7.2 Run `POST /erp-integrations/{id}/test-connection` and
       `refresh-accounts`, and confirm the chart of accounts appears with
       `with_vat` seeded and `sync_enabled` left to the customer.
-- [ ] 7.3 Enable a few accounts and run `python -m ai_api.sync.runner
+- [x] 7.3 Enable a few accounts and run `python -m ai_api.sync.runner
       --integration-id <id>`. Confirm entries, invoices and lines land, that
       entries link to their invoice through the voucher, and that the watermark
       advances.
-- [ ] 7.4 Check `GET /erp-entries/vouchers` for the company: a voucher's
+- [x] 7.4 Check `GET /erp-entries/vouchers` for the company: a voucher's
       postings stay together, `payment` entries are excluded from the listing,
       and `source_invoice_line_id` is null throughout as specified.
-- [ ] 7.5 Open one invoice's document through
+- [x] 7.5 Open one invoice's document through
       `GET /invoices/{id}/document` and confirm the Billy attachment streams.
 - [ ] 7.6 Record the wall-clock cost of the sync and the number of transactions
       fetched versus postings kept, so decision 6's client-side filtering cost is
-      measured rather than assumed.
+      measured rather than assumed. **Not measured** — the connector still scans
+      `/transactions` sorted by `entryDate DESC`, so decision 6's cost remains
+      assumed, not proven. Revisit if a customer's sync gets slow: `/postings`
+      and `/bills` do honour date filters and are the escape hatch.
 
 ## 8. Documentation
 

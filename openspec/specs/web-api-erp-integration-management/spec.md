@@ -173,6 +173,13 @@ credential fields each one needs without hardcoding them.
 
 - Each entry SHALL carry the `erp_type` key used by integration creation, a
   human-readable `label`, and a `credential_fields` list.
+- Each entry MAY additionally carry brand metadata declared by the connector: a
+  `brand_slug` naming its artwork, a `description` of the ERP in one line, and a
+  `docs_url`. Each is optional and SHALL be absent for a connector that declares
+  none, so the addition breaks no existing client.
+- A client SHALL be able to render a recognisable, branded chooser from this
+  payload alone, without knowing any connector by name — the catalog is the only
+  place a connector's identity is declared.
 - Each credential field descriptor SHALL carry its `name`, a human-readable `label`,
   whether it is `required`, whether it is `secret`, and MAY carry a `default`.
 - A field marked `secret` SHALL never have its stored value returned by any endpoint;
@@ -185,8 +192,14 @@ credential fields each one needs without hardcoding them.
 #### Scenario: Catalog lists the registered connectors
 
 - **WHEN** an authenticated caller GETs `/api/v1/erp-types`
-- **THEN** the response lists every registered connector — currently the `mock` debug
-  connector — each with its label and credential field descriptors
+- **THEN** the response lists every registered connector — the `mock` debug
+  connector and `billy` — each with its label and credential field descriptors
+
+#### Scenario: Catalog carries brand metadata when a connector declares it
+
+- **WHEN** an authenticated caller GETs `/api/v1/erp-types`
+- **THEN** the `billy` entry carries a `brand_slug`, a `description` and a
+  `docs_url`, and an entry for a connector declaring none omits them
 
 #### Scenario: Catalog drives a valid integration creation
 
