@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, func, or_
 from sqlmodel import Session, select
 
@@ -14,10 +14,18 @@ from web_api.db.models import (
     ErpEntry,
     Invoice,
     InvoiceLine,
+    LineOrigin,
     LineStatus,
     SpendCategory,
 )
-from ..audit import LINE_AUDIT_FIELDS, diff_changes, record_audit
+from ..audit import (
+    LINE_AUDIT_FIELDS,
+    LINE_BASE_FX_FIELDS,
+    LINE_VALUE_AUDIT_FIELDS,
+    audit_value,
+    diff_changes,
+    record_audit,
+)
 from ..deps import (
     TenantScope,
     get_session,
@@ -26,7 +34,15 @@ from ..deps import (
     tenant_scope,
 )
 from ..rollup import recompute_invoice_status
-from ..schemas import AuditLogRead, InvoiceLineRead, InvoiceLineVerify, Page
+from ..schemas import (
+    AuditLogRead,
+    InvoiceLineCreate,
+    InvoiceLineRead,
+    InvoiceLineUpdate,
+    InvoiceLineVerify,
+    Page,
+)
+from ..verified import mark_verified
 
 router = APIRouter(prefix="/api/v1", tags=["invoice-lines"])
 
@@ -186,6 +202,12 @@ def verify_invoice_line(
     for field, value in corrections.items():
         setattr(line, field, value)
     line.status = LineStatus.VERIFIED
+    # The fields the caller **sent**, not the ones that moved: naming a category
+    # that is already stored is a human asserting it is right, which is exactly
+    # the signal that must survive the next automated write. Same rule as the
+    # header's verify endpoint, so both review surfaces produce labels the same
+    # way.
+    mark_verified(line, corrections.keys())
     session.add(line)
 
     after = {f: getattr(line, f) for f in LINE_AUDIT_FIELDS}
@@ -205,6 +227,191 @@ def verify_invoice_line(
     session.commit()
     session.refresh(line)
     return line
+
+
+#: What a correction may invalidate, and what that costs. `amount` is the value
+#: the line's base figures were derived from; once it moves, they describe
+#: nothing real.
+_LINE_FX_TRIGGER = "amount"
+
+
+@router.patch("/invoice-lines/{line_id}", response_model=InvoiceLineRead)
+def update_invoice_line(
+    line_id: str,
+    body: InvoiceLineUpdate,
+    scope: TenantScope = Depends(require_management),
+    session: Session = Depends(get_session),
+) -> InvoiceLine:
+    """Correct what a line says was bought (management only).
+
+    Separate from `verify` above, and deliberately so: a category is chosen from
+    the company's tree and validated against it, while these are free values a
+    human read off a document. `InvoiceLineUpdate` forbids extra fields, so a
+    `spend_category_id` sent here is a `422` rather than a silently ignored
+    field that reads to the caller as a category edit that did nothing.
+
+    Applied in place. The audit diff's `old` is the only surviving record of
+    what the ERP or the extractor originally stated.
+    """
+    line = _get_scoped_line(session, scope, line_id)
+    fields = LINE_VALUE_AUDIT_FIELDS + LINE_BASE_FX_FIELDS
+
+    corrections = body.model_dump(exclude_unset=True)
+    before = {f: getattr(line, f) for f in fields}
+    for field, value in corrections.items():
+        setattr(line, field, value)
+
+    # The line's conversion was derived from its `amount`. Cleared rather than
+    # recomputed inline, for the reason `update_invoice` states at length: this
+    # endpoint makes no network call, and converting at a substitute rate is
+    # what the currency design rejects. `POST /companies/{id}/recompute-fx`
+    # restores it at the row's own historical rate.
+    if getattr(line, _LINE_FX_TRIGGER) != before[_LINE_FX_TRIGGER]:
+        line.base_currency = None
+        line.base_amount = None
+        line.fx_rate = None
+        line.fx_rate_date = None
+
+    mark_verified(line, corrections.keys())
+    session.add(line)
+
+    after = {f: getattr(line, f) for f in fields}
+    changes = diff_changes(before, after, fields)
+    record_audit(
+        session,
+        entity_type="invoice_line",
+        entity_id=line.id,
+        action="edit" if changes else "noop",
+        actor=scope.user_id,
+        changes=changes,
+    )
+    # The rollup reads the lines' *statuses*, which a value correction does not
+    # touch — but it is recomputed anyway so this endpoint cannot become the one
+    # write path that leaves the invoice's status behind.
+    recompute_invoice_status(session, line.invoice_id)
+    session.commit()
+    session.refresh(line)
+    return line
+
+
+@router.post(
+    "/invoices/{invoice_id}/lines",
+    response_model=InvoiceLineRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_invoice_line(
+    invoice_id: str,
+    body: InvoiceLineCreate,
+    scope: TenantScope = Depends(require_management),
+    session: Session = Depends(get_session),
+) -> InvoiceLine:
+    """Add a line to an invoice (management only).
+
+    The way a reviewer splits a stand-in line into what was actually bought: add
+    the real lines, then delete the stand-in. The invoice holds both origins in
+    between, which the one-origin rule permits precisely for `human` lines —
+    forbidding the intermediate state would make the operation impossible
+    without a bulk replace endpoint nobody asked for, and the reconciliation
+    warning is what covers it.
+
+    `origin` is not a parameter. A line created here is `human` by
+    construction, which is what makes "a sync never displaces it" a fact rather
+    than a claim the caller could get wrong.
+    """
+    invoice = session.get(Invoice, invoice_id)
+    if invoice is None or invoice.company_id not in scope.company_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+
+    values = body.model_dump(exclude_unset=True)
+    sequence = values.pop("sequence", None)
+    if sequence is None:
+        # After the last line, which is what appending means. `max` over the
+        # loaded rows rather than a `func.max` query: the invoice's lines are a
+        # handful, and one query beats two.
+        last = session.exec(
+            select(func.max(InvoiceLine.sequence)).where(InvoiceLine.invoice_id == invoice_id)
+        ).one()
+        sequence = 0 if last is None else last + 1
+
+    line = InvoiceLine(
+        company_id=invoice.company_id,
+        invoice_id=invoice.id,
+        origin=LineOrigin.HUMAN,
+        status=LineStatus.UNCATEGORIZED,
+        sequence=sequence,
+        **values,
+    )
+    session.add(line)
+    session.flush()  # assign the id the audit entry names
+
+    # Recorded against the **invoice**: a line's own history starts here, and
+    # what a reader of the invoice needs to know is that its line set changed.
+    record_audit(
+        session,
+        entity_type="invoice",
+        entity_id=invoice.id,
+        action="line_added",
+        actor=scope.user_id,
+        changes=[{"field": "line_id", "old": None, "new": line.id}],
+    )
+    recompute_invoice_status(session, invoice.id)
+    session.commit()
+    session.refresh(line)
+    return line
+
+
+@router.delete("/invoice-lines/{line_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_invoice_line(
+    line_id: str,
+    scope: TenantScope = Depends(require_management),
+    session: Session = Depends(get_session),
+) -> Response:
+    """Delete a line (management only), keeping its values in the audit trail.
+
+    Hard, not soft: a soft-delete flag would have to be understood by every
+    reader — the reports, the categorizer, the reconciler, the entry payload's
+    category resolution — and one that forgot would quietly double-count. The
+    audit entry preserves the record instead, carrying the line's values and its
+    categorization, which for a verified line is the only surviving trace that a
+    human's decision ever existed.
+
+    Its postings survive it. An `ErpEntry` is the ledger's own evidence and is
+    never deleted with a line; the reference is nulled, exactly as the document
+    stage does when an extraction replaces the lines a posting pointed at.
+    """
+    line = _get_scoped_line(session, scope, line_id)
+    invoice_id = line.invoice_id
+
+    # The whole line, not just its categorization: this row is the only place
+    # its description and amount will exist a moment from now.
+    snapshot = [
+        {"field": f, "old": audit_value(getattr(line, f)), "new": None}
+        for f in LINE_VALUE_AUDIT_FIELDS + LINE_AUDIT_FIELDS
+        if getattr(line, f) is not None
+    ]
+    record_audit(
+        session, entity_type="invoice_line", entity_id=line.id,
+        action="line_deleted", actor=scope.user_id, changes=snapshot,
+    )
+    # And on the invoice, because the line's own history becomes unreachable
+    # through a row that no longer exists — nobody browsing the invoice would
+    # think to look up an id they can no longer see.
+    record_audit(
+        session, entity_type="invoice", entity_id=invoice_id,
+        action="line_deleted", actor=scope.user_id,
+        changes=[{"field": "line_id", "old": line.id, "new": None}],
+    )
+
+    for entry in session.exec(
+        select(ErpEntry).where(ErpEntry.source_invoice_line_id == line_id)
+    ).all():
+        entry.source_invoice_line_id = None
+        session.add(entry)
+
+    session.delete(line)
+    recompute_invoice_status(session, invoice_id)
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/invoice-lines/{line_id}/audit", response_model=list[AuditLogRead])

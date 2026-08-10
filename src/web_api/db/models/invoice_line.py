@@ -51,6 +51,13 @@ class InvoiceLine(SQLModel, table=True):
     status: LineStatus = Field(sa_type=String, nullable=False, default=LineStatus.UNCATEGORIZED)
     error_message: Optional[str] = Field(sa_type=String, nullable=True)
 
+    # Which of this line's fields a human has settled. Same rule and same reason
+    # as `Invoice.verified_fields`: per field, so a sync still refreshes what
+    # nobody has spoken for. Defaults to `[]`, never null.
+    verified_fields: list[str] = Field(
+        sa_type=JSON, nullable=False, default_factory=list
+    )
+
     level_1: Optional[str] = Field(sa_type=String, nullable=True)
     level_2: Optional[str] = Field(sa_type=String, nullable=True)
     level_3: Optional[str] = Field(sa_type=String, nullable=True)

@@ -22,11 +22,31 @@ LINE_AUDIT_FIELDS = (
     "confidence", "rationale", "spend_category_id", "status",
 )
 
-# Auditable fields on an AI-parsed invoice header, in a stable order for
-# deterministic diffs. Deliberately the same set `InvoiceUpdate` accepts —
-# never a field the ERP posts, since those rows are never reachable here.
+# What a human may correct on a line, as distinct from its categorization above.
+# These go through `PATCH /invoice-lines/{id}`; the categorization goes through
+# `verify`, which resolves it against the company's spend tree.
+LINE_VALUE_AUDIT_FIELDS = (
+    "description", "quantity", "unit", "unit_price", "amount",
+)
+
+# The line's stored conversion, cleared whenever a correction changes `amount`
+# — the value it was derived from. Same rule and same reason as
+# `INVOICE_BASE_FX_FIELDS` below.
+LINE_BASE_FX_FIELDS = (
+    "base_currency", "base_amount", "fx_rate", "fx_rate_date",
+)
+
+# Auditable fields on an invoice header, in a stable order for deterministic
+# diffs. The same set `InvoiceUpdate` accepts.
+#
+# Because a correction is applied **in place**, over the ERP's or the
+# extractor's own value, this diff is the *only* record of what was originally
+# stated — there is no shadow column holding the posted figure. Every field a
+# human may correct therefore has to be in this tuple; one omitted here is one
+# whose original value is gone for good.
 INVOICE_AUDIT_FIELDS = (
     "invoice_number", "invoice_date", "currency", "total", "tax", "vendor_id",
+    "supplier_name", "supplier_country_code", "supplier_vat_number",
 )
 
 # The stored conversion, cleared by `update_invoice` whenever a correction
@@ -54,6 +74,12 @@ def _norm(value: Any) -> Any:
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     return value
+
+
+#: The same normalization `diff_changes` applies, for callers that build an
+#: audit entry without a before/after pair — a deletion, where every value is an
+#: `old` and there is no `new` to diff against.
+audit_value = _norm
 
 
 def diff_changes(old: dict[str, Any], new: dict[str, Any], fields) -> list[dict]:

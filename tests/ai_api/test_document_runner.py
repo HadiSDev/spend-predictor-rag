@@ -453,6 +453,50 @@ def test_a_second_extraction_leaves_one_set_of_lines(engine, synced):
     assert len(_lines(engine)) == 2
 
 
+def test_an_accepted_extraction_also_reads_as_reconciled(engine, synced):
+    """One rule, one verdict.
+
+    The tolerance that accepts an extraction and the one the invoice payload
+    reports to a reviewer are the same function in `web_api.reconcile`. Two
+    copies would eventually disagree, and the visible symptom would be an
+    extraction accepted here that the reviewer is then told does not reconcile.
+    """
+    from web_api.reconcile import reconcile_lines
+
+    docs.run_documents(extract=_extractor("1000.00"))
+
+    assert _invoice(engine).doc_status == DocStatus.PROCESSED
+    with Session(engine) as s:
+        invoice = s.exec(select(Invoice)).one()
+        lines = s.exec(select(InvoiceLine)).all()
+        assert reconcile_lines(lines, invoice).ok
+
+
+def test_a_removed_line_records_that_a_human_had_settled_it(engine, synced):
+    """Which fields a person had settled is part of what the replacement
+    destroyed; a bare list of values does not say whether anyone had looked."""
+    with Session(engine) as s:
+        line = s.exec(select(InvoiceLine)).one()
+        line.description = "Corrected by hand"
+        line.verified_fields = ["description"]
+        s.add(line)
+        s.commit()
+        removed_id = line.id
+
+    docs.run_documents(extract=_extractor("1000.00"))
+
+    with Session(engine) as s:
+        row = s.exec(
+            select(AuditLog).where(
+                AuditLog.entity_id == removed_id,
+                AuditLog.action == "superseded_by_extraction",
+            )
+        ).one()
+    recorded = {c["field"]: c["old"] for c in row.changes}
+    assert recorded["description"] == "Corrected by hand"
+    assert recorded["verified_fields"] == ["description"]
+
+
 def test_processing_state_is_recorded_on_success(engine, synced):
     docs.run_documents(extract=_extractor("1000.00"))
 

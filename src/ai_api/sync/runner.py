@@ -16,6 +16,10 @@ the runner never creates a tenant.
     python -m ai_api.sync.runner                       # every connected integration
     python -m ai_api.sync.runner --integration-id <id> # re-run just one
     python -m ai_api.sync.runner --since 2026-01-01    # backfill from a date
+    python -m ai_api.sync.runner --hard-reset          # let the ERP win over verified fields
+
+A field a human has verified is never overwritten by an ordinary run; the ERP
+restates everything else. ``--hard-reset`` is the one, explicit way back.
 """
 from __future__ import annotations
 
@@ -26,6 +30,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
+from sqlalchemy import or_
 from sqlmodel import Session, SQLModel, select
 
 from ..aggregation import engine as aggregation
@@ -63,6 +68,7 @@ from web_api.db.session import engine
 from web_api.fx import CONVERTED, UNCHANGED, UNCONVERTED, FxService
 from web_api.integrations import connector_config as _connector_config
 from web_api.rollup import recompute_invoice_status
+from web_api.verified import clear_verified, is_verified
 from .categorizer import build_candidates_from_tree, categorize
 
 logger = logging.getLogger("ai_api.sync")
@@ -278,10 +284,34 @@ def _persist_file(
     return file_id
 
 
-def _queue_document(row: Invoice, previous_file_id: Optional[str]) -> bool:
+def _has_human_lines(session: Session, invoice_id: str) -> bool:
+    """Has anyone verified or hand-written a line on this invoice?
+
+    Extraction replaces an invoice's lines **wholly**, so queueing one of these
+    would discard a person's work automatically, on the strength of a document
+    nobody asked us to re-read. The explicit `POST /invoices/{id}/reprocess` is
+    a human decision and is unaffected — it is only the automatic path that
+    yields.
+    """
+    return session.exec(
+        select(InvoiceLine.id)
+        .where(
+            InvoiceLine.invoice_id == invoice_id,
+            or_(
+                InvoiceLine.status == LineStatus.VERIFIED,
+                InvoiceLine.origin == LineOrigin.HUMAN,
+            ),
+        )
+        .limit(1)
+    ).first() is not None
+
+
+def _queue_document(
+    session: Session, row: Invoice, previous_file_id: Optional[str]
+) -> bool:
     """Set ``doc_status`` for an invoice the sync is writing. True if it queued it.
 
-    The runner queues documents; it never processes them. Four cases, and the
+    The runner queues documents; it never processes them. Five cases, and the
     reasons matter:
 
     * **No document** — ``not_applicable``. Most vouchers have no scan and that
@@ -296,6 +326,9 @@ def _queue_document(row: Invoice, previous_file_id: Optional[str]) -> bool:
       path back is ``POST /invoices/{id}/reprocess``, and silently requeueing on
       every sync would both make that endpoint pointless and re-run a document
       that has already proved it cannot be read.
+    * **Carries verified or human lines** — left alone. Replacement is
+      whole-invoice, so queueing here would automatically discard work a person
+      did. A human asking for a re-read still gets one.
     """
     if row.file_id is None:
         row.doc_status = DocStatus.NOT_APPLICABLE
@@ -306,8 +339,49 @@ def _queue_document(row: Invoice, previous_file_id: Optional[str]) -> bool:
         return False
     if row.doc_status == DocStatus.FAILED:
         return False
+    if _has_human_lines(session, row.id):
+        return False
     row.doc_status = DocStatus.PENDING
     return True
+
+
+def _assigner(session: Session, row, hard_reset: bool):
+    """A setter for one row that respects what a human has settled.
+
+    Returns ``assign(field, value)``. Ordinarily it skips a field listed in the
+    row's ``verified_fields`` — the ERP is free to restate everything else, and
+    that per-field granularity is the point: a reviewer who corrected a typo'd
+    invoice number has said nothing about the total, and a genuine later
+    re-posting of the total must still reach us.
+
+    Under ``hard_reset`` it assigns anyway, audits the overwrite with actor
+    ``system`` so the human's value stays recoverable, and drops the field from
+    the settled set — a row must not go on claiming a field is verified at a
+    value it no longer holds.
+
+    A helper rather than a diff pass at the end of the loop: the skip stays
+    visible at each assignment site, so a field added later cannot silently
+    bypass the rule by being written the old way.
+    """
+    entity_type = "invoice" if isinstance(row, Invoice) else "invoice_line"
+
+    def assign(field: str, value) -> None:
+        if not is_verified(row, field):
+            setattr(row, field, value)
+            return
+        if not hard_reset:
+            return
+        previous = getattr(row, field)
+        setattr(row, field, value)
+        clear_verified(row, [field])
+        changes = diff_changes({field: previous}, {field: value}, (field,))
+        if changes:
+            record_audit(
+                session, entity_type=entity_type, entity_id=row.id,
+                action="hard_reset", changes=changes,
+            )
+
+    return assign
 
 
 def _persist_invoices(
@@ -318,6 +392,7 @@ def _persist_invoices(
     fx: FxService,
     base_currency: str,
     fx_counts: dict[str, int],
+    hard_reset: bool = False,
 ) -> tuple[dict[str, str], int, int, int]:
     """Upsert Invoice + InvoiceLine (+ scan File) as pending.
 
@@ -344,15 +419,16 @@ def _persist_invoices(
             row = Invoice(id=invoice_id, company_id=company_id, status=InvoiceStatus.UNCATEGORIZED)
             session.add(row)
         previous_file_id = row.file_id
-        row.vendor_id = vendor_id
+        assign = _assigner(session, row, hard_reset)
+        assign("vendor_id", vendor_id)
         row.file_id = file_id
-        if _queue_document(row, previous_file_id):
+        if _queue_document(session, row, previous_file_id):
             n_queued += 1
-        row.invoice_number = inv.invoice_number
-        row.invoice_date = inv.invoice_date
-        row.currency = inv.currency
-        row.total = _dec(inv.total)
-        row.tax = _dec(inv.tax)
+        assign("invoice_number", inv.invoice_number)
+        assign("invoice_date", inv.invoice_date)
+        assign("currency", inv.currency)
+        assign("total", _dec(inv.total))
+        assign("tax", _dec(inv.tax))
         # Status is a rollup of the lines; not reset on re-sync.
         row.raw_json = inv.raw
         # Converted at the invoice's own date, never today's. `currency`,
@@ -375,11 +451,12 @@ def _persist_invoices(
             # The ERP stated the lines in this order; an invoice reads top to
             # bottom, and the row's random id would scramble it.
             lrow.sequence = idx
-            lrow.description = line.description
-            lrow.quantity = _dec(line.quantity)
-            lrow.unit = line.unit
-            lrow.unit_price = _dec(line.unit_price)
-            lrow.amount = _dec(line.amount)
+            assign_line = _assigner(session, lrow, hard_reset)
+            assign_line("description", line.description)
+            assign_line("quantity", _dec(line.quantity))
+            assign_line("unit", line.unit)
+            assign_line("unit_price", _dec(line.unit_price))
+            assign_line("amount", _dec(line.amount))
             lrow.native_account_code = line.native_account_code
             # Status is NOT reset on re-sync: an already-categorized or verified
             # line keeps its lifecycle state (verified results are preserved).
@@ -793,6 +870,7 @@ def _sync_one(
     since_override: date | None,
     fx: FxService,
     base_currency: str,
+    hard_reset: bool = False,
 ) -> dict:
     """Run the full pipeline for one integration.
 
@@ -852,7 +930,8 @@ def _sync_one(
         logger.info("  [2/6] Persisting to PostgreSQL…")
         vendor_map = _persist_vendors(session, vendors)
         voucher_invoice_map, n_inv, n_lines, n_queued = _persist_invoices(
-            session, company_id, invoices, vendor_map, fx, base_currency, fx_counts
+            session, company_id, invoices, vendor_map, fx, base_currency, fx_counts,
+            hard_reset=hard_reset,
         )
         n_entries, n_linked = _persist_entries(
             session, company_id, integration_id, entries,
@@ -932,13 +1011,25 @@ def _sync_one(
         raise
 
 
-def run_sync(*, since: date | None = None, integration_id: str | None = None) -> dict[str, dict]:
+def run_sync(
+    *,
+    since: date | None = None,
+    integration_id: str | None = None,
+    hard_reset: bool = False,
+) -> dict[str, dict]:
     """Sync every connected ERP integration. Returns one summary per integration.
 
     Takes no tenant and no credentials: the work list is
     ``connected_integrations()`` and each connector is built from that
     integration's own stored credential. A failure is confined to the
     integration it happened to — the rest of the run continues.
+
+    ``hard_reset`` restores the ERP's values over fields a human verified. It is
+    the one and only override of that protection, opt-in, never implied by any
+    other flag, and every overwrite it performs is audited with actor ``system``
+    so the human's value stays recoverable. It does not delete human-added
+    lines: it restores values, it is not a "drop everything the customer did"
+    button.
     """
     SQLModel.metadata.create_all(engine)
     results: dict[str, dict] = {}
@@ -965,7 +1056,8 @@ def run_sync(*, since: date | None = None, integration_id: str | None = None) ->
                 config = _connector_config(session, integration)
                 connector: ErpConnector = get_connector(integration.erp_type, config)
                 results[integration.id] = _sync_one(
-                    session, integration, connector, since, fx, base_currency
+                    session, integration, connector, since, fx, base_currency,
+                    hard_reset=hard_reset,
                 )
                 logger.info("  done: %s", results[integration.id])
             except Exception as exc:
@@ -1041,13 +1133,26 @@ def main(argv: list[str] | None = None) -> int:
         "--since", default=None,
         help="Backfill from this ISO date, overriding each integration's own watermark",
     )
+    parser.add_argument(
+        "--hard-reset", action="store_true",
+        help="Overwrite fields a human verified with the ERP's values. Opt-in, "
+             "audited as 'system', and never implied by any other flag. Human-added "
+             "lines are not deleted.",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     since = date.fromisoformat(args.since) if args.since else None
+    if args.hard_reset:
+        logger.warning(
+            "--hard-reset: human-verified values will be overwritten by the ERP's "
+            "(each one audited, so the overwritten value stays recoverable)"
+        )
 
     try:
-        results = run_sync(since=since, integration_id=args.integration_id)
+        results = run_sync(
+            since=since, integration_id=args.integration_id, hard_reset=args.hard_reset
+        )
     except ValueError as exc:  # unknown --integration-id
         parser.error(str(exc))
         return 2

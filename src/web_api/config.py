@@ -49,6 +49,19 @@ CLERK_SYSTEM_ADMIN_CLAIM = os.getenv("CLERK_SYSTEM_ADMIN_CLAIM", "system_admin")
 # CLERK_WEBHOOK_SIGNING_SECRET verifies Svix-signed webhook deliveries.
 # CLERK_SECRET_KEY authenticates outbound Clerk Backend API calls.
 # WEB_API_CLERK_OUTBOUND_DISABLED short-circuits outbound calls (dev/tests).
+# How far an invoice's lines may be from its own total before they are judged
+# not to reconcile. Relative *and* absolute, taking the larger: a percentage
+# alone rejects a small invoice over one øre of rounding, and a fixed amount
+# alone accepts a large invoice that is missing a whole line.
+#
+# In the domain rather than in `ai_api.config` because both the document
+# extraction stage and the invoice payload's mismatch report read it, and
+# `ai_api` imports `web_api` and never the reverse. `ai_api.config` re-exports
+# these under the same names — the env vars are unchanged (DOC_ prefix and all,
+# since renaming them would break every deployed .env for no gain).
+DOC_RECONCILE_TOLERANCE_PCT = float(os.getenv("DOC_RECONCILE_TOLERANCE_PCT", "0.01"))
+DOC_RECONCILE_TOLERANCE_ABS = float(os.getenv("DOC_RECONCILE_TOLERANCE_ABS", "1.00"))
+
 # Historical FX rates (ECB daily reference rates via Frankfurter). Off by
 # default: with FX_ENABLED unset nothing makes an outbound rate request and rows
 # are simply stored unconverted, which is what keeps tests and offline runs

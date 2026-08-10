@@ -219,6 +219,9 @@ class InvoiceLineRead(BaseModel):
     rationale: str | None = None
     # Accepted category assignment (null until it resolves to a real spend category).
     spend_category_id: str | None = None
+    # The fields of this line a human has settled — the categorization fields a
+    # verify wrote, and any of the descriptive/money fields a correction set.
+    verified_fields: list[str] = []
     # True when the line carries a categorization that no longer resolves to a
     # node — the company's tree changed, or the node was deleted. Computed, not
     # stored: nothing to keep in step, and correct after every path that can
@@ -270,9 +273,56 @@ class InvoiceLineVerify(BaseModel):
     spend_category_id: str | None = None
 
 
+class InvoiceLineUpdate(BaseModel):
+    """A human's correction of what a line says was bought.
+
+    `extra="forbid"` deliberately: a `spend_category_id` sent here would be
+    silently ignored and read to the caller as a category edit that did nothing.
+    A category is corrected through `verify`, which resolves it against the
+    company's spend tree — the one path that guarantees the stored decision
+    points at a real node. `native_account_code` is likewise refused: it is the
+    ledger's own statement of where the money was posted, and a value
+    contradicting it reconciles against nothing.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: str | None = None
+    quantity: Decimal | None = None
+    unit: str | None = None
+    unit_price: Decimal | None = None
+    amount: Decimal | None = None
+
+
+class InvoiceLineCreate(InvoiceLineUpdate):
+    """A line a reviewer added by hand, typically splitting a stand-in.
+
+    Carries the same fields a correction does, plus where it sits. Its `origin`
+    is not a parameter: a line created here is `human` by construction, and
+    letting a caller claim it came from the ERP would make the origin a claim
+    rather than a fact.
+    """
+
+    # Where on the invoice it belongs. Omitted means "after the last line",
+    # which is what appending means; explicit means the reviewer is inserting it
+    # into the document's own order.
+    sequence: int | None = None
+
+
 class InvoiceUpdate(BaseModel):
-    """Corrections to an AI-parsed invoice header. Only fields the extraction
-    produced — never a field the ERP posted."""
+    """Corrections to a parsed invoice header.
+
+    Not gated on provenance: an ERP-posted header is as correctable as an
+    extracted one, and what protects the correction from the next sync is the
+    row's `verified_fields`, not a refusal to write.
+
+    The three `supplier_*` fields are **invoice-scoped overrides**, never a
+    write-through to the `Vendor` row: the vendor catalog is global, so one
+    organization correcting a supplier's country would rewrite it for every
+    other tenant. Re-pointing `vendor_id` is the other, different correction —
+    "this is the wrong supplier" rather than "this supplier's details are wrong
+    on this document".
+    """
 
     invoice_number: str | None = None
     invoice_date: date | None = None
@@ -280,6 +330,20 @@ class InvoiceUpdate(BaseModel):
     total: Decimal | None = None
     tax: Decimal | None = None
     vendor_id: str | None = None
+    supplier_name: str | None = None
+    supplier_country_code: str | None = Field(default=None, max_length=2)
+    supplier_vat_number: str | None = None
+
+
+class InvoiceVerify(InvoiceUpdate):
+    """Verify an invoice header, optionally correcting it first.
+
+    The same fields `InvoiceUpdate` accepts, and deliberately a separate type
+    from it: verification is a distinct auditable action, and an absent body —
+    "the parse is right as it stands" — is the single most valuable signal this
+    endpoint collects. Folded into `PATCH` as a flag, that case would be
+    indistinguishable from an empty correction.
+    """
 
 
 class AuditLogRead(BaseModel):
@@ -437,9 +501,30 @@ class InvoiceRead(BaseModel):
     base_tax: Decimal | None = None
     fx_rate: Decimal | None = None
     fx_rate_date: date | None = None
+    # The supplier as this invoice states it: the human's override when one was
+    # made, otherwise the linked vendor's value. Resolved server-side for the
+    # same reason `ErpEntryRead` resolves its account — the client would
+    # otherwise fetch the vendor to render one row — and because the fallback
+    # rule must not be reimplemented per client.
+    supplier_name: str | None = None
+    supplier_country_code: str | None = None
+    supplier_vat_number: str | None = None
+    # Which of the three above are the human's rather than the catalog's. Sent
+    # so a reader can tell a corrected supplier from a catalogued one without
+    # fetching the vendor to compare: an override that looks identical to the
+    # catalog value is still a human's assertion, and marking it is what lets the
+    # UI offer the catalog value back.
+    supplier_overrides: list[str] = []
     status: str
-    # 'erp' | 'pdf_extraction' — see Invoice.source.
+    # 'erp' | 'pdf_extraction' — see Invoice.source. Provenance only: it tells a
+    # reviewer how much to trust a value and no longer decides whether the value
+    # may be corrected. What protects a correction is `verified_fields` below.
     source: str = "erp"
+    # The fields a human has settled, and who settled them when. Per field, not
+    # per row, so a sync still refreshes everything nobody has spoken for.
+    verified_fields: list[str] = []
+    verified_at: datetime | None = None
+    verified_by: str | None = None
     error_message: str | None = None
     file_id: str | None = None
     # Resolved from the linked File so a client never needs a second lookup to
@@ -460,6 +545,22 @@ class InvoiceRead(BaseModel):
 
 class InvoiceDetailRead(InvoiceRead):
     lines: list[InvoiceLineRead] = []
+    # Do the lines add up to the header? Computed on read, never stored: it is a
+    # pure function of the lines and the header, both of which several endpoints
+    # can now change, and a stored flag would have to be recomputed at each of
+    # them — the same reasoning that keeps `category_stale` computed.
+    #
+    # The rule is `web_api/reconcile.py`, shared with the document extraction
+    # stage, so an extraction accepted as reconciling is never then reported to
+    # a reviewer as not reconciling. True when the invoice states no total:
+    # nothing to check against is not a mismatch.
+    lines_reconciled: bool = True
+    # Signed: `sum(lines) − nearest accepted total`, so a reader can see which
+    # way it is out. Null when the lines reconcile and null when there is no
+    # total. Reported, never enforced — a reviewer part-way through a multi-line
+    # correction must not be blocked by their own unfinished work, and the ERP's
+    # total may itself be the wrong figure.
+    reconciliation_delta: Decimal | None = None
 
 
 class DocumentRead(BaseModel):

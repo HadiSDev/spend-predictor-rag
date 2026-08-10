@@ -13,7 +13,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from web_api.db.models import DocStatus, Invoice, InvoiceLine, LineOrigin
 
@@ -281,6 +281,32 @@ def test_a_processed_invoice_may_still_be_redone(client, voucher_seed, engine):
         invoice = s.get(Invoice, voucher_seed["inv_a"])
         invoice.doc_status = DocStatus.PROCESSED
         s.add(invoice)
+        s.commit()
+
+    r = client.post(
+        f"/api/v1/invoices/{voucher_seed['inv_a']}/reprocess", headers=auth("tokA")
+    )
+
+    assert r.status_code == 200
+    assert r.json()["doc_status"] == "pending"
+
+
+def test_a_human_can_still_ask_to_re_read_an_invoice_they_verified(
+    client, voucher_seed, engine
+):
+    """A *sync* leaves an invoice with verified lines alone — replacement is
+    whole-invoice and would discard the person's work on the strength of a
+    document nobody asked us to re-read. Asking explicitly is different: it is a
+    decision, and the per-line audit rows are the record of what it replaced."""
+    with Session(engine) as s:
+        invoice = s.get(Invoice, voucher_seed["inv_a"])
+        invoice.doc_status = DocStatus.PROCESSED
+        s.add(invoice)
+        line = s.exec(
+            select(InvoiceLine).where(InvoiceLine.invoice_id == voucher_seed["inv_a"])
+        ).first()
+        line.status = "verified"
+        s.add(line)
         s.commit()
 
     r = client.post(

@@ -7,6 +7,8 @@ from pathlib import Path
 from crewai import LLM
 from dotenv import load_dotenv
 
+from web_api import config as _web_config
+
 load_dotenv()
 
 # repo root = .../spend-predictor-rag (config.py is at src/ai_api/config.py)
@@ -55,11 +57,13 @@ INVOICE_CONCURRENCY = int(os.getenv("INVOICE_CONCURRENCY", "4"))
 DOC_MAX_ATTEMPTS = int(os.getenv("DOC_MAX_ATTEMPTS", "3"))
 
 # How far the extracted lines may be from the invoice's own total before the
-# extraction is rejected. Relative *and* absolute, taking the larger: a
-# percentage alone rejects a small invoice over one øre of rounding, and a fixed
-# amount alone accepts a large invoice that is missing a whole line.
-DOC_RECONCILE_TOLERANCE_PCT = float(os.getenv("DOC_RECONCILE_TOLERANCE_PCT", "0.01"))
-DOC_RECONCILE_TOLERANCE_ABS = float(os.getenv("DOC_RECONCILE_TOLERANCE_ABS", "1.00"))
+# extraction is rejected. Re-exported from `web_api.config`, which owns them:
+# the same tolerance decides whether a *human's* corrected lines reconcile, and
+# a second copy of the rule would eventually disagree with the first. The env
+# var names are unchanged. Monkeypatch `web_api.config`, not this module — the
+# rule reads its values there.
+DOC_RECONCILE_TOLERANCE_PCT = _web_config.DOC_RECONCILE_TOLERANCE_PCT
+DOC_RECONCILE_TOLERANCE_ABS = _web_config.DOC_RECONCILE_TOLERANCE_ABS
 
 # An invoice claimed for processing whose run died leaves it stuck in
 # `processing` forever. After this long a claim is treated as abandoned and the

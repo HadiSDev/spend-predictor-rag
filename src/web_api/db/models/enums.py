@@ -42,11 +42,19 @@ EXPENSE_ACCOUNT_TYPE = "expense"
 class LineOrigin(str, Enum):
     """Which source produced an invoice line.
 
-    Precedence is ``DOCUMENT_AI > ERP > ENTRY_FALLBACK``: the document is the only
+    Precedence is ``HUMAN > DOCUMENT_AI > ERP > ENTRY_FALLBACK``: a person who
+    read the document outranks a model that read it, the document is the only
     source that knows what was actually bought, the ERP's own bill lines are its
     statement of the same voucher, and a posting is the last resort. An invoice
-    holds lines of exactly one origin at a time — two origins describe the same
-    spend twice and its total would be double-counted.
+    holds lines of exactly one **automated** origin at a time — two automated
+    origins describe the same spend twice and its total would be double-counted.
+
+    ``HUMAN`` is the deliberate exception to that rule. A reviewer splitting a
+    stand-in line works incrementally — add the real lines, then delete the
+    stand-in — and forbidding the intermediate state would make the operation
+    impossible without a bulk replace endpoint nobody asked for. The
+    reconciliation warning covers the intermediate state instead, which is what
+    it is for.
 
     Stored, never inferred: a stand-in line and an extracted line can carry
     identical descriptions and amounts, and the difference — whether anyone has
@@ -56,6 +64,7 @@ class LineOrigin(str, Enum):
     ERP = "erp"                        # the ERP supplied the line itself
     DOCUMENT_AI = "document_ai"        # extracted from the attached document
     ENTRY_FALLBACK = "entry_fallback"  # stands in for one expense posting
+    HUMAN = "human"                    # a reviewer added it by hand
 
 
 class SpendTreeSource(str, Enum):

@@ -46,10 +46,45 @@ class Invoice(SQLModel, table=True):
     # `invoice_date`, since a weekend resolves back to the prior business day.
     fx_rate_date: Optional[date] = Field(sa_type=Date, nullable=True)
 
+    # A human's correction of the supplier, for this invoice alone. Null is "no
+    # correction — use the linked Vendor", and is the ordinary case.
+    #
+    # These exist because `Vendor` is a **global** catalog shared across
+    # organizations: writing a correction through to the vendor row would rewrite
+    # the supplier for every other tenant, silently, and no permission check on
+    # the invoice endpoint could fix that. So the correction lands here, and
+    # readers resolve `override ?? vendor.value`.
+    #
+    # Never written by a connector, a sync or an extraction — only by a human.
+    supplier_name: Optional[str] = Field(sa_type=String, nullable=True)
+    supplier_country_code: Optional[str] = Field(sa_type=String(2), nullable=True)
+    supplier_vat_number: Optional[str] = Field(sa_type=String, nullable=True)
+
+    # Which fields a human has settled, and who settled them when.
+    #
+    # Per field, not per row, and that is load-bearing: a row-level flag would
+    # freeze the invoice against the ERP entirely, so a reviewer correcting a
+    # typo'd invoice number would also stop a genuine later re-posting of the
+    # total from ever reaching us. The list keeps the sync doing its job
+    # everywhere a human has not spoken (see ai_api/sync/runner.py).
+    #
+    # Defaults to `[]`, never null: "nothing settled" is a fact, not an unknown.
+    # `verified_by` holds the acting user's id and never `system` — an automated
+    # write is not a verification.
+    verified_fields: list[str] = Field(
+        sa_type=JSON, nullable=False, default_factory=list
+    )
+    verified_at: Optional[datetime] = Field(
+        sa_type=DateTime(timezone=True), nullable=True
+    )
+    verified_by: Optional[str] = Field(sa_type=String, nullable=True)
+
     status: InvoiceStatus = Field(sa_type=String, nullable=False, default=InvoiceStatus.UNCATEGORIZED)
-    # Provenance, which decides what may be corrected. 'erp' rows are as-posted
-    # evidence and their header is read-only; 'pdf_extraction' rows came from the
-    # AI's parse of a document and may be corrected by a human.
+    # Where the header came from: 'erp' (posted by the ERP) or 'pdf_extraction'
+    # (our AI's parse of a document). Provenance, which tells a reviewer how much
+    # to trust a value — it no longer decides whether the value may be corrected.
+    # Every parsed field is correctable by a management role whatever this says;
+    # what protects a correction is `verified_fields` above, not this column.
     source: str = Field(sa_type=String, nullable=False, default="erp")
     error_message: Optional[str] = Field(sa_type=String, nullable=True)
 

@@ -22,6 +22,7 @@ from ai_api.documents.extractor import (
 )
 from ai_api.documents.reconcile import reconcile, tolerance_for
 from ai_api.models import ExtractedInvoice, LineItem
+from web_api import config as web_config
 from web_api.connectors.base import DocumentPayload
 
 
@@ -111,8 +112,12 @@ def test_extraction_returns_the_documents_lines():
 
 
 def test_the_tolerance_is_the_larger_of_relative_and_absolute(monkeypatch):
-    monkeypatch.setattr(config, "DOC_RECONCILE_TOLERANCE_PCT", 0.01)
-    monkeypatch.setattr(config, "DOC_RECONCILE_TOLERANCE_ABS", 1.00)
+    # `web_api.config`, not `ai_api.config`: the rule moved into the domain so
+    # the extraction decision and the invoice payload's mismatch report share
+    # one implementation. `ai_api.config` re-exports the values, but the rule
+    # reads them from the domain module — patching the re-export would be inert.
+    monkeypatch.setattr(web_config, "DOC_RECONCILE_TOLERANCE_PCT", 0.01)
+    monkeypatch.setattr(web_config, "DOC_RECONCILE_TOLERANCE_ABS", 1.00)
 
     # Small invoice: the absolute floor wins, so a rounding øre is not a failure.
     assert tolerance_for(Decimal("50.00")) == Decimal("1.00")

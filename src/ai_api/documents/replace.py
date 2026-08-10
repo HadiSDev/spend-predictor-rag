@@ -28,7 +28,7 @@ from decimal import Decimal
 
 from sqlmodel import Session, select
 
-from web_api.audit import LINE_AUDIT_FIELDS, record_audit
+from web_api.audit import LINE_AUDIT_FIELDS, LINE_VALUE_AUDIT_FIELDS, record_audit
 from web_api.db.models import DocStatus, ErpEntry, Invoice, InvoiceLine, LineOrigin, LineStatus
 from web_api.db.models.audit_log import SYSTEM_ACTOR
 from web_api.fx import FxService
@@ -43,10 +43,21 @@ logger = logging.getLogger("ai_api.documents")
 REPLACED_ACTION = "superseded_by_extraction"
 
 # Auditing the removal by diffing the line's values against nothing gives a
-# `changes` list of everything it held. `description` and `amount` are not in
-# LINE_AUDIT_FIELDS (they are ERP-posted on an ordinary line and never edited),
-# but they are exactly what identifies *which* line was removed.
-_REMOVED_FIELDS = ("description", "amount", "native_account_code", "origin", *LINE_AUDIT_FIELDS)
+# `changes` list of everything it held. `description` and `amount` identify
+# *which* line was removed; the rest of `LINE_VALUE_AUDIT_FIELDS` is there
+# because a human may have corrected any of them, and this entry is the only
+# place those corrections survive the replacement.
+#
+# `verified_fields` rides along for the same reason: which fields a person had
+# settled is part of what was destroyed, and a bare list of values does not say
+# whether anyone had looked at them.
+_REMOVED_FIELDS = (
+    *LINE_VALUE_AUDIT_FIELDS,
+    "native_account_code",
+    "origin",
+    "verified_fields",
+    *LINE_AUDIT_FIELDS,
+)
 
 
 def _dec(value) -> Decimal | None:
