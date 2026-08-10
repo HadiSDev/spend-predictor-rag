@@ -143,6 +143,7 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     spend_category_id: 'cat-software',
     level_4: null,
     category_stale: false,
+    verified_fields: [],
     ...overrides,
   }
 }
@@ -278,6 +279,13 @@ function invoiceDetail(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetai
     fx_rate_date: '2026-07-02',
     status: 'categorized',
     source: 'erp',
+    supplier_name: null,
+    supplier_country_code: null,
+    supplier_vat_number: null,
+    supplier_overrides: [],
+    verified_fields: [],
+    verified_at: null,
+    verified_by: null,
     error_message: null,
     file_id: null,
     file_name: null,
@@ -286,6 +294,8 @@ function invoiceDetail(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetai
     doc_error: null,
     doc_processed_at: null,
     lines: [],
+    lines_reconciled: true,
+    reconciliation_delta: null,
     ...overrides,
   }
 }
@@ -327,7 +337,11 @@ function common() {
     spendTreeNodes: TREE_NODES,
     onUpdateHeader: vi.fn().mockResolvedValue(undefined),
     onReprocess: vi.fn().mockResolvedValue(undefined),
-    canRetrigger: true,
+    canManage: true,
+    onVerifyHeader: vi.fn().mockResolvedValue(undefined),
+    onUpdateLine: vi.fn().mockResolvedValue(undefined),
+    onCreateLine: vi.fn().mockResolvedValue(undefined),
+    onDeleteLine: vi.fn().mockResolvedValue(undefined),
   }
 }
 

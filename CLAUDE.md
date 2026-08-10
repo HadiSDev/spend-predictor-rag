@@ -129,8 +129,12 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   `POST /invoice-lines/{id}/verify` (accept or correct the categorization),
   `POST /invoices/{id}/reprocess` (queue the attached scan to be read again —
   409 with no document or while `processing`; see Document processing),
-  `PATCH /invoices/{id}` (correct the parsed header — **409 unless
-  `Invoice.source == 'pdf_extraction'`**; see below),
+  `PATCH /invoices/{id}` (correct the parsed header — **not gated on
+  provenance**; see Invoice corrections),
+  `POST /invoices/{id}/verify` (correct **and** mark the header human-verified),
+  `PATCH /invoice-lines/{id}` (correct `description`/`quantity`/`unit`/
+  `unit_price`/`amount` — a categorization field or `native_account_code` here
+  is a `422`), `POST /invoices/{id}/lines` (add one), `DELETE /invoice-lines/{id}`,
   `PATCH /organization`. **ERP integrations** — `POST /erp-integrations` (with
   credentials), `PATCH /erp-integrations/{id}`, `POST /erp-integrations/{id}/`
   `disconnect|reconnect|test-connection|refresh-accounts`, `PATCH /erp-accounts/{id}`
@@ -264,6 +268,65 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   and synthdata still use. Not yet wired into the sync (its stub matcher needs
   no embeddings).
 
+## Invoice corrections (what a human may fix, and what protects it)
+
+- **Corrections are applied in place, and the audit trail is the only record of
+  what was there before.** There is no shadow column holding the ERP's or the
+  extractor's figure: `AuditLog`'s `old` value is it. Every correctable field is
+  therefore in `INVOICE_AUDIT_FIELDS` / `LINE_VALUE_AUDIT_FIELDS`
+  (`web_api/audit.py`) — one omitted there is one whose original is gone.
+- **`verified_fields` is what stops a sync overwriting a correction**, on both
+  `Invoice` and `InvoiceLine`. **Per field, not per row**, and that is
+  load-bearing: a row-level flag would freeze the invoice against the ERP
+  entirely, so a reviewer fixing a typo'd invoice number would also stop a
+  genuine later re-posting of the total from ever reaching us. `_persist_invoices`
+  assigns through `_assigner()`, which skips a settled field; `--hard-reset` is
+  the one override, audits each overwrite as actor `system`, clears the mark, and
+  does **not** delete human-added lines. Written only through
+  `web_api/verified.py` — it assigns a new list, because SQLAlchemy tracks a JSON
+  column by identity and an in-place `.append()` is silently dropped.
+- **Verification is a distinct action from a correction.** `POST
+  /invoices/{id}/verify` mirrors `POST /invoice-lines/{id}/verify`. It exists
+  because "I read this and it was right" is a signal a PATCH cannot express, and
+  it is the label the extractor learns from. The fields marked are the ones the
+  caller **sent**, not the ones that changed — resubmitting an already-correct
+  total is a human asserting that figure. The audit action is then `verify`
+  (nothing moved), while `noop` stays the PATCH vocabulary.
+- **The supplier is corrected two ways, and neither writes the catalog.**
+  `Vendor` is **global**, so a write-through would rewrite the supplier for every
+  other tenant. Re-pointing `vendor_id` says "wrong supplier"; the invoice's own
+  `supplier_name`/`supplier_country_code`/`supplier_vat_number` say "this
+  supplier's details are wrong on this document". Payloads carry the resolved
+  value (`override ?? vendor.value`) plus `supplier_overrides` naming which are a
+  human's. Consequence, accepted: `/reports/spend-by-vendor` still groups by
+  `vendor_id`, so a name override moves no spend — the re-point is for that.
+- **A category is never corrected through `PATCH /invoice-lines/{id}`** — that
+  is a `422`, not a silently dropped field, because an ignored `spend_category_id`
+  reads to the caller as a category edit that did nothing. `native_account_code`
+  is likewise refused: it is the ledger's own statement of where the money went.
+- **Deleting a line is hard, and audited.** A soft-delete flag would have to be
+  understood by the reports, the categorizer, the reconciler and the entry
+  payload's category resolution, and one that forgot would double-count. The
+  audit row carries the line's values and categorization instead. Its postings
+  survive with `source_invoice_line_id` nulled — the same thing extraction does.
+- **Reconciliation warns, never blocks.** `web_api/reconcile.py` owns the rule
+  (`max(1%, 1.00)` against `total` or `total − tax`) and **both** the document
+  stage's accept/reject and `InvoiceDetailRead.lines_reconciled` /
+  `reconciliation_delta` use it, so an extraction accepted as reconciling is
+  never then reported to a reviewer as not reconciling. Computed on read, never
+  stored — the same reasoning as `category_stale`. Extraction still *rejects*: a
+  model producing lines that do not add up has no reviewer behind them, whereas a
+  human mid-way through a multi-line fix must not be blocked by their own
+  unfinished work.
+- **A correction clears what it invalidates, and never reconverts inline.**
+  Correcting `currency`/`total`/`tax` nulls the invoice's base figures;
+  correcting a line's `amount` nulls the line's. The cleared fields ride in the
+  same audit entry. `POST /companies/{id}/recompute-fx` is the way back.
+- **Automatic extraction yields to human work.** A sync will not queue an invoice
+  whose lines include a `verified` or `human` one — replacement is whole-invoice
+  and would discard it. `POST /invoices/{id}/reprocess` still proceeds: a human
+  asking is a decision, and the per-line audit rows are the record.
+
 ## Invoice lines: the unit of spend
 
 - **The Entries page lists invoice lines, not postings.** A posting is what the
@@ -271,11 +334,18 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   description, a category and a human's verification. Vouchers remain the
   grouping and expand into their lines; the postings stay on the voucher panel's
   **Postings tab** as ledger evidence.
-- **`InvoiceLine.origin`** is `document_ai` | `erp` | `entry_fallback`, in that
-  precedence. The document is the only source that knows what was bought; the
-  ERP's bill lines are its own statement of the voucher; a posting is the floor.
-  **An invoice holds exactly one origin at a time** — two would describe the same
-  spend twice and double its total. Stored, never inferred: a stand-in line and
+- **`InvoiceLine.origin`** is `human` | `document_ai` | `erp` | `entry_fallback`,
+  in that precedence. A person who read the document outranks a model that read
+  it; the document is the only source that knows what was bought; the ERP's bill
+  lines are its own statement of the voucher; a posting is the floor.
+  **An invoice holds exactly one *automated* origin at a time** — two would
+  describe the same spend twice and double its total. `human` is the deliberate
+  exception: a reviewer splitting a stand-in adds real lines beside it and then
+  deletes it, and forbidding the intermediate state would make the operation
+  impossible one step at a time — the reconciliation warning covers it instead.
+  A `human` line is never refreshed or removed by a sync or an extraction, which
+  is true by construction (the connector keys lines by `_det_id`, and a human
+  line's fresh UUID cannot collide). Stored, never inferred: a stand-in line and
   an extracted line can be identical in every other field, and the difference is
   whether anyone read the document.
 - **Stand-in lines.** When no better source produced one, the sync writes one
@@ -455,13 +525,15 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   (`?voucher=` / `?entry=` / `?tab=`) so a pasted link opens the same voucher on
   the same tab for whoever receives it. `by-entry` exists for the second form:
   a link that names a posting still opens its whole voucher.
-- **Provenance decides affordance.** Only what our AI produced is correctable —
-  the parsed invoice header and a line's spend category. ERP-posted values are
-  flat evidence text, never a disabled input, because a disabled input claims a
-  permission that will never be granted. `Invoice.source`
-  (`'erp' | 'pdf_extraction'`) is what enforces it: `PATCH /invoices/{id}`
-  **409s** on an ERP-sourced invoice rather than silently letting an edit
-  diverge from the ledger.
+- **Role decides affordance; provenance only informs.** Every parsed field —
+  the invoice header, the supplier, and a line's values and category — is
+  correctable by a management role, whatever `Invoice.source` says. A read-only
+  role sees the same values as flat evidence text, never a disabled input,
+  because a disabled input claims a permission that will never be granted.
+  **Postings remain uncorrectable for everyone**: an `ErpEntry` is the ledger's
+  own record, and nothing in the panel edits one. `Invoice.source` still rides
+  along as a badge — it says how much to trust a value, not whether it may be
+  changed.
 - **An attached document is not necessarily a PDF.** The viewer dispatches on
   the blob's own media type — PDF through pdf.js, `image/*` as a plain `<img>`,
   anything else as a download rather than a broken preview. Real Billy
@@ -502,9 +574,13 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   run continues; the process exits non-zero if any integration failed.
 - **Each integration syncs from its own watermark** (`SyncState.last_invoice_date`).
   `--since` overrides it for a backfill; a failed run never advances it.
+- **A field a human verified is never overwritten** — see Invoice corrections.
+  The ERP restates everything else exactly as before.
 - CLI: `--integration-id` (re-run one; it only *filters* the discovered set and
-  can never create anything) and `--since`. There is no `--reset` — dropping the
-  schema would delete the integrations that define the work list.
+  can never create anything), `--since`, and `--hard-reset` (let the ERP win over
+  verified fields; opt-in, never implied by another flag, every overwrite audited
+  as actor `system`, human-added lines untouched). There is no `--reset` —
+  dropping the schema would delete the integrations that define the work list.
 - The runner needs `WEB_API_CREDENTIAL_ENC_KEY` whenever an integration has
   stored credentials, since it decrypts them.
 
@@ -599,6 +675,8 @@ src/
 │   ├── audit.py              generic AuditLog helpers (diff + append)
 │   ├── documents.py          where an invoice's scan lives (route + AI stage share it)
 │   ├── rollup.py             Invoice.status rollup from its lines
+│   ├── verified.py           which fields a human settled (sync reads it)
+│   ├── reconcile.py          do the lines add up? (API + AI stage share it)
 │   ├── spend_trees/          org-owned taxonomies: default template, the only
 │   │                         SpendCategory writer, CSV import, reassignment
 │   ├── fx/                   historical FX: rate provider + cache, convert,

@@ -137,18 +137,35 @@ export function SpendCategory({ line }: { line: InvoiceLineRead }) {
  * Says a line stands in for a posting because no document was read.
  *
  * Information, not an error: most vouchers have no scan, so presenting this as a
- * problem would flag most of the ledger. Only `entry_fallback` is marked —
- * marking the ordinary extracted case too would make the marking meaningless.
+ * problem would flag most of the ledger. Only the two origins a reader would
+ * not otherwise expect are marked — `entry_fallback`, whose description is a
+ * memo rather than a purchase, and `human`, which no automated source produced.
+ * Marking the ordinary ERP and extracted cases too would make the mark
+ * meaningless.
  *
  * `tabIndex` and `aria-label` rather than colour or a bare icon: the whole
  * content of the mark is the explanation, so it has to reach a keyboard and a
  * screen-reader user identically.
  */
+const PROVENANCE_MARKS: Partial<Record<LineOrigin, { label: string; explanation: string }>> = {
+  entry_fallback: {
+    label: 'from posting',
+    explanation:
+      'Stands in for a ledger posting — no document was read for this voucher, ' +
+      'so this is the bookkeeper’s description rather than what was bought.',
+  },
+  human: {
+    label: 'added by hand',
+    explanation:
+      'Written by a reviewer rather than read from the ERP or the document. ' +
+      'A sync will not change or remove it.',
+  },
+}
+
 export function ProvenanceMark({ origin }: { origin: LineOrigin }) {
-  if (origin !== 'entry_fallback') return null
-  const explanation =
-    'Stands in for a ledger posting — no document was read for this voucher, ' +
-    'so this is the bookkeeper’s description rather than what was bought.'
+  const mark = PROVENANCE_MARKS[origin]
+  if (mark === undefined) return null
+  const { label, explanation } = mark
   return (
     <Tooltip>
       <TooltipTrigger
@@ -160,7 +177,7 @@ export function ProvenanceMark({ origin }: { origin: LineOrigin }) {
           />
         }
       >
-        from posting
+        {label}
       </TooltipTrigger>
       <TooltipContent>{explanation}</TooltipContent>
     </Tooltip>

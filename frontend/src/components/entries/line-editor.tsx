@@ -1,0 +1,408 @@
+import * as React from 'react'
+import { AlertTriangle, Trash2 } from 'lucide-react'
+import { Badge, Button, Field, FieldControl, FieldLabel, Progress } from '#/components/ui'
+import { TreeSelector } from '#/components/spend-tree/tree-selector'
+import { formatMoney, toNumber } from '#/lib/format'
+import { serverErrorMessage } from '#/lib/form-errors'
+import type {
+  InvoiceLineRead,
+  InvoiceLineUpdate,
+  LineCorrections,
+  SpendCategoryRead,
+} from '#/lib/types'
+
+/** Re-exported for existing importers (`voucher-details-tab.tsx`,
+ *  `voucher-drawer.tsx`) — the canonical definition now lives in
+ *  `lib/types.ts` alongside the other API-shape types, so `lib/invoices.ts`
+ *  (a mutation, not a component) can use it without importing a component. */
+export type { LineCorrections }
+
+export interface LineEditorProps {
+  line: InvoiceLineRead
+  /** The invoice's currency — a line carries no currency of its own. */
+  currency: string | null
+  /** The company's spend tree, flat and shallowest-first. Null while it loads;
+   *  empty when the company has no tree assigned. */
+  nodes: Array<SpendCategoryRead> | null
+  /** Where a manager assigns the company's tree, for the no-tree case. */
+  companySettingsHref?: string
+  /** Whether the reader may write. A `viewer` sees the line's values as text
+   *  and gets neither the category selector's actions nor delete. */
+  canManage: boolean
+  /** Sending an empty object accepts the AI result as-is (`verify`, not `edit`). */
+  onVerify: (lineId: string, corrections: LineCorrections) => Promise<void>
+  /** Correct what the line says was bought (`PATCH /invoice-lines/{id}`). A
+   *  separate call from `onVerify`: the category is resolved against the
+   *  company's tree, these are values read off a document. */
+  onUpdate: (lineId: string, changes: InvoiceLineUpdate) => Promise<void>
+  /** Delete the line (`DELETE /invoice-lines/{id}`). Omit to hide the control. */
+  onDelete?: (lineId: string) => Promise<void>
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  uncategorized: 'Uncategorized',
+  ai_failed: 'AI categorization failed',
+  ai_categorized: 'AI categorized',
+  verified: 'Verified',
+}
+
+function statusVariant(status: string): 'default' | 'destructive' | 'success' {
+  if (status === 'verified') return 'success'
+  if (status === 'ai_failed') return 'destructive'
+  return 'default'
+}
+
+/** The path a line's stored levels describe, trailing levels dropped. */
+function storedPath(line: InvoiceLineRead): Array<string> {
+  return [line.level_1, line.level_2, line.level_3, line.level_4].filter(
+    (value): value is string => value !== null && value !== '',
+  )
+}
+
+/** What a human may say a line was, beside the category. */
+interface LineValues {
+  description: string
+  quantity: string
+  unit: string
+  unit_price: string
+  amount: string
+}
+
+const LINE_TEXT_FIELDS = ['description', 'unit'] as const
+const LINE_NUMBER_FIELDS = ['quantity', 'unit_price', 'amount'] as const
+
+function lineValuesFrom(line: InvoiceLineRead): LineValues {
+  const num = (value: unknown) => (value === null || value === undefined ? '' : String(value))
+  return {
+    description: line.description ?? '',
+    quantity: num(line.quantity),
+    unit: line.unit ?? '',
+    unit_price: num(line.unit_price),
+    amount: num(line.amount),
+  }
+}
+
+function toLineUpdate(current: LineValues, original: LineValues): InvoiceLineUpdate {
+  const changes: InvoiceLineUpdate = {}
+  for (const field of LINE_TEXT_FIELDS) {
+    if (current[field] !== original[field]) changes[field] = current[field] || null
+  }
+  for (const field of LINE_NUMBER_FIELDS) {
+    if (current[field] !== original[field]) {
+      changes[field] = current[field] === '' ? null : Number(current[field])
+    }
+  }
+  return changes
+}
+
+/**
+ * One line: what was bought, and the category assigned to it — both correctable.
+ *
+ * The two are saved by different calls, and deliberately so. A category is
+ * *chosen* from the company's tree and the server derives the levels from the
+ * chosen node's path, because a typed level matching no node produces a
+ * categorization resolving to nothing — the silent failure the stored
+ * `spend_category_id` exists to prevent. The values beside it are free text a
+ * human read off a document, and go through the line's own PATCH, which refuses
+ * a category outright rather than ignoring it.
+ */
+export function LineEditor({
+  line,
+  currency,
+  nodes,
+  companySettingsHref,
+  canManage,
+  onVerify,
+  onUpdate,
+  onDelete,
+}: LineEditorProps) {
+  // Recomputed from the line every render, so a fresh server value (after a
+  // save) is picked up without a synchronizing effect — only `chosen` below is
+  // state the user's own action owns.
+  const [chosen, setChosen] = React.useState<SpendCategoryRead | null>(null)
+  const [submitting, setSubmitting] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = React.useState(false)
+
+  // Same baseline-as-state discipline the header editor uses: a successful save
+  // updates it immediately, so "dirty" clears the instant the save resolves
+  // rather than waiting on the detail query to refetch.
+  const [savedValues, setSavedValues] = React.useState<LineValues>(() => lineValuesFrom(line))
+  const [values, setValues] = React.useState<LineValues>(savedValues)
+
+  const selectedId = chosen?.id ?? line.spend_category_id
+  const categoryDirty = chosen !== null && chosen.id !== line.spend_category_id
+  const valuesDirty = [...LINE_TEXT_FIELDS, ...LINE_NUMBER_FIELDS].some(
+    (f) => values[f] !== savedValues[f],
+  )
+
+  function setValue<K extends keyof LineValues>(field: K, value: string) {
+    setValues((current) => ({ ...current, [field]: value }))
+  }
+
+  function handleCancel() {
+    setChosen(null)
+    setValues(savedValues)
+    setError(null)
+  }
+
+  async function run(action: () => Promise<void>) {
+    setSubmitting(true)
+    setError(null)
+    try {
+      await action()
+      return true
+    } catch (failure) {
+      setError(serverErrorMessage(failure))
+      return false
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleSaveValues() {
+    const changes = toLineUpdate(values, savedValues)
+    if (await run(() => onUpdate(line.id, changes))) setSavedValues(values)
+  }
+
+  async function handleAccept() {
+    // Only the node — the server takes the levels from its path, so a
+    // correction cannot store a category that resolves to nothing.
+    const corrections: LineCorrections = categoryDirty
+      ? { spend_category_id: chosen!.id }
+      : {}
+    if (await run(() => onVerify(line.id, corrections))) setChosen(null)
+  }
+
+  async function handleDelete() {
+    if (onDelete === undefined) return
+    await run(() => onDelete(line.id))
+  }
+
+  const confidencePct =
+    line.confidence === null ? null : Math.round(toNumber(line.confidence) * 100)
+  const stale = line.category_stale
+  const previous = storedPath(line)
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-foreground">
+            {line.description ?? 'Untitled line'}
+          </p>
+          <p className="text-sm tabular-nums text-muted-foreground">
+            {line.amount !== null ? formatMoney(line.amount, currency) : '—'}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {stale ? (
+            // Distinct from `ai_failed` in words as well as colour: nothing
+            // failed here, the taxonomy moved out from under a decision.
+            <Badge variant="warning">
+              <AlertTriangle className="mr-1 size-3" aria-hidden />
+              Needs review
+            </Badge>
+          ) : null}
+          <Badge variant={statusVariant(line.status)}>
+            {STATUS_LABEL[line.status] ?? line.status}
+          </Badge>
+          {canManage && onDelete !== undefined ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={submitting}
+              // Named by position rather than by description: the description
+              // is also the category selector's own label on this row, and two
+              // controls answering to the same name is a control a screen-reader
+              // user cannot address. The confirmation that follows names it.
+              aria-label={`Delete line ${line.sequence + 1}`}
+              onClick={() => setConfirmingDelete(true)}
+            >
+              <Trash2 className="size-4" aria-hidden />
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      {confirmingDelete ? (
+        // Named, not a bare "are you sure?": the line carries a categorization
+        // a human may have verified, and the audit row is the only place it
+        // survives. Inline rather than a modal, so the row it refers to stays
+        // on screen while the question is being answered.
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
+          <p className="text-sm text-foreground">
+            Delete <span className="font-medium">{line.description ?? 'this line'}</span>?
+            Its postings stay on the voucher.
+          </p>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={submitting}
+              onClick={() => void handleDelete()}
+            >
+              Delete line
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmingDelete(false)}>
+              Keep
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {canManage ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field className="sm:col-span-2">
+            <FieldLabel>Description</FieldLabel>
+            <FieldControl
+              value={values.description}
+              onChange={(event) => setValue('description', event.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel>Quantity</FieldLabel>
+            <FieldControl
+              value={values.quantity}
+              onChange={(event) => setValue('quantity', event.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel>Unit</FieldLabel>
+            {/* Never defaulted to "pcs": twelve of an unstated unit against
+                "Consulting" is twelve hours or twelve days, and a guess here is
+                a wrong figure presented with confidence. */}
+            <FieldControl
+              value={values.unit}
+              placeholder="pcs, hours…"
+              onChange={(event) => setValue('unit', event.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel>Unit price</FieldLabel>
+            <FieldControl
+              value={values.unit_price}
+              onChange={(event) => setValue('unit_price', event.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel>Amount</FieldLabel>
+            <FieldControl
+              value={values.amount}
+              onChange={(event) => setValue('amount', event.target.value)}
+            />
+          </Field>
+        </div>
+      ) : null}
+
+      {nodes === null ? (
+        <p className="text-sm text-muted-foreground">Loading the spend tree…</p>
+      ) : nodes.length === 0 ? (
+        <NoTreeNotice href={companySettingsHref} previous={previous} />
+      ) : (
+        <Field>
+          <FieldLabel>Spend category</FieldLabel>
+          <TreeSelector
+            nodes={nodes}
+            value={selectedId}
+            onChange={setChosen}
+            placeholder={stale ? 'Choose a category in the current tree' : 'Choose a category'}
+            previousPath={stale ? previous : null}
+          />
+        </Field>
+      )}
+
+      {stale && previous.length > 0 && nodes !== null && nodes.length > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Previously categorized as{' '}
+          <span className="font-medium text-foreground">{previous.join(' › ')}</span>, which is
+          not in this company&rsquo;s current spend tree.
+        </p>
+      ) : null}
+
+      {confidencePct === null ? (
+        <p className="text-sm text-muted-foreground">Confidence not available.</p>
+      ) : (
+        <Progress value={confidencePct} label="Confidence" showValue />
+      )}
+
+      {line.rationale ? (
+        <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+          {line.rationale}
+        </p>
+      ) : null}
+
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+      {canManage ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Two saves, because they are two different statements: the values
+              are what the document said, the category is a decision about them.
+              Collapsing them into one button would verify a categorization the
+              reviewer had not looked at, just because they fixed a typo. */}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={submitting || !valuesDirty}
+            onClick={() => void handleSaveValues()}
+          >
+            {submitting ? 'Saving…' : 'Save line'}
+          </Button>
+          <Button size="sm" disabled={submitting} onClick={() => void handleAccept()}>
+            {submitting
+              ? 'Accepting…'
+              : categoryDirty
+                ? 'Save & verify category'
+                : 'Accept category'}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={submitting || !(categoryDirty || valuesDirty)}
+            onClick={handleCancel}
+          >
+            Cancel
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * No tree assigned. Says so and points at where it is fixed — rather than an
+ * empty picker, which claims a choice exists, or free-text inputs, which would
+ * reintroduce the very failure the selector removes.
+ */
+function NoTreeNotice({
+  href,
+  previous,
+}: {
+  href?: string
+  previous: Array<string>
+}) {
+  return (
+    <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm">
+      <p className="text-foreground">No spend tree is assigned to this company.</p>
+      <p className="mt-1 text-muted-foreground">
+        A category can be chosen once a manager assigns one
+        {href ? (
+          <>
+            {' '}
+            in{' '}
+            <a href={href} className="font-medium text-primary underline-offset-2 hover:underline">
+              company settings
+            </a>
+          </>
+        ) : null}
+        .
+      </p>
+      {previous.length > 0 ? (
+        <p className="mt-2 text-muted-foreground">
+          Previously categorized as{' '}
+          <span className="font-medium text-foreground">{previous.join(' › ')}</span>.
+        </p>
+      ) : null}
+    </div>
+  )
+}

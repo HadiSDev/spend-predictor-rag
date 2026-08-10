@@ -4,6 +4,7 @@ import type { VoucherKey } from '#/lib/entries'
 import type {
   CompanyRead,
   EntryFilters,
+  InvoiceLineUpdate,
   InvoiceUpdate,
   LineCorrections,
   Page,
@@ -106,11 +107,18 @@ export interface EntriesPanelProps {
   /** Where a manager assigns that company's tree, for the no-tree case. */
   companySettingsHref?: string
   onUpdateHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
+  /** Verify the header, applying any pending edits first. */
+  onVerifyHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
+  /** Correct what a line says was bought — not its category. */
+  onUpdateLine: (lineId: string, changes: InvoiceLineUpdate) => Promise<void>
+  /** Add a line to the open invoice, and delete one from it. */
+  onCreateLine: (invoiceId: string) => Promise<void>
+  onDeleteLine: (lineId: string) => Promise<void>
   /** Queue an invoice's document to be read again. */
   onReprocess: (invoiceId: string) => Promise<void>
-  /** Whether the signed-in user holds a management role — the reprocess
-   *  endpoint requires one, so the action is offered only where it will work. */
-  canRetrigger: boolean
+  /** Whether the signed-in user holds a management role — every write in the
+   *  panel requires one, so the actions are offered only where they will work. */
+  canManage: boolean
 }
 
 /**
@@ -140,8 +148,12 @@ export function EntriesPanel({
   spendTreeNodes,
   companySettingsHref,
   onUpdateHeader,
+  onVerifyHeader,
+  onUpdateLine,
+  onCreateLine,
+  onDeleteLine,
   onReprocess,
-  canRetrigger,
+  canManage,
 }: EntriesPanelProps) {
   const pageCount = result ? Math.max(1, Math.ceil(result.total / result.page_size)) : 1
   const open = filters.voucher !== undefined || filters.entry !== undefined
@@ -206,8 +218,13 @@ export function EntriesPanel({
         spendTreeNodes={spendTreeNodes}
         companySettingsHref={companySettingsHref}
         onUpdateHeader={onUpdateHeader}
+        onVerifyHeader={onVerifyHeader}
+        onUpdateLine={onUpdateLine}
+        onCreateLine={onCreateLine}
+        onDeleteLine={onDeleteLine}
+        vendors={vendors}
         onReprocess={onReprocess}
-        canRetrigger={canRetrigger}
+        canManage={canManage}
         onHeaderDirtyChange={setHeaderDirty}
         hasUnsavedChanges={headerDirty}
       />

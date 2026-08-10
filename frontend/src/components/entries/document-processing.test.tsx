@@ -21,6 +21,13 @@ function invoice(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetailRead 
     fx_rate_date: '2026-07-02',
     status: 'categorized',
     source: 'erp',
+    supplier_name: null,
+    supplier_country_code: null,
+    supplier_vat_number: null,
+    supplier_overrides: [],
+    verified_fields: [],
+    verified_at: null,
+    verified_by: null,
     error_message: null,
     file_id: 'f1',
     file_name: 'invoice.pdf',
@@ -29,6 +36,8 @@ function invoice(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetailRead 
     doc_error: null,
     doc_processed_at: '2026-07-02T10:00:00Z',
     lines: [],
+    lines_reconciled: true,
+    reconciliation_delta: null,
     ...overrides,
   }
 }

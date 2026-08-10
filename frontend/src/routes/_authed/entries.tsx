@@ -11,9 +11,13 @@ import {
 } from '#/lib/entries'
 import type { VoucherKey } from '#/lib/entries'
 import {
+  createInvoiceLineMutation,
+  deleteInvoiceLineMutation,
   reprocessInvoiceMutation,
+  updateInvoiceLineMutation,
   updateInvoiceMutation,
   verifyInvoiceLineMutation,
+  verifyInvoiceMutation,
 } from '#/lib/invoices'
 import { entriesSummaryOptions } from '#/lib/reports'
 import { spendTreeQueryOptions } from '#/lib/spend-trees'
@@ -71,6 +75,10 @@ function EntriesPage() {
 
   const verifyLine = useMutation(verifyInvoiceLineMutation(api, queryClient))
   const updateHeader = useMutation(updateInvoiceMutation(api, queryClient))
+  const verifyHeader = useMutation(verifyInvoiceMutation(api, queryClient))
+  const updateLine = useMutation(updateInvoiceLineMutation(api, queryClient))
+  const createLine = useMutation(createInvoiceLineMutation(api, queryClient))
+  const deleteLine = useMutation(deleteInvoiceLineMutation(api, queryClient))
   const reprocess = useMutation(reprocessInvoiceMutation(api, queryClient))
 
   const entryTypes = React.useMemo(
@@ -106,12 +114,26 @@ function EntriesPage() {
       onUpdateHeader={async (invoiceId, changes) => {
         await updateHeader.mutateAsync({ id: invoiceId, body: changes })
       }}
+      onVerifyHeader={async (invoiceId, changes) => {
+        await verifyHeader.mutateAsync({ id: invoiceId, body: changes })
+      }}
+      onUpdateLine={async (lineId, changes) => {
+        await updateLine.mutateAsync({ id: lineId, body: changes })
+      }}
+      onCreateLine={async (invoiceId) => {
+        // Empty: the reviewer fills the row in afterwards. A form to complete
+        // first would put a dialog between them and a three-step operation.
+        await createLine.mutateAsync({ invoiceId, body: {} })
+      }}
+      onDeleteLine={async (lineId) => {
+        await deleteLine.mutateAsync({ id: lineId })
+      }}
       onReprocess={async (invoiceId) => {
         await reprocess.mutateAsync({ id: invoiceId })
       }}
       // The same role the endpoint requires. Offering the action to a viewer
       // would only teach them the screen lies about what they can do.
-      canRetrigger={canManageCompanies(principal)}
+      canManage={canManageCompanies(principal)}
     />
   )
 }

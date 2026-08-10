@@ -8,7 +8,12 @@ function str(value: unknown): string | undefined {
 const VOUCHER_TABS: ReadonlyArray<VoucherTab> = ['lines', 'details', 'postings', 'activity']
 
 /** The line provenances worth filtering by. See `LineOrigin`. */
-export const LINE_ORIGINS: ReadonlyArray<LineOrigin> = ['document_ai', 'erp', 'entry_fallback']
+export const LINE_ORIGINS: ReadonlyArray<LineOrigin> = [
+  'document_ai',
+  'erp',
+  'entry_fallback',
+  'human',
+]
 
 /** Read the origin, ignoring anything not a known one — search params are user
  *  input, and an unknown value would make the API 422 or silently return all. */

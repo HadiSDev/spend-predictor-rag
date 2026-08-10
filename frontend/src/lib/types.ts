@@ -435,8 +435,12 @@ export type DocStatus = 'not_applicable' | 'pending' | 'processing' | 'processed
  * its description is the bookkeeper's memo, not what was bought, so the reader
  * is told. Stored on the line rather than inferred: a stand-in and an extracted
  * line can be identical in every other field.
+ *
+ * `human` is a line a reviewer wrote by hand, typically splitting a stand-in
+ * into what was actually bought. It outranks every other origin, so no sync or
+ * extraction displaces it.
  */
-export type LineOrigin = 'erp' | 'document_ai' | 'entry_fallback'
+export type LineOrigin = 'erp' | 'document_ai' | 'entry_fallback' | 'human'
 
 /** Which face of the voucher panel is showing. */
 export type VoucherTab = 'details' | 'lines' | 'postings' | 'activity'
@@ -551,6 +555,9 @@ export interface InvoiceLineRead {
    * moved.
    */
   category_stale: boolean
+  /** Which of this line's fields a human has settled. A sync refreshes
+   *  everything else from the ERP and leaves these alone. */
+  verified_fields: Array<string>
 }
 
 /** An invoice header. */
@@ -573,9 +580,24 @@ export interface InvoiceRead {
   base_tax: Money | null
   fx_rate: Money | null
   fx_rate_date: string | null
+  /** The supplier this invoice states: the human's override when one was made,
+   *  otherwise the linked vendor's value. Resolved server-side — the fallback
+   *  is a rule, and a rule reimplemented per client eventually differs. */
+  supplier_name: string | null
+  supplier_country_code: string | null
+  supplier_vat_number: string | null
+  /** Which of the three above are the human's rather than the catalog's, so a
+   *  corrected supplier is distinguishable from a catalogued one. */
+  supplier_overrides: Array<string>
   status: string
-  /** `erp` | `pdf_extraction`. */
+  /** `erp` | `pdf_extraction`. Provenance only: it says how much to trust a
+   *  value, not whether the value may be corrected. */
   source: string
+  /** Which fields a human has settled, and who settled them when. Per field,
+   *  so a sync still refreshes everything nobody has spoken for. */
+  verified_fields: Array<string>
+  verified_at: string | null
+  verified_by: string | null
   error_message: string | null
   file_id: string | null
   /** Resolved from the linked File so a client never needs a second lookup to
@@ -594,13 +616,22 @@ export interface InvoiceRead {
 /** `InvoiceRead` plus its lines — the shape a voucher's detail panel needs. */
 export interface InvoiceDetailRead extends InvoiceRead {
   lines: Array<InvoiceLineRead>
+  /** Do the lines add up to the header? Server-computed through the same rule
+   *  that accepts or rejects an extraction, so the two can never disagree. */
+  lines_reconciled: boolean
+  /** Signed `sum(lines) − nearest accepted total`, so a reader can see which
+   *  way it is out. Null when the lines reconcile or there is no total. */
+  reconciliation_delta: Money | null
 }
 
 /**
- * `PATCH /invoices/{id}` — corrections to an AI-parsed invoice header. Only
- * fields the extraction produced, never one the ERP posted: the endpoint
- * answers 409 for an `erp`-sourced invoice, and the UI never offers this
- * action for one in the first place.
+ * `PATCH /invoices/{id}` — corrections to a parsed invoice header.
+ *
+ * Not gated on provenance: an ERP-posted header is as correctable as an
+ * extracted one. The `supplier_*` fields are invoice-scoped overrides and never
+ * write through to the global `Vendor` row; `vendor_id` is the other, different
+ * correction — "this is the wrong supplier" rather than "this supplier's
+ * details are wrong on this document".
  */
 export interface InvoiceUpdate {
   invoice_number?: string | null
@@ -609,6 +640,40 @@ export interface InvoiceUpdate {
   total?: number | null
   tax?: number | null
   vendor_id?: string | null
+  supplier_name?: string | null
+  supplier_country_code?: string | null
+  supplier_vat_number?: string | null
+}
+
+/**
+ * `POST /invoices/{id}/verify` — the same fields, plus the act of verifying.
+ *
+ * A separate call from the PATCH because "I looked, and it was right" is a
+ * signal a correction cannot express, and it is the label the extractor needs.
+ * An empty body is the whole point of it.
+ */
+export type InvoiceVerify = InvoiceUpdate
+
+/**
+ * `PATCH /invoice-lines/{id}` — what a line says was bought.
+ *
+ * Not the spend category: that goes through `verify`, which resolves it against
+ * the company's tree. The server rejects a category sent here rather than
+ * ignoring it, so the mistake is loud.
+ */
+export interface InvoiceLineUpdate {
+  description?: string | null
+  quantity?: number | null
+  unit?: string | null
+  unit_price?: number | null
+  amount?: number | null
+}
+
+/** `POST /invoices/{id}/lines` — a line a reviewer adds by hand. `origin` is
+ *  not a parameter: it is `human` by construction. */
+export interface InvoiceLineCreate extends InvoiceLineUpdate {
+  /** Omitted means "after the last line", which is what appending means. */
+  sequence?: number
 }
 
 /** The document attached to a voucher's invoice. Derived from

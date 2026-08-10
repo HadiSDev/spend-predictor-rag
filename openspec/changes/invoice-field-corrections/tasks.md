@@ -51,28 +51,28 @@
 
 ## 7. Frontend — client and types
 
-- [ ] 7.1 Extend `frontend/src/lib/types.ts`: `InvoiceUpdate` supplier fields, `InvoiceVerify`, `InvoiceLineUpdate`, `InvoiceLineCreate`, the new read-model fields, and `'human'` in the line origin union.
-- [ ] 7.2 Add the calls to `frontend/src/lib/invoices.ts`: `verifyInvoice`, `updateInvoiceLine`, `createInvoiceLine`, `deleteInvoiceLine`, each invalidating the voucher/invoice queries the panel reads.
+- [x] 7.1 Extend `frontend/src/lib/types.ts`: `InvoiceUpdate` supplier fields, `InvoiceVerify`, `InvoiceLineUpdate`, `InvoiceLineCreate`, the new read-model fields, and `'human'` in the line origin union.
+- [x] 7.2 Add the calls to `frontend/src/lib/invoices.ts`: `verifyInvoice`, `updateInvoiceLine`, `createInvoiceLine`, `deleteInvoiceLine`, each invalidating the voucher/invoice queries the panel reads.
 
 ## 8. Frontend — header editor
 
-- [ ] 8.1 In `voucher-details-tab.tsx`, gate `EditableInvoiceHeader` on the management role instead of `source === 'pdf_extraction'`; keep `ReadOnlyField` for read-only roles and keep the provenance badge for both.
-- [ ] 8.2 Add currency, and the three supplier fields — country from `lib/countries.ts` as a selector, not a text input.
-- [ ] 8.3 Add a searchable vendor picker over `GET /vendors`, following the spend-tree selector's "chosen, never typed" rule.
-- [ ] 8.4 Mark an overridden supplier field visibly and keep the catalog value reachable; state that the correction applies to this invoice only.
-- [ ] 8.5 Add the verify action, showing verifier and time once verified; hide it for read-only roles.
-- [ ] 8.6 Preserve the existing dirty-state discipline: `key={invoice.id}` remount, baseline updated on save, only changed fields sent, dirty reported up for the drawer's dismissal guard.
+- [x] 8.1 In `voucher-details-tab.tsx`, gate `EditableInvoiceHeader` on the management role instead of `source === 'pdf_extraction'`; keep `ReadOnlyField` for read-only roles and keep the provenance badge for both.
+- [x] 8.2 Add currency, and the three supplier fields — country from `lib/countries.ts` as a selector, not a text input.
+- [x] 8.3 Add a searchable vendor picker over `GET /vendors`, following the spend-tree selector's "chosen, never typed" rule.
+- [x] 8.4 Mark an overridden supplier field visibly and keep the catalog value reachable; state that the correction applies to this invoice only.
+- [x] 8.5 Add the verify action, showing verifier and time once verified; hide it for read-only roles.
+- [x] 8.6 Preserve the existing dirty-state discipline: `key={invoice.id}` remount, baseline updated on save, only changed fields sent, dirty reported up for the drawer's dismissal guard.
 
 ## 9. Frontend — lines editor
 
-- [ ] 9.1 Extend `line-category-editor.tsx` with description, quantity, unit, unit price and amount inputs beside the category selector, routing category to verify and the rest to the line PATCH.
-- [ ] 9.2 Add "Add line" and per-line delete to `voucher-lines-tab.tsx`, with an explicit confirmation naming the line being deleted; render neither for read-only roles.
-- [ ] 9.3 Mark a `human` line the way `ProvenanceMark` marks a provisional one — text plus a mark, never colour alone.
-- [ ] 9.4 Show the reconciliation warning on the Lines tab with both figures and the signed delta, and surface it in the drawer header so it is visible from any tab; clear it when the lines come back within tolerance.
+- [x] 9.1 Extend `line-category-editor.tsx` with description, quantity, unit, unit price and amount inputs beside the category selector, routing category to verify and the rest to the line PATCH.
+- [x] 9.2 Add "Add line" and per-line delete to `voucher-lines-tab.tsx`, with an explicit confirmation naming the line being deleted; render neither for read-only roles.
+- [x] 9.3 Mark a `human` line the way `ProvenanceMark` marks a provisional one — text plus a mark, never colour alone.
+- [x] 9.4 Show the reconciliation warning on the Lines tab with both figures and the signed delta, and surface it in the drawer header so it is visible from any tab; clear it when the lines come back within tolerance.
 
 ## 10. Verification
 
-- [ ] 10.1 `uv run pytest` green.
-- [ ] 10.2 Frontend tests green (`./node_modules/.bin/vitest run` from `frontend/`), including updated `voucher-details-tab.test.tsx`, `voucher-lines-tab.test.tsx` and `voucher-drawer.test.tsx`.
-- [ ] 10.3 Run the sync against the Debug ERP twice with a verification in between and confirm the corrected value survives, then once with `--hard-reset` and confirm it is restored and audited.
-- [ ] 10.4 Update `CLAUDE.md`: the provenance-decides-affordance paragraph (postings only now), the new endpoints, `verified_fields`, the supplier overrides, the `human` origin, and `--hard-reset`.
+- [x] 10.1 `uv run pytest` green.
+- [x] 10.2 Frontend tests green (`./node_modules/.bin/vitest run` from `frontend/`), including updated `voucher-details-tab.test.tsx`, `voucher-lines-tab.test.tsx` and `voucher-drawer.test.tsx`.
+- [ ] 10.3 Run the sync against the Debug ERP twice with a verification in between and confirm the corrected value survives, then once with `--hard-reset` and confirm it is restored and audited. **Not done — needs the dev database.** `run_sync()` reads its work list from connected `ErpIntegration` rows, so this would mean writing a company + integration into the developer's own PostgreSQL, which is theirs to do. The same sequence runs automatically against a throwaway engine in `tests/ai_api/test_sync_verified_fields.py` (survives a re-sync / restored and audited by `--hard-reset` / human lines outlive both).
+- [x] 10.4 Update `CLAUDE.md`: the provenance-decides-affordance paragraph (postings only now), the new endpoints, `verified_fields`, the supplier overrides, the `human` origin, and `--hard-reset`.

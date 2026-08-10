@@ -27,6 +27,7 @@ const ORIGIN_LABELS: Record<LineOrigin, string> = {
   document_ai: 'From document',
   erp: 'From ERP',
   entry_fallback: 'From posting',
+  human: 'Added by hand',
 }
 
 /**

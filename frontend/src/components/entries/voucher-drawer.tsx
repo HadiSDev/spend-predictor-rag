@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { ChevronLeft, FileText } from 'lucide-react'
+import { ChevronLeft, FileText, TriangleAlert } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -7,6 +7,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  Badge,
   Button,
   Drawer,
   DrawerContent,
@@ -23,14 +24,16 @@ import {
 import { formatMoney } from '#/lib/format'
 import type {
   ErpEntryRead,
+  InvoiceLineUpdate,
   InvoiceUpdate,
   SpendCategoryRead,
+  VendorRead,
   VoucherAuditRead,
   VoucherDetailRead,
   VoucherTab,
 } from '#/lib/types'
 import { InvoiceDocument } from './invoice-document'
-import type { LineCorrections } from './line-category-editor'
+import type { LineCorrections } from './line-editor'
 import { VoucherActivityTab } from './voucher-activity-tab'
 import { VoucherDetailsTab } from './voucher-details-tab'
 import { VoucherLinesTab } from './voucher-lines-tab'
@@ -60,11 +63,22 @@ export interface VoucherDrawerProps {
   /** Save a header correction on the Details tab. Forwarded straight to
    *  `VoucherDetailsTab` — see its own doc for when this fires. */
   onUpdateHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
+  /** Verify the header, applying any pending edits first. */
+  onVerifyHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
+  /** Correct what a line says was bought. */
+  onUpdateLine: (lineId: string, changes: InvoiceLineUpdate) => Promise<void>
+  /** Add a line to the open invoice. */
+  onCreateLine: (invoiceId: string) => Promise<void>
+  /** Delete a line from the open invoice. */
+  onDeleteLine: (lineId: string) => Promise<void>
+  /** The organization's suppliers, for the Details tab's vendor picker. */
+  vendors: Array<VendorRead> | null
   /** Queue the document to be read again (`POST /invoices/{id}/reprocess`). */
   onReprocess: (invoiceId: string) => Promise<void>
-  /** Whether the signed-in user may retrigger — the endpoint is
-   *  management-only, so a read-only member sees the state without the action. */
-  canRetrigger: boolean
+  /** Whether the signed-in user holds a management role. Every write in the
+   *  panel is management-gated server-side, so a read-only member sees the
+   *  state without any of the actions. */
+  canManage: boolean
   /** Whether the Details tab's header editor has edits not yet saved.
    *  Forwarded to `VoucherDetailsTab`; omit to ignore. */
   onHeaderDirtyChange?: (dirty: boolean) => void
@@ -96,7 +110,18 @@ function VoucherHeader({ detail }: { detail: VoucherDetailRead }) {
 
   return (
     <DrawerHeader>
-      <DrawerTitle>{detail.voucher_id ?? 'No voucher'}</DrawerTitle>
+      <DrawerTitle className="flex flex-wrap items-center gap-2">
+        {detail.voucher_id ?? 'No voucher'}
+        {/* In the header, not only on the Lines tab: a reviewer reading the
+            Details or Postings tab would otherwise have no way to learn that
+            the lines behind them no longer add up. */}
+        {detail.invoice && !detail.invoice.lines_reconciled ? (
+          <Badge variant="warning">
+            <TriangleAlert className="size-3" aria-hidden="true" />
+            Lines do not add up
+          </Badge>
+        ) : null}
+      </DrawerTitle>
       <DrawerDescription className="flex flex-wrap items-center gap-x-1.5">
         <span>{vendor ?? '—'}</span>
         <span aria-hidden="true">·</span>
@@ -142,8 +167,13 @@ export function VoucherDrawer({
   spendTreeNodes,
   companySettingsHref,
   onUpdateHeader,
+  onVerifyHeader,
+  onUpdateLine,
+  onCreateLine,
+  onDeleteLine,
+  vendors,
   onReprocess,
-  canRetrigger,
+  canManage,
   onHeaderDirtyChange,
   hasUnsavedChanges,
 }: VoucherDrawerProps) {
@@ -272,7 +302,11 @@ export function VoucherDrawer({
                             invoice={invoice}
                             spendTreeNodes={spendTreeNodes}
                             companySettingsHref={companySettingsHref}
+                            canManage={canManage}
                             onVerifyLine={onVerifyLine}
+                            onUpdateLine={onUpdateLine}
+                            onCreateLine={onCreateLine}
+                            onDeleteLine={onDeleteLine}
                           />
                         </TabsPanel>
                       ) : null}
@@ -280,9 +314,11 @@ export function VoucherDrawer({
                         <TabsPanel value="details" className="ep-tab-fade">
                           <VoucherDetailsTab
                             invoice={invoice}
-                            canRetrigger={canRetrigger}
+                            canManage={canManage}
+                            vendors={vendors}
                             onReprocess={onReprocess}
                             onUpdateHeader={onUpdateHeader}
+                            onVerifyHeader={onVerifyHeader}
                             onHeaderDirtyChange={onHeaderDirtyChange}
                           />
                         </TabsPanel>

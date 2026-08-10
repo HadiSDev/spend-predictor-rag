@@ -116,6 +116,7 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     spend_category_id: 'cat-chairs',
     level_4: null,
     category_stale: false,
+    verified_fields: [],
     ...overrides,
   }
 }
@@ -138,6 +139,13 @@ function invoice(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetailRead 
     fx_rate_date: '2026-07-02',
     status: 'categorized',
     source: 'erp',
+    supplier_name: null,
+    supplier_country_code: null,
+    supplier_vat_number: null,
+    supplier_overrides: [],
+    verified_fields: [],
+    verified_at: null,
+    verified_by: null,
     error_message: null,
     file_id: 'file-1',
     file_name: 'acme-invoice.pdf',
@@ -146,6 +154,8 @@ function invoice(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetailRead 
     doc_error: null,
     doc_processed_at: '2026-07-02T10:00:00Z',
     lines: [line()],
+    lines_reconciled: true,
+    reconciliation_delta: null,
     ...overrides,
   }
 }
@@ -228,8 +238,13 @@ function props(overrides: Partial<VoucherDrawerProps> = {}): VoucherDrawerProps 
     onVerifyLine: vi.fn().mockResolvedValue(undefined),
     spendTreeNodes: TREE_NODES,
     onReprocess: vi.fn().mockResolvedValue(undefined),
-    canRetrigger: true,
+    canManage: true,
+    vendors: [],
     onUpdateHeader: vi.fn().mockResolvedValue(undefined),
+    onVerifyHeader: vi.fn().mockResolvedValue(undefined),
+    onUpdateLine: vi.fn().mockResolvedValue(undefined),
+    onCreateLine: vi.fn().mockResolvedValue(undefined),
+    onDeleteLine: vi.fn().mockResolvedValue(undefined),
     hasUnsavedChanges: false,
     ...overrides,
   }
