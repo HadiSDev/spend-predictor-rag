@@ -54,6 +54,10 @@ class InvoiceLine(SQLModel, table=True):
     level_1: Optional[str] = Field(sa_type=String, nullable=True)
     level_2: Optional[str] = Field(sa_type=String, nullable=True)
     level_3: Optional[str] = Field(sa_type=String, nullable=True)
+    # The fourth tier, set only when the company's tree is four levels deep —
+    # the ordinary case leaves it null. Never inferred and never defaulted: a
+    # level the taxonomy does not have is not a level.
+    level_4: Optional[str] = Field(sa_type=String, nullable=True)
     account_code: Optional[str] = Field(sa_type=String, nullable=True)
     account_name: Optional[str] = Field(sa_type=String, nullable=True)
     confidence: Optional[Decimal] = Field(sa_type=Numeric(4, 3), nullable=True)

@@ -58,6 +58,20 @@ class LineOrigin(str, Enum):
     ENTRY_FALLBACK = "entry_fallback"  # stands in for one expense posting
 
 
+class SpendTreeSource(str, Enum):
+    """Where a spend tree came from.
+
+    A ``DEFAULT_TEMPLATE`` tree is the organization's own copy of the platform
+    template — editable, tenant-local, and capped at three levels. Recorded on
+    the row rather than inferred from the node shape, because a customer who
+    edits their copy until it no longer resembles the template still has a
+    template copy, and creating a second one would be wrong.
+    """
+
+    DEFAULT_TEMPLATE = "default_template"
+    CUSTOM = "custom"
+
+
 class DocStatus(str, Enum):
     """Whether an invoice's attached document has been turned into lines.
 

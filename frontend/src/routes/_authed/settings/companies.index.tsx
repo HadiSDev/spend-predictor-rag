@@ -12,6 +12,7 @@ import {
   updateCompanyMutation,
 } from '#/lib/companies'
 import { erpTypesQueryOptions } from '#/lib/erp-types'
+import { spendTreesQueryOptions } from '#/lib/spend-trees'
 import {
   connectIntegrationMutation,
   integrationsQueryOptions,
@@ -35,6 +36,9 @@ function CompaniesSection() {
   const erpTypes = useQuery({ ...erpTypesQueryOptions(api), enabled: canManage })
   const integrations = useQuery(integrationsQueryOptions(api))
   const create = useMutation(createCompanyMutation(api, queryClient))
+  // The org's trees, so a company's taxonomy is chosen from a list rather than
+  // typed. Read-only for any member, so this needs no role gate of its own.
+  const spendTrees = useQuery(spendTreesQueryOptions(api))
   const update = useMutation(updateCompanyMutation(api, queryClient))
   const updateIntegration = useMutation(updateIntegrationMutation(api, queryClient))
   const connectIntegration = useMutation(connectIntegrationMutation(api, queryClient))
@@ -62,6 +66,10 @@ function CompaniesSection() {
       erpTypes={erpTypes.data ?? []}
       erpTypesLoading={erpTypes.isPending && canManage}
       integrations={integrations.data ?? []}
+      spendTrees={spendTrees.data ?? []}
+      onReviewStaleLines={(companyId) =>
+        navigate({ to: '/entries', search: { company_id: companyId } })
+      }
       onCreate={(values) =>
         create.mutateAsync({
           name: values.name,
@@ -69,6 +77,9 @@ function CompaniesSection() {
           // Empty optional fields are sent as null, not "".
           country_code: values.country_code || null,
           vat_number: values.vat_number || null,
+          // Empty means "the organization's default tree" — sent as null so
+          // the server materializes it, never as "" which resolves to nothing.
+          spend_tree_id: values.spend_tree_id || null,
           // The company and its ERP connection go in one request, so a failure
           // cannot leave a company that syncs nothing.
           integration: {
@@ -94,6 +105,11 @@ function CompaniesSection() {
               : {}),
             ...(changes.base_currency !== undefined
               ? { base_currency: changes.base_currency }
+              : {}),
+            // Empty string means "the organization's default", which the
+            // server resolves — so it is sent as null, not dropped.
+            ...(changes.spend_tree_id !== undefined
+              ? { spend_tree_id: changes.spend_tree_id || null }
               : {}),
           },
         })

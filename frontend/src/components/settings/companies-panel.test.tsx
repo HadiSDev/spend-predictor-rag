@@ -59,6 +59,8 @@ const ACME: CompanyRead = {
   base_currency: 'DKK',
   is_active: true,
   deactivated_at: null,
+  spend_tree_id: 'tree1',
+  spend_tree_name: 'Default spend tree',
 }
 
 const RETIRED: CompanyRead = {
@@ -69,6 +71,8 @@ const RETIRED: CompanyRead = {
   base_currency: 'EUR',
   is_active: false,
   deactivated_at: '2026-02-01T00:00:00Z',
+  spend_tree_id: 'tree1',
+  spend_tree_name: 'Default spend tree',
 }
 
 /** Acme's connected integration, as `GET /erp-integrations` reports it. */
@@ -147,12 +151,14 @@ describe('changedFields', () => {
       country_code: 'DK',
       vat_number: 'DK1',
       base_currency: 'DKK',
+      spend_tree_id: 'tree1',
     }
     const after = {
       name: 'Acme Group',
       country_code: 'DK',
       vat_number: 'DK1',
       base_currency: 'DKK',
+      spend_tree_id: 'tree1',
     }
     expect(changedFields(before, after)).toEqual({ name: 'Acme Group' })
   })
@@ -163,6 +169,7 @@ describe('changedFields', () => {
       country_code: 'DK',
       vat_number: 'DK1',
       base_currency: 'DKK',
+      spend_tree_id: 'tree1',
     }
     expect(changedFields(values, values)).toEqual({})
   })
@@ -225,6 +232,9 @@ describe('CompaniesPanel', () => {
         country_code: '',
         vat_number: '',
         base_currency: 'DKK',
+        // The default-tree option: empty here, normalized to null by the route
+        // so the server materializes the organization's template copy.
+        spend_tree_id: '',
         // The sole connector is preselected and its declared default filled in.
         erp_type: 'mock',
         credentials: { base_url: 'http://localhost:8001', api_key: '' },

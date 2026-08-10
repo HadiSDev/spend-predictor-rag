@@ -6,6 +6,7 @@ import type {
   CompanyCreateResult,
   CompanyRead,
   CompanyUpdate,
+  CompanyUpdateResult,
   FxRecomputeResult,
 } from './types'
 
@@ -47,10 +48,17 @@ export function createCompanyMutation(
 export function updateCompanyMutation(
   api: ApiClient,
   queryClient: QueryClient,
-): UseMutationOptions<CompanyRead, Error, { id: string; body: CompanyUpdate }> {
+): UseMutationOptions<CompanyUpdateResult, Error, { id: string; body: CompanyUpdate }> {
   return {
-    mutationFn: ({ id, body }) => api.patch<CompanyRead>(`/api/v1/companies/${id}`, body),
-    onSuccess: () => invalidateCompanies(queryClient),
+    mutationFn: ({ id, body }) =>
+      api.patch<CompanyUpdateResult>(`/api/v1/companies/${id}`, body),
+    // A spend-tree change also re-points or clears every categorized line of
+    // the company, so the entries views are stale the moment this succeeds.
+    onSuccess: () => {
+      invalidateCompanies(queryClient)
+      void queryClient.invalidateQueries({ queryKey: ['erp-entries'] })
+      void queryClient.invalidateQueries({ queryKey: ['invoice-lines'] })
+    },
   }
 }
 

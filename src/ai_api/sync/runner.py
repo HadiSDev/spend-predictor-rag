@@ -63,7 +63,7 @@ from web_api.db.session import engine
 from web_api.fx import CONVERTED, UNCHANGED, UNCONVERTED, FxService
 from web_api.integrations import connector_config as _connector_config
 from web_api.rollup import recompute_invoice_status
-from .categorizer import build_candidates, categorize
+from .categorizer import build_candidates_from_tree, categorize
 
 logger = logging.getLogger("ai_api.sync")
 
@@ -591,18 +591,26 @@ def _persist_standin_lines(
 # -- Categorize --------------------------------------------------------------
 
 
-def _spend_category_map(session: Session, company_id: str) -> dict[tuple, str]:
-    """Map ``(level_2, level_3) -> spend_category_id`` for a company's spend tree.
+def _tree_candidates(session: Session, company_id: str) -> list | None:
+    """The candidate set for a company: the nodes of the tree it is assigned.
 
-    A spend-tree node is identified by its position in the taxonomy (its levels),
-    not by an ERP account code — that lives on ``ErpAccount``. Empty until a
-    company's ``SpendCategory`` rows are seeded; used to resolve the accepted
-    assignment on the domain line when a categorizer match lands on a real node.
+    Returns ``None`` when the company has no assigned tree, which the caller
+    treats as "do not categorize". There is deliberately **no fallback to the
+    built-in taxonomy**: categories a customer never chose are untraceable, and
+    an uncategorized line is an honest backlog where a wrongly-categorized one
+    is a silent error that flows into every report and savings suggestion.
     """
-    rows = session.exec(
-        select(SpendCategory).where(SpendCategory.company_id == company_id)
+    company = session.get(Company, company_id)
+    if company is None or company.spend_tree_id is None:
+        return None
+    nodes = session.exec(
+        select(SpendCategory).where(
+            SpendCategory.spend_tree_id == company.spend_tree_id
+        )
     ).all()
-    return {(r.level_2, r.level_3): r.id for r in rows}
+    if not nodes:
+        return None
+    return build_candidates_from_tree(nodes)
 
 
 def _categorize_pending(
@@ -637,8 +645,6 @@ def _categorize_pending(
     invoices = session.exec(
         select(Invoice).where(Invoice.id.in_(invoice_ids))
     ).all() if invoice_ids else []
-
-    category_map = _spend_category_map(session, company_id)
 
     stats = {"categorized": 0, "failed": 0, "invoices_completed": 0, "invoices_failed": 0}
     for inv in invoices:
@@ -678,11 +684,14 @@ def _categorize_pending(
                 ln.level_1 = match.level_1
                 ln.level_2 = match.level_2
                 ln.level_3 = match.level_3
+                ln.level_4 = match.level_4
                 ln.account_code = match.account_code
                 ln.account_name = match.account_name
                 ln.confidence = _dec(match.confidence)
                 ln.rationale = match.rationale
-                ln.spend_category_id = category_map.get((match.level_2, match.level_3))
+                # The matched node's own id — no lookup, so a match cannot land
+                # on a real node and still store a null pointer.
+                ln.spend_category_id = match.spend_category_id
                 ln.status = LineStatus.AI_CATEGORIZED
                 ln.error_message = None
                 stats["categorized"] += 1
@@ -866,11 +875,27 @@ def _sync_one(
 
         # 3. Categorize
         logger.info("  [3/6] Categorizing pending invoice lines…")
-        candidates = build_candidates(accounts)
-        cat_stats = _categorize_pending(session, integration_id, company_id, candidates)
-        logger.info("    categorized=%d failed=%d (invoices: %d completed, %d failed)",
-                    cat_stats["categorized"], cat_stats["failed"],
-                    cat_stats["invoices_completed"], cat_stats["invoices_failed"])
+        candidates = _tree_candidates(session, company_id)
+        categorization_skipped = None
+        if candidates is None:
+            # No taxonomy the customer chose ⇒ no categorization. The ledger
+            # still landed above and the watermark still advances below: this is
+            # a categorization failure, not a sync failure, and stalling the
+            # ingest behind a settings gap would help nobody.
+            categorization_skipped = (
+                "no spend tree assigned to this company; lines were left uncategorized"
+            )
+            cat_stats = {
+                "categorized": 0, "failed": 0,
+                "invoices_completed": 0, "invoices_failed": 0,
+                "skipped": categorization_skipped,
+            }
+            logger.warning("    skipped: %s", categorization_skipped)
+        else:
+            cat_stats = _categorize_pending(session, integration_id, company_id, candidates)
+            logger.info("    categorized=%d failed=%d (invoices: %d completed, %d failed)",
+                        cat_stats["categorized"], cat_stats["failed"],
+                        cat_stats["invoices_completed"], cat_stats["invoices_failed"])
 
         # 4/5/6. Downstream (separate workstreams — wired as stubs for now)
         logger.info("  [4/6] Aggregating spend…")
@@ -882,7 +907,12 @@ def _sync_one(
         _call_stub("recommendations", recommender.all_recommendations, company_id)
 
         summary = _build_summary(session, company_id)
-        _finish_sync_state(session, sync_state, invoices, status="idle")
+        # `idle` with a reason, not `error`: the ERP side of the run succeeded
+        # in full, and marking the integration failed would hide a real
+        # connection failure behind a settings gap.
+        _finish_sync_state(
+            session, sync_state, invoices, status="idle", error=categorization_skipped
+        )
         summary["status"] = "ok"
         summary["company_id"] = company_id
         summary["erp_type"] = integration.erp_type

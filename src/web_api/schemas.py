@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Generic, Literal, TypeVar
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 T = TypeVar("T")
 
@@ -66,6 +66,11 @@ class CompanyRead(BaseModel):
     base_currency: str
     is_active: bool = True
     deactivated_at: datetime | None = None
+    # The taxonomy this company categorizes against. The name is resolved
+    # server-side so a client can show which tree is in use without a second
+    # request — the same reason `ErpEntryRead` resolves its account.
+    spend_tree_id: str | None = None
+    spend_tree_name: str | None = None
 
 
 class CompanyCreate(BaseModel):
@@ -83,6 +88,10 @@ class CompanyCreate(BaseModel):
     # System admins may target another organization; ignored for other callers.
     organization_id: str | None = None
     integration: IntegrationSpec
+    # Omitted means "the organization's copy of the default template", created
+    # on the spot if this is its first company. A company is never left without
+    # a taxonomy, exactly as it is never left without an ERP connection.
+    spend_tree_id: str | None = None
 
 
 class CompanyUpdate(BaseModel):
@@ -95,6 +104,21 @@ class CompanyUpdate(BaseModel):
     # unbounded write has no business inside a PATCH. Rows are rewritten by
     # POST /companies/{id}/recompute-fx (or the backfill CLI).
     base_currency: CurrencyCode | None = None
+    # Changing this re-points or clears every categorized line of the company in
+    # the same transaction; see `CompanyUpdateResult.stale_lines`.
+    spend_tree_id: str | None = None
+
+
+class CompanyUpdateResult(CompanyRead):
+    """What `PATCH /companies` returns: the company plus what the change cost.
+
+    `stale_lines` is how many already-categorized lines were left pointing at
+    nothing by a spend-tree change. Returned rather than left for the client to
+    discover, because a reassignment's consequence has to be visible at the
+    moment it is caused.
+    """
+
+    stale_lines: int = 0
 
 
 class FxRecomputeResult(BaseModel):
@@ -187,12 +211,42 @@ class InvoiceLineRead(BaseModel):
     level_1: str | None = None
     level_2: str | None = None
     level_3: str | None = None
+    # Set only when the company's tree is four levels deep.
+    level_4: str | None = None
     account_code: str | None = None
     account_name: str | None = None
     confidence: Decimal | None = None
     rationale: str | None = None
     # Accepted category assignment (null until it resolves to a real spend category).
     spend_category_id: str | None = None
+    # True when the line carries a categorization that no longer resolves to a
+    # node — the company's tree changed, or the node was deleted. Computed, not
+    # stored: nothing to keep in step, and correct after every path that can
+    # orphan a pointer. Deliberately server-side: a client cannot know which
+    # tree a company is assigned without a second request, and a stale category
+    # presented as a settled one is the failure this whole feature exists to
+    # prevent. Derived in `_derive_category_stale` below rather than by each
+    # router, so the four places that build this payload cannot disagree.
+    category_stale: bool = False
+
+    @model_validator(mode="after")
+    def _derive_category_stale(self) -> "InvoiceLineRead":
+        """A decision with no resolving node is stale.
+
+        The test is "any level recorded", not `level_1` alone: a tree node's path
+        always starts at level 1, but lines categorized before spend trees
+        existed carry a `level_2` with no `level_1`, and those are exactly the
+        lines that most need reviewing. An `ai_failed` line has neither a level
+        nor a pointer and is correctly *not* stale — nothing was decided.
+
+        Kept in step with the SQL form of the same predicate in
+        `routers/invoice_lines.py` and `spend_trees/reassign.py:count_stale`.
+        """
+        decided = self.level_1 is not None or self.level_2 is not None
+        object.__setattr__(
+            self, "category_stale", decided and self.spend_category_id is None
+        )
+        return self
 
 
 class InvoiceLineVerify(BaseModel):
@@ -205,10 +259,14 @@ class InvoiceLineVerify(BaseModel):
     level_1: str | None = None
     level_2: str | None = None
     level_3: str | None = None
+    level_4: str | None = None
     account_code: str | None = None
     account_name: str | None = None
     confidence: Decimal | None = None
     rationale: str | None = None
+    # Naming a node is the correct way to correct a category: the server takes
+    # the levels from that node's path, so the result always resolves to a real
+    # row. Any level values sent alongside are ignored — see the router.
     spend_category_id: str | None = None
 
 
@@ -600,8 +658,10 @@ class EntryAccountRow(BaseModel):
 
 
 class CategorySpendRow(BaseModel):
+    level_1: str | None = None
     level_2: str | None = None
     level_3: str | None = None
+    level_4: str | None = None
     currency: str | None = None
     amount_total: Decimal
     count: int
@@ -623,3 +683,120 @@ class VendorSpendRow(BaseModel):
     # null: that row *is* the unconverted bucket, reported as its own visible
     # line rather than folded into a total it does not belong in.
     unconverted_count: int = 0
+
+
+# -- Spend trees -------------------------------------------------------------
+
+
+class SpendCategoryRead(BaseModel):
+    """One node. Carries both its parentage and its materialized path.
+
+    The client needs `parent_id`/`depth` to build the hierarchy and the
+    `level_*` path to show a chosen node's full address without walking back up.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    spend_tree_id: str
+    parent_id: str | None = None
+    depth: int
+    name: str
+    code: str | None = None
+    sort_order: int
+    description: str | None = None
+    level_1: str | None = None
+    level_2: str | None = None
+    level_3: str | None = None
+    level_4: str | None = None
+
+
+class SpendTreeRead(BaseModel):
+    """A tree in the list view, with what a manager needs to choose between them."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    max_depth: int
+    # "default_template" — the organization's own copy of the platform template —
+    # or "custom".
+    source: str
+    template_version: str | None = None
+    archived_at: datetime | None = None
+    created_at: datetime
+    node_count: int = 0
+    # Which companies categorize against this tree. Resolved server-side because
+    # it is the answer to "can I archive this?", and a client would otherwise
+    # have to fetch every company to work it out.
+    company_ids: list[str] = Field(default_factory=list)
+    company_names: list[str] = Field(default_factory=list)
+
+
+class SpendTreeDetailRead(SpendTreeRead):
+    """One tree with every node, ordered so a client can build it in one pass."""
+
+    nodes: list[SpendCategoryRead] = Field(default_factory=list)
+
+
+class SpendTreeCreate(BaseModel):
+    """Create a tree: empty, or cloned from an existing one.
+
+    `source_tree_id` is what separates the two authoring paths that produce a
+    populated tree; CSV import is a second step against an existing tree, since
+    a rejected file must leave something behind to retry against.
+    """
+
+    name: str = Field(min_length=1)
+    # 3 or 4. Validated against the tree's contents in the service, not here:
+    # "4 is only allowed on a custom tree" is a rule about the source, not the
+    # number.
+    max_depth: int = Field(default=3, ge=3, le=4)
+    source_tree_id: str | None = None
+
+
+class SpendTreeUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    max_depth: int | None = Field(default=None, ge=3, le=4)
+
+
+class SpendCategoryCreate(BaseModel):
+    name: str = Field(min_length=1)
+    parent_id: str | None = None
+    code: str | None = None
+    description: str | None = None
+    sort_order: int | None = None
+
+
+class SpendCategoryUpdate(BaseModel):
+    """Partial update. `parent_id` is only applied when explicitly supplied,
+    since `None` is a legitimate value meaning "move to the top level"."""
+
+    name: str | None = Field(default=None, min_length=1)
+    parent_id: str | None = None
+    code: str | None = None
+    description: str | None = None
+    sort_order: int | None = None
+
+
+class SpendTreeImportError(BaseModel):
+    """One rejected row, addressed by its line number in the uploaded file."""
+
+    line: int
+    message: str
+
+
+class SpendTreeImportResult(BaseModel):
+    """What an import did, or — with `confirm_required` — what it would do."""
+
+    created: int = 0
+    updated: int = 0
+    removed: int = 0
+    # Lines left pointing at nothing because their node was removed.
+    stale_lines: int = 0
+
+
+class SpendTreeDeleteResult(BaseModel):
+    """Deleting a node reports what it cost, in lines that now need review."""
+
+    stale_lines: int = 0

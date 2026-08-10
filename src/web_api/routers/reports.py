@@ -64,7 +64,7 @@ def entries_by_account(
 @router.get("/spend-by-category", response_model=Report[CategorySpendRow])
 def spend_by_category(
     company_id: str | None = Query(default=None),
-    level: str = Query(default="level_2", pattern="^(level_2|level_3)$"),
+    level: str = Query(default="level_2", pattern="^(level_1|level_2|level_3|level_4)$"),
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
     currency_mode: CurrencyMode = Query(default="base"),

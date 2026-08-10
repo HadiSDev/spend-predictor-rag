@@ -39,6 +39,10 @@ export interface CompanyRead {
   base_currency: string
   is_active: boolean
   deactivated_at: string | null
+  /** The spend tree this company categorizes against; its name is resolved
+   *  server-side so a picker can label it without a second request. */
+  spend_tree_id: string | null
+  spend_tree_name: string | null
 }
 
 /** One credential input an ERP connector declares. Describes the field, never a value. */
@@ -80,6 +84,9 @@ export interface CompanyCreate {
   country_code?: string | null
   vat_number?: string | null
   integration: IntegrationSpec
+  /** Omitted means the organization's copy of the default template, created on
+   *  the spot if this is its first company. */
+  spend_tree_id?: string | null
 }
 
 /** What `POST /companies` returns: the company plus the integration it got. */
@@ -124,6 +131,102 @@ export interface CompanyUpdate {
    * currency they were converted to until a recompute rewrites them.
    */
   base_currency?: string
+  /**
+   * Changing this re-points every line whose stored path exists in the new tree
+   * and clears the rest, in the same transaction. Nothing is rewritten and no
+   * verification is lost; the response reports how many lines were left needing
+   * review.
+   */
+  spend_tree_id?: string | null
+}
+
+/** What `PATCH /companies/{id}` returns: the company plus what the change cost. */
+export interface CompanyUpdateResult extends CompanyRead {
+  /** Lines left carrying a category that no longer resolves. */
+  stale_lines: number
+}
+
+/** One node of a spend tree. Carries both its parentage and its full path. */
+export interface SpendCategoryRead {
+  id: string
+  spend_tree_id: string
+  parent_id: string | null
+  depth: number
+  name: string
+  code: string | null
+  sort_order: number
+  description: string | null
+  level_1: string | null
+  level_2: string | null
+  level_3: string | null
+  level_4: string | null
+}
+
+/** A spend tree in the list view. */
+export interface SpendTreeRead {
+  id: string
+  name: string
+  /** 3 or 4. The default-template copy is fixed at 3. */
+  max_depth: number
+  /** `default_template` — the organization's own copy — or `custom`. */
+  source: 'default_template' | 'custom'
+  template_version: string | null
+  archived_at: string | null
+  created_at: string
+  node_count: number
+  company_ids: Array<string>
+  company_names: Array<string>
+}
+
+/** `GET /spend-trees/{id}` — one tree with every node, ordered shallowest first. */
+export interface SpendTreeDetailRead extends SpendTreeRead {
+  nodes: Array<SpendCategoryRead>
+}
+
+/** `POST /spend-trees` — empty, or cloned from `source_tree_id`. */
+export interface SpendTreeCreate {
+  name: string
+  max_depth?: number
+  source_tree_id?: string | null
+}
+
+export interface SpendTreeUpdate {
+  name?: string
+  max_depth?: number
+}
+
+export interface SpendCategoryCreate {
+  name: string
+  parent_id?: string | null
+  code?: string | null
+  description?: string | null
+  sort_order?: number
+}
+
+export interface SpendCategoryUpdate {
+  name?: string
+  parent_id?: string | null
+  code?: string | null
+  description?: string | null
+  sort_order?: number
+}
+
+/** One rejected import row, addressed by its line number in the uploaded file. */
+export interface SpendTreeImportError {
+  line: number
+  message: string
+}
+
+export interface SpendTreeImportResult {
+  created: number
+  updated: number
+  removed: number
+  stale_lines: number
+}
+
+/** Deleting a node reports what it cost, in lines that now need review. */
+export interface SpendTreeDeleteResult {
+  stale_lines: number
 }
 
 /** What `POST /companies/{id}/recompute-fx` reports back. Counts are rows. */
@@ -389,7 +492,15 @@ export interface RefreshAccountsResult {
 /** Fields `POST /invoice-lines/{id}/verify` accepts as corrections. Only the
  *  levels are editable here — everything else on the line is either evidence
  *  (amount, description) or derived server-side (account_code/name). */
-export type LineCorrections = Partial<Record<'level_1' | 'level_2' | 'level_3', string>>
+/**
+ * A correction to a line's category. In practice only `spend_category_id` is
+ * ever sent: the server derives the levels from the chosen node's path, so a
+ * correction always resolves to a real row. The level keys remain in the type
+ * because the API still accepts them, not because the UI produces them.
+ */
+export type LineCorrections = Partial<
+  Record<'level_1' | 'level_2' | 'level_3' | 'level_4' | 'spend_category_id', string>
+>
 
 /** One line of an invoice, holding its categorization result directly. */
 export interface InvoiceLineRead {
@@ -424,11 +535,22 @@ export interface InvoiceLineRead {
   level_1: string | null
   level_2: string | null
   level_3: string | null
+  /** Set only when the company's spend tree is four levels deep. */
+  level_4: string | null
   account_code: string | null
   account_name: string | null
   confidence: Money | null
   rationale: string | null
   spend_category_id: string | null
+  /**
+   * The line carries a categorization that no longer resolves to a node — the
+   * company's tree changed, or the node was deleted. Server-computed: a client
+   * cannot know which tree a company is on without a second request, and a
+   * stale category shown as a settled one is the failure the stored pointer
+   * exists to prevent. Distinct from `ai_failed`: nothing failed, the taxonomy
+   * moved.
+   */
+  category_stale: boolean
 }
 
 /** An invoice header. */

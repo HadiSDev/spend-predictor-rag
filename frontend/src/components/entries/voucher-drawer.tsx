@@ -24,6 +24,7 @@ import { formatMoney } from '#/lib/format'
 import type {
   ErpEntryRead,
   InvoiceUpdate,
+  SpendCategoryRead,
   VoucherAuditRead,
   VoucherDetailRead,
   VoucherTab,
@@ -50,6 +51,12 @@ export interface VoucherDrawerProps {
   onTabChange: (tab: VoucherTab) => void
   onOpenChange: (open: boolean) => void
   onVerifyLine: (lineId: string, corrections: LineCorrections) => Promise<void>
+  /** The open voucher's company's spend tree, flat and shallowest-first. Null
+   *  while loading; empty when the company has no tree. Resolved by the route
+   *  so the whole panel shares one request. */
+  spendTreeNodes: Array<SpendCategoryRead> | null
+  /** Where a manager assigns the company's tree, for the no-tree case. */
+  companySettingsHref?: string
   /** Save a header correction on the Details tab. Forwarded straight to
    *  `VoucherDetailsTab` — see its own doc for when this fires. */
   onUpdateHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
@@ -132,6 +139,8 @@ export function VoucherDrawer({
   onTabChange,
   onOpenChange,
   onVerifyLine,
+  spendTreeNodes,
+  companySettingsHref,
   onUpdateHeader,
   onReprocess,
   canRetrigger,
@@ -259,7 +268,12 @@ export function VoucherDrawer({
                     <div className="min-h-0 flex-1 overflow-y-auto">
                       {invoice ? (
                         <TabsPanel value="lines" className="ep-tab-fade">
-                          <VoucherLinesTab invoice={invoice} onVerifyLine={onVerifyLine} />
+                          <VoucherLinesTab
+                            invoice={invoice}
+                            spendTreeNodes={spendTreeNodes}
+                            companySettingsHref={companySettingsHref}
+                            onVerifyLine={onVerifyLine}
+                          />
                         </TabsPanel>
                       ) : null}
                       {invoice ? (

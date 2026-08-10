@@ -12,6 +12,20 @@ import type {
   VoucherGroupRead,
 } from '#/lib/types'
 
+/** The company's spend tree, matching the line fixture's own path. */
+const TREE_NODES = [
+  { id: 'n1', spend_tree_id: 'tree1', parent_id: null, depth: 1, name: 'Indirect',
+    code: null, sort_order: 0, description: null,
+    level_1: 'Indirect', level_2: null, level_3: null, level_4: null },
+  { id: 'n2', spend_tree_id: 'tree1', parent_id: 'n1', depth: 2, name: 'Technology',
+    code: null, sort_order: 0, description: null,
+    level_1: 'Indirect', level_2: 'Technology', level_3: null, level_4: null },
+  { id: 'cat-software', spend_tree_id: 'tree1', parent_id: 'n2', depth: 3,
+    name: 'Software Subscriptions', code: '6200', sort_order: 0, description: null,
+    level_1: 'Indirect', level_2: 'Technology', level_3: 'Software Subscriptions',
+    level_4: null },
+]
+
 // `VoucherDrawer` fetches nothing itself — it is presentational, same as this
 // panel. `InvoiceDocument`, nested inside it, does fetch (needs a Clerk
 // bearer token via `useApi`), which this file has no `ClerkProvider` for — so
@@ -32,6 +46,8 @@ const ACME: CompanyRead = {
   base_currency: 'DKK',
   is_active: true,
   deactivated_at: null,
+  spend_tree_id: 'tree1',
+  spend_tree_name: 'Default spend tree',
 }
 
 const CONTOSO: VendorRead = {
@@ -122,7 +138,11 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     account_name: 'Software',
     confidence: '0.910',
     rationale: 'matched',
-    spend_category_id: null,
+    // A categorized line points at the node it was categorized to; null with
+    // levels set is the stale shape, asserted on explicitly elsewhere.
+    spend_category_id: 'cat-software',
+    level_4: null,
+    category_stale: false,
     ...overrides,
   }
 }
@@ -304,6 +324,7 @@ function common() {
     onTabChange: vi.fn(),
     onSelectEntry: vi.fn(),
     onVerifyLine: vi.fn().mockResolvedValue(undefined),
+    spendTreeNodes: TREE_NODES,
     onUpdateHeader: vi.fn().mockResolvedValue(undefined),
     onReprocess: vi.fn().mockResolvedValue(undefined),
     canRetrigger: true,

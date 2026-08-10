@@ -157,6 +157,14 @@ def entries_by_account(
     return result
 
 
+#: The line's materialized category path, shallowest first.
+_LEVEL_COLUMNS = ("level_1", "level_2", "level_3", "level_4")
+#: How many path columns a requested grouping level spans. Grouping by the whole
+#: prefix, not by the single column, so `Software` under `Technology` is never
+#: merged with a `Software` under some other branch of the tree.
+_LEVEL_DEPTH = {name: index + 1 for index, name in enumerate(_LEVEL_COLUMNS)}
+
+
 def spend_by_category(
     session: Session,
     company_ids: list[str],
@@ -168,14 +176,19 @@ def spend_by_category(
 ) -> list[dict]:
     """Sum categorized invoice-line amounts + count per spend level and currency.
 
-    Only `ai_categorized`/`verified` lines count. ``level`` is ``level_2``
-    (default) or ``level_3`` — the latter groups by both level_2 and level_3.
-    The date filter comes from the parent invoice; so does the posted currency,
-    while the base currency is stamped on the line by its own conversion.
+    Only `ai_categorized`/`verified` lines count. ``level`` is ``level_1``,
+    ``level_2`` (default), ``level_3`` or ``level_4``; each groups by the whole
+    path down to that level, so a subcategory is always shown under the parent
+    it belongs to rather than merged with a same-named one elsewhere in the
+    tree. The date filter comes from the parent invoice; so does the posted
+    currency, while the base currency is stamped on the line by its own
+    conversion.
     """
     if not company_ids:
         return []
-    by_l3 = level == "level_3"
+    depth = _LEVEL_DEPTH.get(level)
+    if depth is None:
+        raise ValueError(f"unknown spend level {level!r}")
     if currency_mode == BASE:
         currency_col, amount_col = InvoiceLine.base_currency, InvoiceLine.base_amount
     else:
@@ -190,7 +203,7 @@ def spend_by_category(
     if to_date is not None:
         conditions.append(Invoice.invoice_date <= to_date)
 
-    dims = [InvoiceLine.level_2, InvoiceLine.level_3] if by_l3 else [InvoiceLine.level_2]
+    dims = [getattr(InvoiceLine, name) for name in _LEVEL_COLUMNS[:depth]]
     group_cols = [*dims, currency_col]
 
     rows = session.exec(
@@ -201,20 +214,21 @@ def spend_by_category(
     ).all()
     result = []
     for row in rows:
-        if by_l3:
-            l2, l3, cur, amt, cnt = row
-        else:
-            l2, cur, amt, cnt = row
-            l3 = None
-        result.append({
-            "level_2": l2,
-            "level_3": l3,
+        *levels, cur, amt, cnt = row
+        entry = {name: None for name in _LEVEL_COLUMNS}
+        entry.update(dict(zip(_LEVEL_COLUMNS, levels)))
+        entry.update({
             "currency": cur,
             "amount_total": _dec(amt),
             "count": cnt,
             "unconverted_count": _unconverted(currency_mode, cur, cnt),
         })
-    result.sort(key=lambda r: (-r["amount_total"], r["level_2"] or "", r["level_3"] or "", r["currency"] or ""))
+        result.append(entry)
+    result.sort(key=lambda r: (
+        -r["amount_total"],
+        *(r[name] or "" for name in _LEVEL_COLUMNS),
+        r["currency"] or "",
+    ))
     return result
 
 

@@ -5,10 +5,18 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlmodel import Session, select
 
-from web_api.db.models import AuditLog, ErpEntry, Invoice, InvoiceLine, LineStatus
+from web_api.db.models import (
+    AuditLog,
+    Company,
+    ErpEntry,
+    Invoice,
+    InvoiceLine,
+    LineStatus,
+    SpendCategory,
+)
 from ..audit import LINE_AUDIT_FIELDS, diff_changes, record_audit
 from ..deps import (
     TenantScope,
@@ -34,6 +42,31 @@ def _get_scoped_line(session: Session, scope: TenantScope, line_id: str) -> Invo
     return line
 
 
+def _resolve_node_for_line(
+    session: Session, line: InvoiceLine, node_id: str
+) -> SpendCategory:
+    """The spend category a correction names, or 422.
+
+    Validated against the **company's assigned tree**, not merely against
+    existence: a node from another tree would store a pointer the company's own
+    taxonomy cannot resolve, which is the stale state — reachable by accident,
+    never by a write.
+    """
+    company = session.get(Company, line.company_id)
+    node = session.get(SpendCategory, node_id)
+    if (
+        node is None
+        or company is None
+        or company.spend_tree_id is None
+        or node.spend_tree_id != company.spend_tree_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="That spend category is not in this company's spend tree.",
+        )
+    return node
+
+
 @router.get("/invoice-lines", response_model=Page[InvoiceLineRead])
 def list_invoice_lines(
     status_filter: str | None = Query(default=None, alias="status"),
@@ -41,6 +74,7 @@ def list_invoice_lines(
     vendor_id: str | None = Query(default=None),
     voucher_id: str | None = Query(default=None),
     origin: str | None = Query(default=None),
+    stale: bool | None = Query(default=None),
     date_from: date | None = Query(default=None, alias="from"),
     date_to: date | None = Query(default=None, alias="to"),
     page: int = Query(default=1, ge=1),
@@ -68,6 +102,14 @@ def list_invoice_lines(
         conditions.append(InvoiceLine.status == status_filter)
     if origin is not None:
         conditions.append(InvoiceLine.origin == origin)
+    if stale is not None:
+        # The same predicate `InvoiceLineRead.category_stale` derives: a line
+        # that carries a decision but points at no node. This is the backlog a
+        # tree change creates, and without a filter a reviewer would have to
+        # page through everything to find it.
+        decided = or_(InvoiceLine.level_1.is_not(None), InvoiceLine.level_2.is_not(None))
+        unresolved = InvoiceLine.spend_category_id.is_(None)
+        conditions.append(and_(decided, unresolved) if stale else ~and_(decided, unresolved))
 
     # Resolved as subqueries on `invoice_id` rather than as joins: a join would
     # multiply a line by its invoice's postings and a voucher filter would then
@@ -118,12 +160,29 @@ def verify_invoice_line(
     Applies any provided category fields, marks the line ``verified``, records an
     ``AuditLog`` entry attributed to the acting user, and recomputes the invoice
     rollup — all in one transaction.
+
+    **Naming a `spend_category_id` is the correct way to correct a category.**
+    The server then takes `level_1..level_4` from that node's path and ignores
+    any levels the caller also sent: the node is the authority, and a correction
+    made this way always resolves to a real row. Typed levels that match no node
+    produce a categorization that resolves to nothing — the silent failure the
+    stored pointer exists to prevent — which is why the client sends a node.
     """
     line = _get_scoped_line(session, scope, line_id)
 
     before = {f: getattr(line, f) for f in LINE_AUDIT_FIELDS}
 
     corrections = (body.model_dump(exclude_unset=True) if body is not None else {})
+    node_id = corrections.get("spend_category_id")
+    if node_id is not None:
+        node = _resolve_node_for_line(session, line, node_id)
+        corrections.update({
+            "level_1": node.level_1,
+            "level_2": node.level_2,
+            "level_3": node.level_3,
+            "level_4": node.level_4,
+        })
+
     for field, value in corrections.items():
         setattr(line, field, value)
     line.status = LineStatus.VERIFIED

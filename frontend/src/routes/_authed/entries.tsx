@@ -16,6 +16,7 @@ import {
   verifyInvoiceLineMutation,
 } from '#/lib/invoices'
 import { entriesSummaryOptions } from '#/lib/reports'
+import { spendTreeQueryOptions } from '#/lib/spend-trees'
 import { applyFilterChange, listableEntryTypes, validateEntrySearch } from '#/lib/entry-search'
 import { vendorsQueryOptions } from '#/lib/vendors'
 
@@ -53,6 +54,21 @@ function EntriesPage() {
   const voucherDetail = useQuery(voucherDetailQueryOptions(api, voucherKey))
   const voucherAudit = useQuery(voucherAuditQueryOptions(api, voucherKey))
 
+  // The open voucher's company decides which taxonomy its lines are corrected
+  // against. Resolved here rather than in the editor so one request serves
+  // every line in the panel — a voucher can carry a dozen.
+  const openCompanyId = voucherDetail.data?.invoice?.company_id ?? null
+  const openCompany = companies.data?.find((c) => c.id === openCompanyId)
+  const spendTree = useQuery(spendTreeQueryOptions(api, openCompany?.spend_tree_id ?? null))
+  // `null` means "still loading", `[]` means "this company has no tree" — the
+  // editor says something different for each, and collapsing them would show a
+  // settings gap as a spinner that never resolves.
+  const spendTreeNodes = openCompany
+    ? openCompany.spend_tree_id === null
+      ? []
+      : (spendTree.data?.nodes ?? null)
+    : null
+
   const verifyLine = useMutation(verifyInvoiceLineMutation(api, queryClient))
   const updateHeader = useMutation(updateInvoiceMutation(api, queryClient))
   const reprocess = useMutation(reprocessInvoiceMutation(api, queryClient))
@@ -85,6 +101,8 @@ function EntriesPage() {
       onVerifyLine={async (lineId, corrections) => {
         await verifyLine.mutateAsync({ id: lineId, corrections })
       }}
+      spendTreeNodes={spendTreeNodes}
+      companySettingsHref={openCompanyId ? `/settings/companies` : undefined}
       onUpdateHeader={async (invoiceId, changes) => {
         await updateHeader.mutateAsync({ id: invoiceId, body: changes })
       }}

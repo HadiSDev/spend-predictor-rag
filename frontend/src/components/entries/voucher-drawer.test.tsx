@@ -10,6 +10,19 @@ import type {
   VoucherDetailRead,
 } from '#/lib/types'
 
+/** A three-level tree matching the line fixtures above. */
+const TREE_NODES = [
+  { id: 'n1', spend_tree_id: 'tree1', parent_id: null, depth: 1, name: 'Facilities',
+    code: null, sort_order: 0, description: null,
+    level_1: 'Facilities', level_2: null, level_3: null, level_4: null },
+  { id: 'n2', spend_tree_id: 'tree1', parent_id: 'n1', depth: 2, name: 'Furniture',
+    code: null, sort_order: 0, description: null,
+    level_1: 'Facilities', level_2: 'Furniture', level_3: null, level_4: null },
+  { id: 'cat-chairs', spend_tree_id: 'tree1', parent_id: 'n2', depth: 3, name: 'Office chairs',
+    code: '6100', sort_order: 0, description: null,
+    level_1: 'Facilities', level_2: 'Furniture', level_3: 'Office chairs', level_4: null },
+]
+
 // `InvoiceDocument` fetches its own data (a query client + Clerk auth), which
 // is plumbing this drawer never touches — it is presentational and renders
 // whatever it is handed. That component's own behaviour is covered by
@@ -100,7 +113,9 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     account_name: 'Office equipment',
     confidence: '0.62',
     rationale: 'Matched on "chair".',
-    spend_category_id: null,
+    spend_category_id: 'cat-chairs',
+    level_4: null,
+    category_stale: false,
     ...overrides,
   }
 }
@@ -211,6 +226,7 @@ function props(overrides: Partial<VoucherDrawerProps> = {}): VoucherDrawerProps 
     onTabChange: vi.fn(),
     onOpenChange: vi.fn(),
     onVerifyLine: vi.fn().mockResolvedValue(undefined),
+    spendTreeNodes: TREE_NODES,
     onReprocess: vi.fn().mockResolvedValue(undefined),
     canRetrigger: true,
     onUpdateHeader: vi.fn().mockResolvedValue(undefined),
@@ -221,14 +237,16 @@ function props(overrides: Partial<VoucherDrawerProps> = {}): VoucherDrawerProps 
 
 describe('VoucherDrawer — layout', () => {
   it('shows the document beside the detail when an invoice is attached', () => {
-    render(<VoucherDrawer {...props({ detail: withInvoice })} />)
+    render(<VoucherDrawer {...props({ detail: withInvoice })}
+        spendTreeNodes={TREE_NODES} />)
     expect(screen.getByLabelText('Voucher detail').className).toContain('max-w-[1100px]')
     expect(screen.getByRole('tab', { name: /details/i })).toBeTruthy()
     expect(screen.getByTestId('invoice-document')).toBeTruthy()
   })
 
   it('collapses to postings when the voucher has no invoice', () => {
-    render(<VoucherDrawer {...props({ detail: journalOnly, tab: 'postings' })} />)
+    render(<VoucherDrawer {...props({ detail: journalOnly, tab: 'postings' })}
+        spendTreeNodes={TREE_NODES} />)
     expect(screen.getByLabelText('Voucher detail').className).not.toContain('max-w-[1100px]')
     expect(screen.queryByRole('tab', { name: /details/i })).toBeNull()
     expect(screen.queryByRole('tab', { name: /postings/i })).toBeTruthy()
@@ -240,19 +258,22 @@ describe('VoucherDrawer — layout', () => {
     // The controlled `tab` prop still says "details" — e.g. a stale URL from
     // a voucher that used to have an invoice. Falling back to Postings beats
     // rendering nothing.
-    render(<VoucherDrawer {...props({ detail: journalOnly, tab: 'details' })} />)
+    render(<VoucherDrawer {...props({ detail: journalOnly, tab: 'details' })}
+        spendTreeNodes={TREE_NODES} />)
     expect(screen.getByRole('tabpanel', { name: /postings/i })).toBeTruthy()
   })
 
   it('corrects the URL to match the tab it fell back to, rather than leaving the two disagreeing', () => {
     const onTabChange = vi.fn()
-    render(<VoucherDrawer {...props({ detail: journalOnly, tab: 'details', onTabChange })} />)
+    render(<VoucherDrawer {...props({ detail: journalOnly, tab: 'details', onTabChange })}
+        spendTreeNodes={TREE_NODES} />)
     expect(onTabChange).toHaveBeenCalledWith('postings')
   })
 
   it('leaves the URL alone once it already names a tab this voucher has', () => {
     const onTabChange = vi.fn()
-    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'details', onTabChange })} />)
+    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'details', onTabChange })}
+        spendTreeNodes={TREE_NODES} />)
     expect(onTabChange).not.toHaveBeenCalled()
   })
 
@@ -260,12 +281,14 @@ describe('VoucherDrawer — layout', () => {
     // `hasInvoice` defaults to false with no detail yet — correcting now would
     // "fall back" a tab that turns out to be valid the moment it loads.
     const onTabChange = vi.fn()
-    render(<VoucherDrawer {...props({ detail: undefined, loading: true, tab: 'details', onTabChange })} />)
+    render(<VoucherDrawer {...props({ detail: undefined, loading: true, tab: 'details', onTabChange })}
+        spendTreeNodes={TREE_NODES} />)
     expect(onTabChange).not.toHaveBeenCalled()
   })
 
   it('shows a loading skeleton rather than a blank drawer while the detail loads', () => {
-    render(<VoucherDrawer {...props({ detail: undefined, loading: true })} />)
+    render(<VoucherDrawer {...props({ detail: undefined, loading: true })}
+        spendTreeNodes={TREE_NODES} />)
     // The drawer's content is portaled to `document.body`, not the render
     // container, so the skeleton is looked up from there.
     expect(document.body.querySelectorAll('[class*="animate-pulse"]').length).toBeGreaterThan(0)
@@ -275,7 +298,8 @@ describe('VoucherDrawer — layout', () => {
 
 describe('VoucherDrawer — header', () => {
   it('shows voucher id, supplier, date, posting count and total', () => {
-    render(<VoucherDrawer {...props({ detail: withInvoice })} />)
+    render(<VoucherDrawer {...props({ detail: withInvoice })}
+        spendTreeNodes={TREE_NODES} />)
     const header = within(screen.getByText('V-1042').closest('div')!)
     expect(header.getByText('V-1042')).toBeTruthy()
     expect(header.getByText(/Contoso ApS/)).toBeTruthy()
@@ -292,7 +316,8 @@ describe('VoucherDrawer — header', () => {
     // deliberately disagree with what the as-posted DKK postings sum to
     // (1,200.00) — if the header ever shows that instead of the payload's
     // 746.00, the client math is back.
-    render(<VoucherDrawer {...props({ detail: withInvoice })} />)
+    render(<VoucherDrawer {...props({ detail: withInvoice })}
+        spendTreeNodes={TREE_NODES} />)
     const header = within(screen.getByText('V-1042').closest('div')!)
 
     expect(header.getByText(/DKK 746\.00/)).toBeTruthy()
@@ -300,27 +325,31 @@ describe('VoucherDrawer — header', () => {
   })
 
   it('labels a voucher with no id as "No voucher"', () => {
-    render(<VoucherDrawer {...props({ detail: { ...journalOnly, voucher_id: null }, tab: 'postings' })} />)
+    render(<VoucherDrawer {...props({ detail: { ...journalOnly, voucher_id: null }, tab: 'postings' })}
+        spendTreeNodes={TREE_NODES} />)
     expect(screen.getByText('No voucher')).toBeTruthy()
   })
 })
 
 describe('VoucherDrawer — tabs', () => {
   it('renders the audit feed newest first with what changed', () => {
-    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'activity', auditRows: AUDIT })} />)
+    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'activity', auditRows: AUDIT })}
+        spendTreeNodes={TREE_NODES} />)
     const items = screen.getAllByRole('listitem')
     expect(within(items[0]).getByText(/corrected/i)).toBeTruthy()
   })
 
   it('reports a tab click back to the owner rather than switching itself', () => {
     const onTabChange = vi.fn()
-    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'details', onTabChange })} />)
+    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'details', onTabChange })}
+        spendTreeNodes={TREE_NODES} />)
     fireEvent.click(screen.getByRole('tab', { name: /postings/i }))
     expect(onTabChange).toHaveBeenCalledWith('postings')
   })
 
   it('renders the postings passed on the detail', () => {
-    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'postings' })} />)
+    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'postings' })}
+        spendTreeNodes={TREE_NODES} />)
     expect(screen.getByRole('button', { name: /6200/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /8100/ })).toBeTruthy()
   })
@@ -329,7 +358,8 @@ describe('VoucherDrawer — tabs', () => {
     const onVerifyLine = vi.fn().mockResolvedValue(undefined)
     // The line editors live on the Lines tab: the line is the unit this
     // product works in, not a footnote to a header nobody edits.
-    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'lines', onVerifyLine })} />)
+    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'lines', onVerifyLine })}
+        spendTreeNodes={TREE_NODES} />)
     fireEvent.click(screen.getByRole('button', { name: /accept/i }))
     expect(onVerifyLine).toHaveBeenCalledWith('l1', {})
   })
@@ -337,7 +367,8 @@ describe('VoucherDrawer — tabs', () => {
   it('passes a header save through to the owner, for a correctable invoice', async () => {
     const onUpdateHeader = vi.fn().mockResolvedValue(undefined)
     const parsed = { ...withInvoice, invoice: invoice({ source: 'pdf_extraction' }) }
-    render(<VoucherDrawer {...props({ detail: parsed, tab: 'details', onUpdateHeader })} />)
+    render(<VoucherDrawer {...props({ detail: parsed, tab: 'details', onUpdateHeader })}
+        spendTreeNodes={TREE_NODES} />)
 
     fireEvent.change(screen.getByLabelText(/invoice number/i), { target: { value: 'INV-9' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
@@ -349,14 +380,16 @@ describe('VoucherDrawer — tabs', () => {
 describe('VoucherDrawer — dismissal', () => {
   it('closes immediately when there are no unsaved edits', async () => {
     const onOpenChange = vi.fn()
-    render(<VoucherDrawer {...props({ onOpenChange, hasUnsavedChanges: false })} />)
+    render(<VoucherDrawer {...props({ onOpenChange, hasUnsavedChanges: false })}
+        spendTreeNodes={TREE_NODES} />)
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
   })
 
   it('asks for confirmation before dismissing with unsaved edits, rather than closing outright', async () => {
     const onOpenChange = vi.fn()
-    render(<VoucherDrawer {...props({ onOpenChange, hasUnsavedChanges: true })} />)
+    render(<VoucherDrawer {...props({ onOpenChange, hasUnsavedChanges: true })}
+        spendTreeNodes={TREE_NODES} />)
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
 
     expect(await screen.findByRole('heading', { name: /discard unsaved changes/i })).toBeTruthy()
@@ -365,7 +398,8 @@ describe('VoucherDrawer — dismissal', () => {
 
   it('discards and closes once the user confirms', async () => {
     const onOpenChange = vi.fn()
-    render(<VoucherDrawer {...props({ onOpenChange, hasUnsavedChanges: true })} />)
+    render(<VoucherDrawer {...props({ onOpenChange, hasUnsavedChanges: true })}
+        spendTreeNodes={TREE_NODES} />)
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
 
     fireEvent.click(await screen.findByRole('button', { name: /discard changes/i }))
@@ -374,7 +408,8 @@ describe('VoucherDrawer — dismissal', () => {
 
   it('keeps the drawer open when the user chooses to keep editing', async () => {
     const onOpenChange = vi.fn()
-    render(<VoucherDrawer {...props({ onOpenChange, hasUnsavedChanges: true })} />)
+    render(<VoucherDrawer {...props({ onOpenChange, hasUnsavedChanges: true })}
+        spendTreeNodes={TREE_NODES} />)
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
 
     fireEvent.click(await screen.findByRole('button', { name: /keep editing/i }))
@@ -385,12 +420,14 @@ describe('VoucherDrawer — dismissal', () => {
 
 describe('VoucherDrawer — accessibility', () => {
   it('names the drawer for assistive tech', () => {
-    render(<VoucherDrawer {...props()} />)
+    render(<VoucherDrawer {...props()}
+        spendTreeNodes={TREE_NODES} />)
     expect(screen.getByLabelText('Voucher detail')).toBeTruthy()
   })
 
   it('gives the mobile document toggle a real accessible name', () => {
-    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'postings' })} />)
+    render(<VoucherDrawer {...props({ detail: withInvoice, tab: 'postings' })}
+        spendTreeNodes={TREE_NODES} />)
     expect(screen.getByRole('button', { name: /view document/i })).toBeTruthy()
   })
 })

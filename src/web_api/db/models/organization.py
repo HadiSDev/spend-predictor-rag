@@ -25,3 +25,4 @@ class Organization(SQLModel, table=True):
 
     users: list["User"] = Relationship(back_populates="organization")
     companies: list["Company"] = Relationship(back_populates="organization")
+    spend_trees: list["SpendTree"] = Relationship(back_populates="organization")

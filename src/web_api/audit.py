@@ -18,7 +18,7 @@ from .db.models.audit_log import SYSTEM_ACTOR
 
 # Auditable fields on an invoice line, in a stable order for deterministic diffs.
 LINE_AUDIT_FIELDS = (
-    "level_1", "level_2", "level_3", "account_code", "account_name",
+    "level_1", "level_2", "level_3", "level_4", "account_code", "account_name",
     "confidence", "rationale", "spend_category_id", "status",
 )
 

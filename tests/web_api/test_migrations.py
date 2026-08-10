@@ -283,6 +283,117 @@ def test_backfill_queues_only_the_invoices_that_have_a_scan() -> None:
             engine.dispose()
 
 
+def _downgrade(env: dict[str, str], revision: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", revision],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_0004_rebuilds_flat_spend_categories_as_a_tree() -> None:
+    """0004's data step must carry an existing taxonomy, not assume it is empty.
+
+    ``spend_categories`` is empty on every database we know of, because nothing
+    ever seeded it — but a migration that *assumes* that would silently drop a
+    customer's taxonomy if the assumption were ever wrong. The seed below is the
+    hard case on purpose: a leaf three levels deep whose ancestors have no rows
+    of their own, which the flat schema allowed and a tree cannot represent
+    without materializing the missing middle.
+
+    Also asserts the node keeps its id, since ``invoice_lines.spend_category_id``
+    points at it and a re-keyed node would orphan every categorized line.
+    """
+    admin_url = _reachable_admin_url()
+
+    with _throwaway_database(admin_url) as (db_name, target_url):
+        env = {**os.environ, "DATABASE_URL": target_url}
+        _assert_subprocess_targets(env, db_name)
+
+        before = _upgrade(env, "0003_line_unit_and_doc_number")
+        assert before.returncode == 0, (
+            f"upgrade to 0003 failed:\n{before.stdout}\n{before.stderr}"
+        )
+
+        engine = create_engine(target_url, **_CONNECT_ARGS)
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO organizations (id, name, status, created_at) "
+                        "VALUES ('org', 'Org', 'active', now())"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO companies "
+                        "(id, organization_id, name, base_currency, is_active, created_at) "
+                        "VALUES ('co', 'org', 'Co', 'DKK', true, now())"
+                    )
+                )
+                # Only the deep leaf exists as a row. 'Indirect' and
+                # 'Indirect > Technology' are implied and must be materialized.
+                conn.execute(
+                    text(
+                        "INSERT INTO spend_categories "
+                        "(id, company_id, level_1, level_2, level_3, created_at) VALUES "
+                        "('leaf', 'co', 'Indirect', 'Technology', 'Cloud', now())"
+                    )
+                )
+
+            head = _upgrade(env, "head")
+            assert head.returncode == 0, (
+                f"upgrade from 0003 failed:\n{head.stdout}\n{head.stderr}"
+            )
+
+            with engine.connect() as conn:
+                tree_id = conn.execute(
+                    text("SELECT spend_tree_id FROM companies WHERE id = 'co'")
+                ).scalar_one()
+                nodes = conn.execute(
+                    text(
+                        "SELECT id, parent_id, depth, name, level_1, level_2, level_3 "
+                        "FROM spend_categories ORDER BY depth"
+                    )
+                ).all()
+
+            assert tree_id is not None, "the company was not assigned a migrated tree"
+            assert [n.depth for n in nodes] == [1, 2, 3], (
+                f"the implied ancestors were not materialized: {nodes}"
+            )
+            root, mid, leaf = nodes
+            assert (root.name, root.parent_id) == ("Indirect", None)
+            assert (mid.name, mid.parent_id) == ("Technology", root.id)
+            assert (leaf.name, leaf.parent_id) == ("Cloud", mid.id)
+            assert leaf.id == "leaf", (
+                "the original row must keep its id — invoice_lines.spend_category_id "
+                f"points at it (got {leaf.id!r})"
+            )
+            assert (root.level_1, root.level_2) == ("Indirect", None), (
+                f"a depth-1 node's path is its level_1 alone (got {root})"
+            )
+
+            back = _downgrade(env, "0003_line_unit_and_doc_number")
+            assert back.returncode == 0, (
+                f"downgrade of 0004 failed:\n{back.stdout}\n{back.stderr}"
+            )
+
+            with engine.connect() as conn:
+                restored = conn.execute(
+                    text("SELECT id, company_id FROM spend_categories ORDER BY id")
+                ).all()
+            # Lossy as documented: structure is gone, the rows return to the
+            # company. What must hold is that the downgrade *runs* and leaves a
+            # schema the pre-0004 code can read.
+            assert {r.company_id for r in restored} == {"co"}, (
+                f"downgrade did not restore company_id: {restored}"
+            )
+        finally:
+            engine.dispose()
+
+
 def test_upgrade_from_empty_database() -> None:
     admin_url = _postgres_admin_url()
     if admin_url is None:

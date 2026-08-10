@@ -41,8 +41,8 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 - Run web API: `uvicorn web_api.app:app --reload`
 - Run dashboard: `streamlit run src/web_api/dashboard/app.py`
 - Test: `uv run pytest`
-- Migrate DB: `uv run alembic upgrade head`. The chain is **one squashed
-  baseline** (`0001_baseline_schema`); the original 20 migrations never created
+- Migrate DB: `uv run alembic upgrade head`. The chain starts from **one
+  squashed baseline** (`0001_baseline_schema`); the original 20 migrations never created
   a base table, so `upgrade` from empty had in fact never worked — the schema was
   built out-of-band by `create_all()`. A database that predates the squash is
   brought across once with `uv run alembic stamp 0001_baseline_schema --purge`
@@ -83,7 +83,7 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   directory), `/vendors` (the org's referenced suppliers, `?q=`),
   `GET /companies` (`?include_inactive`; each carries its `base_currency`), `/invoices`,
   `/invoices/{id}`, `/invoice-lines` (filters: `status`/`company_id`/`vendor_id`/
-  `voucher_id`/`origin`/`from`/`to` — the last four resolve through the line's
+  `voucher_id`/`origin`/`stale`/`from`/`to` — the last four resolve through the line's
   invoice, since a line carries no date, supplier or voucher of its own),
   `/invoice-lines/{id}/audit`, `/erp-entries`
   (filters: `company_id`/`entry_type`/`voucher_id`/`source_invoice_id`/`status`/
@@ -123,7 +123,8 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   `ErpIntegration`, and its encrypted credential are written in one transaction,
   so a company is never left without an ERP connection; the response is the
   company plus its integration),
-  `PATCH /companies/{id}`, `POST /companies/{id}/deactivate|activate`,
+  `PATCH /companies/{id}` (carries `spend_tree_id`; changing it reassigns and
+  reports the affected line count), `POST /companies/{id}/deactivate|activate`,
   `POST /companies/{id}/recompute-fx` (rewrite stored base amounts),
   `POST /invoice-lines/{id}/verify` (accept or correct the categorization),
   `POST /invoices/{id}/reprocess` (queue the attached scan to be read again —
@@ -157,9 +158,9 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 ## Categorization lifecycle & audit
 
 - **Result lives on the line.** `InvoiceLine` holds its categorization result
-  directly (`level_1/2/3`, `account_code`, `account_name`, `confidence`,
+  directly (`level_1/2/3/4`, `account_code`, `account_name`, `confidence`,
   `rationale`, plus the accepted `spend_category_id`) — there is no separate
-  `LineCategorization` table.
+  `LineCategorization` table. `level_4` is set only on a four-level tree.
 - **Line status**: `uncategorized` → `ai_failed` | `ai_categorized` → `verified`.
   The AI sync runner writes the result and sets `ai_categorized`/`ai_failed`; a
   human `POST /invoice-lines/{id}/verify` (management role) sets `verified`,
@@ -177,6 +178,91 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   `entry_fallback` line all move through the same lifecycle and all count in the
   reports. A stand-in line's spend is real spend, and withholding it pending a
   document that may never arrive would leave most of the ledger uncategorized.
+- **A category is chosen, never typed.** `POST /invoice-lines/{id}/verify` takes
+  a `spend_category_id` and derives `level_1..level_4` from that node's path,
+  ignoring any levels sent alongside; a node outside the company's assigned tree
+  is a `422`. Free text produced a categorization resolving to nothing, which is
+  precisely what the stored pointer exists to prevent — so the frontend's line
+  editor is a tree selector, not four inputs.
+- **`category_stale` is computed, never stored**: any level set and no
+  `spend_category_id`. It means the line's decision no longer resolves in the
+  company's tree — visible on every line payload and filterable
+  (`GET /invoice-lines?stale=true`). Distinct from `ai_failed`: nothing failed,
+  the taxonomy moved.
+
+## Spend trees (the target taxonomy)
+
+- **A `SpendTree` belongs to an `Organization`; a `Company` points at the one it
+  categorizes against** (`Company.spend_tree_id`). Several companies may share a
+  tree — a bookkeeping firm wants one taxonomy across its clients — and one org
+  may hold several. A tree from another organization is a `404`.
+- **`SpendCategory` is a node of a tree, not a column bag hanging off a
+  company.** It carries `spend_tree_id`, `parent_id`, `depth`, `name`,
+  `sort_order` and an optional `code`, **and** keeps `level_1..level_4` as the
+  **materialized path**. Both are load-bearing: parentage is what makes renaming,
+  reparenting and depth enforcement possible; the path keeps every existing read
+  working without a recursive query and — the real reason — lets an
+  `InvoiceLine` keep its decision when the node it pointed at is gone.
+  `spend_categories.company_id` no longer exists.
+- **`web_api/spend_trees/service.py` is the only writer of `SpendCategory`.**
+  Nothing else may write it: a rename rewrites every descendant's path in the
+  same transaction, and an ORM write straight to the table silently desyncs the
+  two representations. Nothing there commits — the caller owns the transaction.
+- **The default tree is a code-resident template** (`spend_trees/template.py`,
+  three levels, `Direct`/`Indirect` at level 1), **copied into an org on first
+  use** by `ensure_default_tree()` — idempotent per org, so an org holds at most
+  one copy. A customer edits their copy freely; the template and other tenants
+  are untouched. `POST /companies` assigns it when no `spend_tree_id` is given,
+  in the same transaction as the company. **`POST /spend-trees/default` exists
+  because that was otherwise the only trigger**: an org whose companies predate
+  spend trees could not obtain the default at all. It is idempotent and returns
+  `200`, and the settings page + company picker only offer it while no copy
+  exists.
+- **A tree is deleted hard, a company is deactivated soft** — the asymmetry is
+  deliberate: a company owns financial records, a tree owns none, since a line
+  keeps its `level_*` whatever happens to the node it pointed at. `DELETE
+  /spend-trees/{id}` is refused while a company is assigned (reassign first) and
+  `409`s with a count when categorized lines point into it, until `confirm=true`.
+  `/archive` remains the gentler option: retired from the pickers, history
+  reachable.
+- **`max_depth` lives on the tree** (3 or 4; `default_template` is pinned to 3)
+  rather than being derived from the deepest node, so the editor can gray out
+  "add child" *before* the user tries. Over-deep writes are `422`; lowering it
+  below existing nodes is refused.
+- **Three authoring paths, one result**: clone, empty, or CSV import
+  (`level_1..level_4`, `description`, optional `code`). An import is **validated
+  wholly and applied wholly** — one bad row rejects the file with a per-row
+  report and changes nothing. A `replace` that would orphan categorized lines is
+  a `409` with the count until `confirm=true`.
+- **Changing a company's tree costs no categorization work.** In the same
+  transaction as the `PATCH`, lines whose stored path exists in the new tree are
+  re-pointed (**exact, case-sensitive, whole-path** — fuzzy matching is the
+  guessing the sync's derived entry→line link refuses); the rest have only
+  `spend_category_id` cleared, keep every level, status and rationale, and get an
+  `AuditLog` row (`spend_tree_reassigned`, actor `system`). The response reports
+  the affected count, because the caller must learn the consequence where they
+  cause it. Nothing is requeued and no verification is discarded.
+- **The categorizer's candidates are the assigned tree's leaves** — interior
+  nodes are headings, and matching to one throws away the precision the customer
+  built the tree for. **No tree ⇒ no categorization**: lines stay
+  `uncategorized`, the reason lands on the integration's `SyncState`, the ledger
+  still persists and the watermark still advances. There is deliberately no
+  fallback taxonomy. `_META` is gone from `ai_api`; the template is its
+  successor, and its curated keywords attach to template-seeded nodes by `code`
+  (a custom node matches on its own name/description — a weakness of the
+  *keyword stub*, which the embedding categorizer removes).
+- Endpoints: `GET /spend-trees` (+ `?include_archived`), `GET /spend-trees/{id}`
+  (whole tree in one response — the selector's navigation and search are only
+  instant if the client holds it), `POST /spend-trees` (clone or empty),
+  `POST /spend-trees/default`, `PATCH`, `DELETE` (+ `?confirm`), `/archive`
+  (both refused while assigned), `/import`, plus
+  `POST /spend-trees/{id}/nodes`, `PATCH|DELETE /spend-tree-nodes/{id}`. Reads
+  are open to any member — a reviewer picking a category needs the tree; writes
+  are management-gated. Managed at `/settings/spend-trees`.
+- `ai_api/rag/indexer.py` gained `build_tree_index`/`retrieve_categories`, keyed
+  by **tree id**, alongside the older CSV-and-tenant pair the PDF `InvoiceFlow`
+  and synthdata still use. Not yet wired into the sync (its stub matcher needs
+  no embeddings).
 
 ## Invoice lines: the unit of spend
 
@@ -513,9 +599,12 @@ src/
 │   ├── audit.py              generic AuditLog helpers (diff + append)
 │   ├── documents.py          where an invoice's scan lives (route + AI stage share it)
 │   ├── rollup.py             Invoice.status rollup from its lines
+│   ├── spend_trees/          org-owned taxonomies: default template, the only
+│   │                         SpendCategory writer, CSV import, reassignment
 │   ├── fx/                   historical FX: rate provider + cache, convert,
 │   │                         recompute, backfill CLI
-│   ├── routers/              companies, invoices, invoice-lines (verify + audit)
+│   ├── routers/              companies, invoices, invoice-lines (verify + audit),
+│   │                         spend-trees
 │   ├── connectors/           ERP connector interface, shared HTTP base,
 │   │                         pagination strategies, Billy + Debug ERP
 │   ├── dashboard/app.py      Streamlit dashboard (stub)
@@ -534,11 +623,12 @@ src/
     ├── ledger.py             CSV output (PDF pipeline)
     ├── pdf_loader.py         PDF text extraction
     ├── parsing.py            LLM JSON repair
-    ├── rag/indexer.py        Qdrant vector store (spend tree retrieval)
+    ├── rag/indexer.py        Qdrant vector store (CoA CSV + SpendTree nodes)
     ├── synthdata/            synthetic invoice generator
     ├── persistence/          ai_api-owned store: line_ground_truth (synthetic gt_*)
     ├── sync/runner.py        pipeline orchestrator (discover→connect→fetch→persist→categorize)
-    ├── sync/categorizer.py   deterministic keyword categorizer (stub for Qdrant+LLM)
+    ├── sync/categorizer.py   deterministic keyword categorizer over the company's
+    │                         assigned spend tree (stub for Qdrant+LLM)
     ├── documents/            document→invoice lines stage: runner (discover→claim→
     │                         fetch→extract→reconcile→replace), extractor, reconcile
     ├── aggregation/engine.py SQL rollups (stub)

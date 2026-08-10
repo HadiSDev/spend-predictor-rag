@@ -1,8 +1,18 @@
-"""Qdrant-based vector index for per-tenant chart of accounts (spend trees).
+"""Qdrant vector index over a spend taxonomy.
 
-Replaces the previous ChromaDB implementation. Each tenant's spend tree is stored
-in a Qdrant collection named ``spend_tree_{tenant_id}`` so that retrieval is
-automatically scoped — no cross-tenant leakage possible.
+Two entry points, for two different taxonomies, deliberately kept apart:
+
+* :func:`build_index` / :func:`retrieve_accounts` index a **chart-of-accounts
+  CSV**, keyed by ``tenant_id``. This is what the PDF ``InvoiceFlow`` and the
+  synthetic-data tooling use, and it predates spend trees being a real entity.
+* :func:`build_tree_index` / :func:`retrieve_categories` index a real
+  **``SpendTree``**, keyed by tree id. This is the shape the LLM categorizer
+  will use, and it is the one that reflects what a customer actually chose.
+
+Both scope retrieval by collection name, so no query can reach another tenant's
+taxonomy. The tree path is not yet wired into the sync — the sync's stub matcher
+is keyword-based and needs no embeddings — so the CSV path stays until the
+embedding categorizer replaces it.
 """
 from __future__ import annotations
 
@@ -152,4 +162,111 @@ def retrieve_accounts(
         with_payload=True,
     ).points
 
+    return [r.payload for r in results if r.payload]
+
+
+# ---------------------------------------------------------------------------
+# Spend trees (the real entity)
+# ---------------------------------------------------------------------------
+
+_TREE_COLLECTION_PREFIX = "spend_categories_"
+
+
+def _tree_collection_name(tree_id: str) -> str:
+    return f"{_TREE_COLLECTION_PREFIX}{tree_id}"
+
+
+def _node_document(node) -> str:
+    """The text embedded for a node: its path, then its own description.
+
+    The path is included because a node's name alone is often ambiguous across
+    a taxonomy — "Software" under Technology and "Software" under Direct Costs
+    are different answers, and only the path says which.
+    """
+    path = " > ".join(
+        value for value in (node.level_1, node.level_2, node.level_3, node.level_4)
+        if value
+    )
+    return f"{path}: {node.description}" if node.description else path
+
+
+def build_tree_index(
+    nodes: list,
+    tree_id: str,
+    embed_fn: Callable[[list[str]], list[list[float]]] = _default_embed,
+) -> None:
+    """Embed a spend tree's nodes into a collection of their own.
+
+    Keyed by **tree id**, not tenant: a tree is the organization's and may be
+    shared by several companies, so the tree is the correct unit of a taxonomy
+    index. Idempotent by node count, like :func:`build_index`.
+    """
+    if not nodes:
+        return
+
+    client = _get_client()
+    coll = _tree_collection_name(tree_id)
+
+    if _collection_exists(client, coll) and client.count(coll).count == len(nodes):
+        return
+
+    documents = [_node_document(node) for node in nodes]
+    payloads = [
+        {
+            "spend_category_id": node.id,
+            "spend_tree_id": tree_id,
+            "name": node.name,
+            "code": node.code,
+            "depth": node.depth,
+            "description": node.description,
+            "level_1": node.level_1,
+            "level_2": node.level_2,
+            "level_3": node.level_3,
+            "level_4": node.level_4,
+        }
+        for node in nodes
+    ]
+    embeddings = embed_fn(documents)
+
+    try:
+        client.delete_collection(coll)
+    except Exception:
+        pass
+
+    client.create_collection(
+        coll,
+        vectors_config=VectorParams(size=len(embeddings[0]), distance=Distance.COSINE),
+    )
+    client.upsert(
+        coll,
+        points=[
+            models.PointStruct(id=index, vector=emb, payload=payload)
+            for index, (emb, payload) in enumerate(zip(embeddings, payloads))
+        ],
+    )
+
+
+def retrieve_categories(
+    query: str,
+    tree_id: str,
+    top_k: int = 5,
+    embed_fn: Callable[[list[str]], list[list[float]]] = _default_embed,
+) -> list[dict]:
+    """The top-K nodes of one tree most relevant to a query, best first.
+
+    Returns an empty list when the tree has never been indexed — a caller that
+    has no candidates must categorize nothing, never fall back to another
+    taxonomy.
+    """
+    client = _get_client()
+    coll = _tree_collection_name(tree_id)
+    if not _collection_exists(client, coll):
+        return []
+
+    results = client.query_points(
+        coll,
+        query=embed_fn([query])[0],
+        limit=top_k,
+        with_payload=True,
+    ).points
     return [r.payload for r in results if r.payload]

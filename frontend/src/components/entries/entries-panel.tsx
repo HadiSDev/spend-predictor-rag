@@ -7,6 +7,7 @@ import type {
   InvoiceUpdate,
   LineCorrections,
   Page,
+  SpendCategoryRead,
   VendorRead,
   VoucherAuditRead,
   VoucherDetailRead,
@@ -99,6 +100,11 @@ export interface EntriesPanelProps {
    *  the way the panel is closed: `onSelectEntry({})` clears both. */
   onSelectEntry: (key: VoucherKey) => void
   onVerifyLine: (lineId: string, corrections: LineCorrections) => Promise<void>
+  /** The open voucher's company's spend tree. Resolved by the route, so one
+   *  request serves every line in the panel. */
+  spendTreeNodes: Array<SpendCategoryRead> | null
+  /** Where a manager assigns that company's tree, for the no-tree case. */
+  companySettingsHref?: string
   onUpdateHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
   /** Queue an invoice's document to be read again. */
   onReprocess: (invoiceId: string) => Promise<void>
@@ -131,6 +137,8 @@ export function EntriesPanel({
   onTabChange,
   onSelectEntry,
   onVerifyLine,
+  spendTreeNodes,
+  companySettingsHref,
   onUpdateHeader,
   onReprocess,
   canRetrigger,
@@ -195,6 +203,8 @@ export function EntriesPanel({
           }
         }}
         onVerifyLine={onVerifyLine}
+        spendTreeNodes={spendTreeNodes}
+        companySettingsHref={companySettingsHref}
         onUpdateHeader={onUpdateHeader}
         onReprocess={onReprocess}
         canRetrigger={canRetrigger}

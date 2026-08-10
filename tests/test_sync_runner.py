@@ -33,10 +33,12 @@ from web_api.db.models import (
     Invoice,
     InvoiceLine,
     Organization,
+    SpendCategory,
     SyncState,
     Vendor,
 )
 from web_api.fx import FxService
+from web_api.spend_trees.service import ensure_default_tree
 from ai_api.persistence import LineGroundTruth
 from ai_api.sync import runner
 
@@ -146,7 +148,12 @@ def sqlite_engine(monkeypatch):
         org = Organization(name="Test Org", clerk_org_id="clerk_test")
         s.add(org)
         s.commit()
-        company = Company(organization_id=org.id, name="Test Company")
+        # The company must be assigned a spend tree, exactly as `POST /companies`
+        # assigns one: the runner categorizes against the customer's own
+        # taxonomy and has no built-in fallback to invent one from.
+        tree = ensure_default_tree(s, org.id)
+        s.commit()
+        company = Company(organization_id=org.id, name="Test Company", spend_tree_id=tree.id)
         s.add(company)
         s.commit()
         s.add(ErpIntegration(company_id=company.id, erp_type="fake",
@@ -191,11 +198,20 @@ def test_run_sync_end_to_end(sqlite_engine):
     with Session(sqlite_engine) as s:
         ok = s.exec(select(InvoiceLine).where(InvoiceLine.status == "ai_categorized")).one()
         assert ok.account_code == "6010"
+        assert ok.level_1 == "Indirect"
         assert ok.level_2 == "Technology"
+        assert ok.level_3 == "Cloud Infrastructure"
+        # The tree is three levels deep, so there is no fourth to record.
+        assert ok.level_4 is None
         assert ok.confidence is not None
         assert ok.rationale
-        # No spend tree seeded yet, so the accepted assignment stays null.
-        assert ok.spend_category_id is None
+        # The match resolves to a real node of the company's assigned tree.
+        # This assertion used to read `is None` — not as a rule but as a symptom:
+        # nothing seeded `spend_categories`, so the accepted assignment was null
+        # on every line the pipeline ever produced.
+        node = s.get(SpendCategory, ok.spend_category_id)
+        assert node is not None and node.name == "Cloud Infrastructure"
+        assert node.spend_tree_id == s.get(Company, ok.company_id).spend_tree_id
         # Ground truth is recorded in the ai_api-owned store, not on the line.
         ok_gt = s.exec(select(LineGroundTruth)
                        .where(LineGroundTruth.invoice_line_id == ok.id)).one()
@@ -239,6 +255,37 @@ def test_verified_line_not_overwritten_by_resync(sqlite_engine):
         ln = s.get(InvoiceLine, line_id)
         assert ln.status == "verified"
         assert ln.account_code == "6610"
+
+
+def test_a_company_with_no_spend_tree_still_ingests_its_ledger(sqlite_engine):
+    """Categorization is skipped, the ledger lands, the watermark advances.
+
+    A missing taxonomy is a settings gap, not an ERP failure. Stalling the
+    ingest behind it would help nobody, and inventing categories from a built-in
+    taxonomy the customer never chose would be worse than leaving them
+    uncategorized: the wrong ones flow into every report and savings
+    suggestion with nothing downstream able to tell they were guessed.
+    """
+    with Session(sqlite_engine) as s:
+        company = s.exec(select(Company)).one()
+        company.spend_tree_id = None
+        s.add(company)
+        s.commit()
+
+    summary = _summary(runner.run_sync())
+
+    assert summary["invoices"] == 2, "the ledger must still land"
+    assert summary["lines"] == 2
+    assert summary["line_status"] == {"uncategorized": 2}
+    assert "no spend tree" in summary["categorization"]["skipped"]
+
+    with Session(sqlite_engine) as s:
+        state = s.exec(select(SyncState)).one()
+        assert state.status == "idle", "not an integration failure"
+        assert "no spend tree" in (state.error_message or "")
+        assert state.last_invoice_date == date(2025, 8, 3), (
+            "a skipped categorization must not hold the watermark back"
+        )
 
 
 def test_invoice_has_file_and_no_voucher_column(sqlite_engine):

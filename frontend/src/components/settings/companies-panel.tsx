@@ -39,6 +39,11 @@ import {
   IconButton,
   Input,
   Switch,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Table,
   TableBody,
   TableCell,
@@ -51,6 +56,7 @@ import type {
   ErpIntegrationRead,
   ErpTypeRead,
   FxRecomputeResult,
+  SpendTreeRead,
 } from '#/lib/types'
 import { findCountry } from '#/lib/countries'
 import { currencyForCountry, findCurrency } from '#/lib/currencies'
@@ -71,6 +77,9 @@ export interface CompanyValues {
   vat_number: string
   /** ISO 4217. Required on create: every figure is presented in it. */
   base_currency: string
+  /** The spend tree this company categorizes against. Empty means "the
+   *  organization's default", which the server materializes on create. */
+  spend_tree_id: string
 }
 
 /**
@@ -111,9 +120,16 @@ export interface CompaniesPanelProps {
   erpTypesLoading?: boolean
   /** Integrations across every company in scope; each dialog picks out its own. */
   integrations?: Array<ErpIntegrationRead>
+  /** The organization's active spend trees, for the company's tree picker. */
+  spendTrees?: Array<SpendTreeRead>
   onCreate: (values: CompanyCreateValues) => Promise<unknown>
   /** Only the changed fields are sent. */
-  onUpdate: (id: string, changes: Partial<CompanyValues>) => Promise<unknown>
+  onUpdate: (
+    id: string,
+    changes: Partial<CompanyValues>,
+  ) => Promise<{ stale_lines?: number } | unknown>
+  /** Open the entries view filtered to the lines a tree change left stale. */
+  onReviewStaleLines?: (companyId: string) => void
   /** Only the changed parts are sent; omitting `credentials` keeps the stored secret. */
   onUpdateIntegration?: (
     id: string,
@@ -137,6 +153,53 @@ export interface CompaniesPanelProps {
   onRecomputeFx?: (companyId: string) => Promise<FxRecomputeResult>
   /** Navigate to a company's ERP account settings. */
   onManageAccounts?: (companyId: string) => void
+}
+
+/**
+ * The company's spend tree, chosen from the organization's own.
+ *
+ * A "default" option is offered exactly when the organization has no template
+ * copy yet — choosing it sends no id, which is what makes the server create and
+ * assign one. Offered on edit as well as create, because a company that
+ * predates spend trees has no tree and creating a new company is not a
+ * reasonable way to obtain the default. Suppressed once the copy exists, where
+ * it would simply duplicate the entry the list already carries by name.
+ */
+function SpendTreeField({
+  value,
+  trees,
+  onChange,
+}: {
+  value: string
+  trees: Array<SpendTreeRead>
+  onChange: (next: string) => void
+}) {
+  const items = React.useMemo(
+    () => [
+      ...(trees.some((tree) => tree.source === 'default_template')
+        ? []
+        : [{ value: '', label: 'Default spend tree (will be created)' }]),
+      ...trees.map((tree) => ({
+        value: tree.id,
+        label: `${tree.name} (${tree.max_depth} levels)`,
+      })),
+    ],
+    [trees],
+  )
+  return (
+    <Select items={items} value={value} onValueChange={(next) => onChange(String(next))}>
+      <SelectTrigger aria-label="Spend tree">
+        <SelectValue items={items} />
+      </SelectTrigger>
+      <SelectContent>
+        {items.map((item) => (
+          <SelectItem key={item.value || 'default'} value={item.value}>
+            {item.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
 }
 
 /** The recompute prompt: which company, and how far it has got. */
@@ -178,6 +241,7 @@ function toValues(company: CompanyRead): CompanyValues {
       findCountry(company.country_code)?.code ?? company.country_code ?? '',
     vat_number: company.vat_number ?? '',
     base_currency: company.base_currency,
+    spend_tree_id: company.spend_tree_id ?? '',
   }
 }
 
@@ -199,6 +263,7 @@ function companyFields(values: CompanyValues): CompanyValues {
     country_code: values.country_code,
     vat_number: values.vat_number,
     base_currency: values.base_currency,
+    spend_tree_id: values.spend_tree_id,
   }
 }
 
@@ -587,6 +652,7 @@ function CompanyDialog({
   erpTypes,
   erpTypesLoading,
   companyIntegrations,
+  spendTrees,
   onOpenChange,
   onSubmit,
 }: {
@@ -595,6 +661,8 @@ function CompanyDialog({
   company: CompanyRead | null
   erpTypes: Array<ErpTypeRead>
   erpTypesLoading: boolean
+  /** The organization's active trees; empty hides the picker entirely. */
+  spendTrees: Array<SpendTreeRead>
   /** This company's integrations, most-connected first. Empty when creating. */
   companyIntegrations: Array<ErpIntegrationRead>
   onOpenChange: (open: boolean) => void
@@ -611,7 +679,15 @@ function CompanyDialog({
     defaultValues: {
       ...(company
         ? toValues(company)
-        : { name: '', country_code: '', vat_number: '', base_currency: '' }),
+        : {
+            name: '',
+            country_code: '',
+            vat_number: '',
+            base_currency: '',
+            // Empty means "the organization's default tree", created on the
+            // spot by the server if this is its first company.
+            spend_tree_id: '',
+          }),
       erp_type: preselected?.erp_type ?? '',
       // Credentials are write-only, so an edit form has nothing to prefill.
       credentials: defaultCredentials(preselected),
@@ -737,6 +813,38 @@ function CompanyDialog({
                 </FormItem>
               )}
             />
+            {spendTrees.length > 0 ? (
+              <FormField
+                control={form.control}
+                name="spend_tree_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Spend tree</FormLabel>
+                    <FormControl>
+                      <SpendTreeField
+                        value={field.value}
+                        trees={spendTrees}
+                        onChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {mode === 'create' ? (
+                        <>
+                          The taxonomy this company&rsquo;s spend is categorized into. Leave it on
+                          the default unless you have built your own.
+                        </>
+                      ) : (
+                        <>
+                          Changing this keeps every category already assigned on record, but lines
+                          whose category is not in the new tree will be marked for review.
+                        </>
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
             <ErpConnectionFields
               form={form}
               erpTypes={erpTypes}
@@ -774,7 +882,9 @@ export function CompaniesPanel({
   erpTypes = [],
   erpTypesLoading = false,
   integrations = [],
+  spendTrees = [],
   onCreate,
+  onReviewStaleLines,
   onUpdate,
   onUpdateIntegration,
   onConnectIntegration,
@@ -790,6 +900,10 @@ export function CompaniesPanel({
   const [recomputing, setRecomputing] = React.useState<RecomputeState | null>(
     null,
   )
+  const [reassigned, setReassigned] = React.useState<{
+    company: CompanyRead
+    staleLines: number
+  } | null>(null)
 
   const confirmingCompany = companies.find(
     (company) => company.id === confirming,
@@ -803,7 +917,16 @@ export function CompaniesPanel({
    */
   async function saveEdits(company: CompanyRead, values: CompanyFormValues) {
     const changes = changedFields(toValues(company), values)
-    if (Object.keys(changes).length > 0) await onUpdate(company.id, changes)
+    let result: { stale_lines?: number } | undefined
+    if (Object.keys(changes).length > 0) {
+      result = (await onUpdate(company.id, changes)) as { stale_lines?: number }
+    }
+    // A spend-tree change costs something, and the caller has to learn what at
+    // the moment they cause it — the count only exists server-side, so it is
+    // reported back rather than guessed at before the save.
+    if (changes.spend_tree_id !== undefined && (result?.stale_lines ?? 0) > 0) {
+      setReassigned({ company, staleLines: result!.stale_lines! })
+    }
     // Changing the reporting currency does not rewrite what is already stored —
     // the API refuses to do an unbounded write inside a PATCH — so the figures
     // stay in the old currency until a recompute. Say so while the user is
@@ -1109,6 +1232,40 @@ export function CompaniesPanel({
         onRun={runRecompute}
       />
 
+      <AlertDialog
+        open={reassigned !== null}
+        onOpenChange={(open) => !open && setReassigned(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {reassigned?.staleLines} line
+              {reassigned?.staleLines === 1 ? '' : 's'} need reviewing
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {reassigned?.company.name}&rsquo;s spend tree changed. Those lines keep the
+              categories they were given — nothing was deleted — but those categories are not
+              in the new tree, so someone should re-decide them.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="ghost" onClick={() => setReassigned(null)}>
+              Later
+            </Button>
+            {onReviewStaleLines ? (
+              <Button
+                onClick={() => {
+                  onReviewStaleLines(reassigned!.company.id)
+                  setReassigned(null)
+                }}
+              >
+                Review them
+              </Button>
+            ) : null}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {canManage ? (
         <CompanyDialog
           // Remounts per opening, so the form is always seeded from what it is
@@ -1121,6 +1278,7 @@ export function CompaniesPanel({
           companyIntegrations={
             editing ? integrationsFor(integrations, editing.id) : []
           }
+          spendTrees={spendTrees}
           onOpenChange={setDialogOpen}
           onSubmit={(values) =>
             editing
@@ -1132,6 +1290,7 @@ export function CompaniesPanel({
                   country_code: values.country_code,
                   vat_number: values.vat_number,
                   base_currency: values.base_currency,
+                  spend_tree_id: values.spend_tree_id,
                   erp_type: values.erp_type,
                   credentials: values.credentials,
                 })

@@ -11,6 +11,7 @@ const TABS = [
   { to: '/settings/profile', label: 'Profile' },
   { to: '/settings/organization', label: 'Organization' },
   { to: '/settings/companies', label: 'Companies' },
+  { to: '/settings/spend-trees', label: 'Spend trees' },
 ] as const
 
 function SettingsLayout() {

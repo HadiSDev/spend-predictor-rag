@@ -17,6 +17,7 @@ import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as AuthedSettingsRouteImport } from './routes/_authed/settings'
 import { Route as AuthedEntriesRouteImport } from './routes/_authed/entries'
 import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
+import { Route as AuthedSettingsSpendTreesRouteImport } from './routes/_authed/settings/spend-trees'
 import { Route as AuthedSettingsProfileRouteImport } from './routes/_authed/settings/profile'
 import { Route as AuthedSettingsOrganizationRouteImport } from './routes/_authed/settings/organization'
 import { Route as AuthedSettingsCompaniesRouteImport } from './routes/_authed/settings/companies'
@@ -62,6 +63,12 @@ const AuthedSettingsIndexRoute = AuthedSettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthedSettingsRoute,
 } as any)
+const AuthedSettingsSpendTreesRoute =
+  AuthedSettingsSpendTreesRouteImport.update({
+    id: '/spend-trees',
+    path: '/spend-trees',
+    getParentRoute: () => AuthedSettingsRoute,
+  } as any)
 const AuthedSettingsProfileRoute = AuthedSettingsProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
@@ -101,6 +108,7 @@ export interface FileRoutesByFullPath {
   '/settings/companies': typeof AuthedSettingsCompaniesRouteWithChildren
   '/settings/organization': typeof AuthedSettingsOrganizationRoute
   '/settings/profile': typeof AuthedSettingsProfileRoute
+  '/settings/spend-trees': typeof AuthedSettingsSpendTreesRoute
   '/settings/': typeof AuthedSettingsIndexRoute
   '/settings/companies/': typeof AuthedSettingsCompaniesIndexRoute
   '/settings/companies/$companyId/accounts': typeof AuthedSettingsCompaniesCompanyIdAccountsRoute
@@ -113,6 +121,7 @@ export interface FileRoutesByTo {
   '/': typeof AuthedIndexRoute
   '/settings/organization': typeof AuthedSettingsOrganizationRoute
   '/settings/profile': typeof AuthedSettingsProfileRoute
+  '/settings/spend-trees': typeof AuthedSettingsSpendTreesRoute
   '/settings': typeof AuthedSettingsIndexRoute
   '/settings/companies': typeof AuthedSettingsCompaniesIndexRoute
   '/settings/companies/$companyId/accounts': typeof AuthedSettingsCompaniesCompanyIdAccountsRoute
@@ -129,6 +138,7 @@ export interface FileRoutesById {
   '/_authed/settings/companies': typeof AuthedSettingsCompaniesRouteWithChildren
   '/_authed/settings/organization': typeof AuthedSettingsOrganizationRoute
   '/_authed/settings/profile': typeof AuthedSettingsProfileRoute
+  '/_authed/settings/spend-trees': typeof AuthedSettingsSpendTreesRoute
   '/_authed/settings/': typeof AuthedSettingsIndexRoute
   '/_authed/settings/companies/': typeof AuthedSettingsCompaniesIndexRoute
   '/_authed/settings/companies/$companyId/accounts': typeof AuthedSettingsCompaniesCompanyIdAccountsRoute
@@ -145,6 +155,7 @@ export interface FileRouteTypes {
     | '/settings/companies'
     | '/settings/organization'
     | '/settings/profile'
+    | '/settings/spend-trees'
     | '/settings/'
     | '/settings/companies/'
     | '/settings/companies/$companyId/accounts'
@@ -157,6 +168,7 @@ export interface FileRouteTypes {
     | '/'
     | '/settings/organization'
     | '/settings/profile'
+    | '/settings/spend-trees'
     | '/settings'
     | '/settings/companies'
     | '/settings/companies/$companyId/accounts'
@@ -172,6 +184,7 @@ export interface FileRouteTypes {
     | '/_authed/settings/companies'
     | '/_authed/settings/organization'
     | '/_authed/settings/profile'
+    | '/_authed/settings/spend-trees'
     | '/_authed/settings/'
     | '/_authed/settings/companies/'
     | '/_authed/settings/companies/$companyId/accounts'
@@ -242,6 +255,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsIndexRouteImport
       parentRoute: typeof AuthedSettingsRoute
     }
+    '/_authed/settings/spend-trees': {
+      id: '/_authed/settings/spend-trees'
+      path: '/spend-trees'
+      fullPath: '/settings/spend-trees'
+      preLoaderRoute: typeof AuthedSettingsSpendTreesRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
     '/_authed/settings/profile': {
       id: '/_authed/settings/profile'
       path: '/profile'
@@ -301,6 +321,7 @@ interface AuthedSettingsRouteChildren {
   AuthedSettingsCompaniesRoute: typeof AuthedSettingsCompaniesRouteWithChildren
   AuthedSettingsOrganizationRoute: typeof AuthedSettingsOrganizationRoute
   AuthedSettingsProfileRoute: typeof AuthedSettingsProfileRoute
+  AuthedSettingsSpendTreesRoute: typeof AuthedSettingsSpendTreesRoute
   AuthedSettingsIndexRoute: typeof AuthedSettingsIndexRoute
 }
 
@@ -308,6 +329,7 @@ const AuthedSettingsRouteChildren: AuthedSettingsRouteChildren = {
   AuthedSettingsCompaniesRoute: AuthedSettingsCompaniesRouteWithChildren,
   AuthedSettingsOrganizationRoute: AuthedSettingsOrganizationRoute,
   AuthedSettingsProfileRoute: AuthedSettingsProfileRoute,
+  AuthedSettingsSpendTreesRoute: AuthedSettingsSpendTreesRoute,
   AuthedSettingsIndexRoute: AuthedSettingsIndexRoute,
 }
 

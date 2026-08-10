@@ -1,10 +1,15 @@
-import type { InvoiceDetailRead } from '#/lib/types'
+import type { InvoiceDetailRead, SpendCategoryRead } from '#/lib/types'
 import { LineCategoryEditor } from './line-category-editor'
 import type { LineCorrections } from './line-category-editor'
 import { ProvenanceMark } from './voucher-table'
 
 export interface VoucherLinesTabProps {
   invoice: InvoiceDetailRead
+  /** The company's spend tree, flat and shallowest-first. Null while loading;
+   *  empty when no tree is assigned. Passed down rather than fetched here so
+   *  one request serves every line on the voucher. */
+  spendTreeNodes: Array<SpendCategoryRead> | null
+  companySettingsHref?: string
   onVerifyLine: (lineId: string, corrections: LineCorrections) => Promise<void>
 }
 
@@ -22,7 +27,12 @@ export interface VoucherLinesTabProps {
  * the bookkeeper's memo rather than what was bought — which is exactly what a
  * reader deciding whether to trust the category needs to know.
  */
-export function VoucherLinesTab({ invoice, onVerifyLine }: VoucherLinesTabProps) {
+export function VoucherLinesTab({
+  invoice,
+  spendTreeNodes,
+  companySettingsHref,
+  onVerifyLine,
+}: VoucherLinesTabProps) {
   if (invoice.lines.length === 0) {
     return <p className="text-sm text-muted-foreground">No lines on this invoice.</p>
   }
@@ -35,7 +45,13 @@ export function VoucherLinesTab({ invoice, onVerifyLine }: VoucherLinesTabProps)
               <ProvenanceMark origin={line.origin} />
             </div>
           ) : null}
-          <LineCategoryEditor line={line} currency={invoice.currency} onVerify={onVerifyLine} />
+          <LineCategoryEditor
+            line={line}
+            currency={invoice.currency}
+            nodes={spendTreeNodes}
+            companySettingsHref={companySettingsHref}
+            onVerify={onVerifyLine}
+          />
         </div>
       ))}
     </div>

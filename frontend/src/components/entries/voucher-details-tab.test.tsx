@@ -30,7 +30,12 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     account_name: 'Office equipment',
     confidence: '0.62',
     rationale: 'Matched on "chair" against the Furniture spend-tree node.',
-    spend_category_id: null,
+    // A categorized line points at the node it was categorized to. Null here
+    // with levels set is the *stale* shape, which several tests below assert
+    // on explicitly — so the ordinary fixture must not accidentally be it.
+    spend_category_id: 'cat-chairs',
+    level_4: null,
+    category_stale: false,
     ...overrides,
   }
 }
