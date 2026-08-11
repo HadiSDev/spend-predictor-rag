@@ -910,6 +910,12 @@ describe('CompaniesPanel — switching ERPs', () => {
 
     expect(await screen.findByText(/989/)).toBeTruthy()
     expect(screen.getByText(/25 invoices/i)).toBeTruthy()
+    // Nothing was actually saved yet — the edit dialog is still open behind
+    // the confirm dialog, and neither toast a success nor a generic failure
+    // has fired for it.
+    expect(screen.getByLabelText('Name')).toBeTruthy()
+    expect(screen.queryByText('Company updated')).toBeNull()
+    expect(screen.queryByText('Couldn’t save your changes')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /switch anyway/i }))
 
@@ -919,6 +925,54 @@ describe('CompaniesPanel — switching ERPs', () => {
         expect.objectContaining({ confirm: true }),
       ),
     )
+    // The switch has now actually happened, so the edit dialog completes
+    // like any other successful save.
+    await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull())
+  })
+
+  it('surfaces a failed retry instead of dropping it silently', async () => {
+    const blocked = Object.assign(new Error('conflict'), {
+      status: 409,
+      body: {
+        detail: {
+          detail: 'This ERP has already posted to the ledger.',
+          invoices: 25,
+          entries: 989,
+          earliest: '2026-01-05',
+          latest: '2026-03-20',
+        },
+      },
+    })
+    const onReplaceIntegration = vi
+      .fn()
+      .mockRejectedValueOnce(blocked)
+      .mockRejectedValueOnce(new Error('Ledger service unavailable'))
+    renderPanel({ erpTypes: [DEBUG_ERP, BILLY], onReplaceIntegration })
+
+    await clickRowAction('Acme A/S', 'Edit')
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('erp-type-billy'))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Access token')).toBeTruthy(),
+    )
+    fireEvent.change(screen.getByLabelText('Access token'), {
+      target: { value: 'tok_live' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByText(/989/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /switch anyway/i }))
+
+    // Shown on the confirm dialog itself — there is nowhere else left for it
+    // to go once the edit dialog has already handed off to this one.
+    expect(await screen.findByText('Ledger service unavailable')).toBeTruthy()
+    // Still open, so the user can retry or back out, rather than the
+    // rejection vanishing along with the dialog.
+    expect(
+      screen.getByRole('button', { name: /switch anyway/i }),
+    ).toBeTruthy()
+    expect(screen.queryByText('Company updated')).toBeNull()
   })
 
   it('still patches when the selected connector is the one already connected', async () => {

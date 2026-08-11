@@ -78,9 +78,20 @@ export function SubmitRow<T extends FieldValues>({
   )
 }
 
+/**
+ * Thrown by `run` when it has already reported the write's outcome itself —
+ * e.g. by opening its own confirmation dialog instead of completing the
+ * write — so neither the generic success toast nor the generic failure one
+ * applies to it. `run` remains responsible for showing the user whatever it
+ * is they still need to see; this only stops the shared wrapper from also
+ * claiming success (or a plain failure) on top of that.
+ */
+export class SubmitHandled extends Error {}
+
 export interface SettingsSubmitOptions<T extends FieldValues> {
   form: UseFormReturn<T>
-  /** Performs the write. Anything it throws is surfaced on the form. */
+  /** Performs the write. Anything it throws is surfaced on the form, unless
+   *  it is a `SubmitHandled` — see that class. */
   run: (values: T) => Promise<unknown>
   /** Toast title shown once the write succeeds. */
   success: string
@@ -112,6 +123,7 @@ export function useSettingsSubmit() {
           toast.add({ title: success })
           form.reset(resetTo ? resetTo(values, result) : values)
         } catch (error) {
+          if (error instanceof SubmitHandled) return
           const message = applyServerError(error, form.setError, {
             fields: Object.keys(values) as Array<Path<T>>,
             fieldFor,

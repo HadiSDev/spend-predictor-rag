@@ -68,6 +68,7 @@ import { CurrencyField } from './currency-field'
 import {
   ReadOnlyNotice,
   SettingsCard,
+  SubmitHandled,
   SubmitRow,
   useSettingsSubmit,
 } from './form'
@@ -949,25 +950,61 @@ export function CompaniesPanel({
     values: { erp_type: string; label: string; credentials: Record<string, string> }
     counts: ReplaceBlocked
   } | null>(null)
+  // Separate from the panel's shared `error`: that one belongs to the
+  // deactivate dialog (guarded by `confirmingCompany`) and to the recompute
+  // dialog, neither of which is open while this one is, but conflating them
+  // would make each dialog's error read as if it might belong to the other.
+  const [switchError, setSwitchError] = React.useState<string | null>(null)
 
   const confirmingCompany = companies.find(
     (company) => company.id === confirming,
   )
 
-  /** Post the replacement, surfacing a 409 as the confirm dialog rather than
-   *  as an error — the counts are the whole point of the refusal. */
-  async function replaceIntegration(
+  /**
+   * Attempt the switch from inside `saveEdits`. A 409 is not a failure of the
+   * save — the company fields already saved above it — so it is reported by
+   * opening the confirm dialog and throwing `SubmitHandled`: that stops
+   * `useSettingsSubmit` from closing the edit dialog or claiming success,
+   * without it also showing a generic "couldn't save" on top of the dialog
+   * that already explains what happened. Any other failure is left to
+   * propagate and hit the normal path.
+   */
+  async function saveIntegrationSwitch(
     integrationId: string,
     values: { erp_type: string; label: string; credentials: Record<string, string> },
-    confirm = false,
   ) {
     try {
-      await onReplaceIntegration?.(integrationId, { ...values, ...(confirm ? { confirm } : {}) })
-      setBlocked(null)
+      await onReplaceIntegration?.(integrationId, values)
     } catch (err) {
       const counts = replaceBlockedFrom(err)
       if (!counts) throw err
       setBlocked({ integrationId, values, counts })
+      throw new SubmitHandled()
+    }
+  }
+
+  /**
+   * Re-post with the block acknowledged. This runs from the confirm dialog's
+   * own button, outside `saveEdits` and outside `useSettingsSubmit` — by the
+   * time it fires, the edit dialog has already handed control to this
+   * dialog, so a failure here has nowhere else to surface and is shown right
+   * on this dialog rather than becoming a dropped, unhandled rejection.
+   */
+  async function confirmSwitch() {
+    if (!blocked) return
+    try {
+      await onReplaceIntegration?.(blocked.integrationId, {
+        ...blocked.values,
+        confirm: true,
+      })
+      setBlocked(null)
+      setSwitchError(null)
+      // The switch has now actually happened — unlike the initial attempt,
+      // there is nothing left pending, so this completes the edit the same
+      // way any other successful save would.
+      setDialogOpen(false)
+    } catch (err) {
+      setSwitchError(serverErrorMessage(err))
     }
   }
 
@@ -1014,7 +1051,7 @@ export function CompaniesPanel({
     if (integration && values.erp_type && values.erp_type !== integration.erp_type) {
       // The system itself changed, so this is a replacement, not an edit — the
       // API refuses `erp_type` on a PATCH, and the two are different actions.
-      await replaceIntegration(integration.id, {
+      await saveIntegrationSwitch(integration.id, {
         erp_type: values.erp_type,
         label: values.label,
         credentials,
@@ -1338,7 +1375,12 @@ export function CompaniesPanel({
 
       <AlertDialog
         open={blocked !== null}
-        onOpenChange={(open) => !open && setBlocked(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBlocked(null)
+            setSwitchError(null)
+          }
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1354,17 +1396,23 @@ export function CompaniesPanel({
               counted twice in reports.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {/* A rejected retry has to be readable from inside this dialog —
+              behind the backdrop, the panel's own error message is invisible
+              — the same reasoning as the deactivate dialog's inline error. */}
+          {switchError ? (
+            <p className="text-sm text-destructive">{switchError}</p>
+          ) : null}
           <AlertDialogFooter>
-            <Button variant="ghost" onClick={() => setBlocked(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setBlocked(null)
+                setSwitchError(null)
+              }}
+            >
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={() =>
-                blocked &&
-                void replaceIntegration(blocked.integrationId, blocked.values, true)
-              }
-            >
+            <Button variant="destructive" onClick={() => void confirmSwitch()}>
               Switch anyway
             </Button>
           </AlertDialogFooter>
