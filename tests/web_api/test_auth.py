@@ -99,6 +99,57 @@ def test_expired_token_is_rejected():
         verifier.verify(token)
 
 
+def test_token_issued_slightly_in_the_future_is_accepted():
+    """Clock skew between Clerk and this host must not reject a good token.
+
+    ``iat`` is stamped on Clerk's clock and checked against ours. When ours is
+    even a second behind, PyJWT's default zero tolerance raises
+    ``ImmatureSignatureError: The token is not yet valid (iat)`` and the request
+    401s — then succeeds on retry, once the wall clock has caught up. Skew
+    between two independent hosts is ordinary, which is exactly what ``leeway``
+    is for; Clerk's own backend SDK allows 5s for the same reason.
+    """
+    priv, jwk = _keypair("k1")
+    cache = JwksCache("unused", http_get=lambda url: {"keys": [jwk]})
+    verifier = ClerkJwtVerifier("unused", ISSUER, jwks=cache)
+
+    now = dt.datetime.now(dt.timezone.utc)
+    token = _token(priv, "k1", org_id="org_9", iat=now + dt.timedelta(seconds=3))
+
+    assert verifier.verify(token).user_id == "user_1"
+
+
+def test_token_issued_far_in_the_future_is_still_rejected():
+    """Tolerance, not surrender: `iat` is still checked beyond the leeway."""
+    priv, jwk = _keypair("k1")
+    cache = JwksCache("unused", http_get=lambda url: {"keys": [jwk]})
+    verifier = ClerkJwtVerifier("unused", ISSUER, jwks=cache, leeway=5)
+
+    now = dt.datetime.now(dt.timezone.utc)
+    token = _token(priv, "k1", org_id="org_9", iat=now + dt.timedelta(minutes=10))
+
+    with pytest.raises(TokenVerificationError):
+        verifier.verify(token)
+
+
+def test_leeway_does_not_resurrect_a_properly_expired_token():
+    """`leeway` widens `exp` too, so its size is a real trade-off.
+
+    Guards the pairing: a token past its expiry by more than the tolerance stays
+    rejected, so raising the leeway for skew can never quietly extend a session
+    token's life indefinitely.
+    """
+    priv, jwk = _keypair("k1")
+    cache = JwksCache("unused", http_get=lambda url: {"keys": [jwk]})
+    verifier = ClerkJwtVerifier("unused", ISSUER, jwks=cache, leeway=5)
+
+    now = dt.datetime.now(dt.timezone.utc)
+    token = _token(priv, "k1", org_id="org_9", exp=now - dt.timedelta(seconds=30))
+
+    with pytest.raises(TokenVerificationError):
+        verifier.verify(token)
+
+
 def test_wrong_issuer_is_rejected():
     priv, jwk = _keypair("k1")
     cache = JwksCache("unused", http_get=lambda url: {"keys": [jwk]})

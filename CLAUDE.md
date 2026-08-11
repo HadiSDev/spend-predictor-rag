@@ -58,6 +58,14 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   against Clerk's JWKS. Set `CLERK_ISSUER` (JWKS URL derives from it) and
   optionally `CLERK_AUDIENCE` in `.env`. `WEB_API_AUTH_DISABLED=true` bypasses
   verification for local dev. See `.env.example`.
+- **Verification allows `CLERK_CLOCK_SKEW_SECONDS` (default 5) of clock skew**,
+  and must: `iat` is stamped on Clerk's clock and checked against this host's,
+  so PyJWT's default zero tolerance rejects a good token with *"The token is not
+  yet valid (iat)"* whenever the local clock runs behind — an intermittent 401
+  that succeeds on retry, and a confusing one because nothing is wrong with the
+  token. 5s matches Clerk's own backend SDK. The leeway widens `exp` by the same
+  amount, so it stays small; `tests/web_api/test_auth.py` pins both halves —
+  skewed token accepted, genuinely expired token still rejected.
 - API docs use **Scalar** at `/scalar` (built-in Swagger/ReDoc disabled;
   OpenAPI JSON at `/openapi.json`).
 - **CORS** for a browser front-end is opt-in via `WEB_API_CORS_ORIGINS`

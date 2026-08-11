@@ -34,6 +34,15 @@ CLERK_JWKS_URL = os.getenv(
 CLERK_AUDIENCE = os.getenv("CLERK_AUDIENCE", "")
 WEB_API_AUTH_DISABLED = os.getenv("WEB_API_AUTH_DISABLED", "false").lower() in ("1", "true", "yes")
 
+# Tolerance, in seconds, for clock skew between Clerk's clock and this host's
+# when checking `iat`/`nbf`/`exp`. Not zero: `iat` is stamped by Clerk and
+# checked here, so a host running even a second behind rejects a perfectly good
+# token with "The token is not yet valid (iat)" — a 401 that succeeds on retry
+# once the wall clock catches up. 5s matches Clerk's own backend SDK default.
+# It widens `exp` by the same amount, which is why it is small and not a minute:
+# Clerk session tokens are short-lived, and this must not quietly extend one.
+CLERK_CLOCK_SKEW_SECONDS = int(os.getenv("CLERK_CLOCK_SKEW_SECONDS", "5"))
+
 # CORS: browser origins allowed to call the API (comma-separated). Empty means
 # no cross-origin access — enabling a browser front-end is explicit. Dev sets
 # e.g. WEB_API_CORS_ORIGINS=http://localhost:5173.

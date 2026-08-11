@@ -138,10 +138,17 @@ class ClerkJwtVerifier:
         issuer: str,
         audience: str | None = None,
         jwks: JwksCache | None = None,
+        leeway: float | None = None,
     ) -> None:
         self._issuer = issuer or None
         self._audience = audience or None
         self._jwks = jwks or (JwksCache(jwks_url) if jwks_url else None)
+        # Defaults to the configured tolerance rather than 0: skew between two
+        # independent hosts is ordinary, and PyJWT's default of zero turns it
+        # into an intermittent 401. See `config.CLERK_CLOCK_SKEW_SECONDS`.
+        self._leeway = (
+            config.CLERK_CLOCK_SKEW_SECONDS if leeway is None else leeway
+        )
 
     def verify(self, token: str) -> ClerkPrincipal:
         if self._jwks is None:
@@ -157,6 +164,7 @@ class ClerkJwtVerifier:
                 algorithms=["RS256"],
                 issuer=self._issuer,
                 audience=self._audience if self._audience else None,
+                leeway=self._leeway,
                 options={
                     "require": ["exp", "sub"],
                     "verify_aud": bool(self._audience),
