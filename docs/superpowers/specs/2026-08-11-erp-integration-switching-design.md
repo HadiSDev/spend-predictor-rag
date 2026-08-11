@@ -95,6 +95,18 @@ A caller who has to re-send with `confirm=true` has read the counts. Discovering
 the same fact as an unexplained doubling in a report a week later is the failure
 this prevents.
 
+**How the counts are derived.** `Invoice` carries no `erp_integration_id` — only
+`company_id` — so neither count can be read off a column. `ErpEntry` can be
+attributed, through `erp_account_id → ErpAccount.erp_integration_id`, and that
+join is the basis for both: entries are counted directly, and invoices as the
+distinct non-null `source_invoice_id` among them.
+
+The consequence is that an invoice with no posting on any of this integration's
+accounts is not counted. That under-reports rather than over-reports, which is
+the right direction for a number whose only job is to make the user stop and
+look — and the alternative, counting every invoice on the company, would
+attribute a *second* integration's invoices to the one being replaced.
+
 The new integration is created with no `SyncState`, so the next run of
 `ai_api.sync.runner` backfills it from scratch — the correct behaviour for a
 system we have never read, and the reason the overlap warning matters.
