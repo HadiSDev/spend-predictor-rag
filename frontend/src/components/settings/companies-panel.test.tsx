@@ -481,6 +481,57 @@ describe('CompaniesPanel', () => {
     )
   })
 
+  it('shows the connector grid when editing, not a caption', async () => {
+    renderPanel({ erpTypes: [DEBUG_ERP, BILLY] })
+
+    await clickRowAction('Acme A/S', 'Edit')
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    expect(screen.getByRole('radiogroup', { name: 'ERP system' })).toBeTruthy()
+    const chosen = screen
+      .getByTestId('erp-type-mock')
+      .querySelector('input') as HTMLInputElement
+    expect(chosen.checked).toBe(true)
+  })
+
+  it('reveals the new connector fields when a different system is picked', async () => {
+    renderPanel({ erpTypes: [DEBUG_ERP, BILLY] })
+
+    await clickRowAction('Acme A/S', 'Edit')
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('erp-type-billy'))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Access token')).toBeTruthy(),
+    )
+    // Nothing is stored for a connector not yet connected, so there is
+    // nothing to offer replacing.
+    expect(
+      screen.queryByRole('switch', { name: 'Replace credentials' }),
+    ).toBeNull()
+  })
+
+  it('restores the replace-credentials form when the current system is reselected', async () => {
+    renderPanel({ erpTypes: [DEBUG_ERP, BILLY] })
+
+    await clickRowAction('Acme A/S', 'Edit')
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('erp-type-billy'))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Access token')).toBeTruthy(),
+    )
+    fireEvent.click(screen.getByTestId('erp-type-mock'))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('switch', { name: 'Replace credentials' }),
+      ).toBeTruthy(),
+    )
+    expect(screen.queryByLabelText('Access token')).toBeNull()
+  })
+
   it('connects an ERP to a company that has none', async () => {
     const props = renderPanel({ integrations: [] })
 

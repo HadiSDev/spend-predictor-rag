@@ -459,15 +459,23 @@ function ErpConnectionFields({
 }) {
   const selected = form.watch('erp_type')
   const replacing = form.watch('replaceCredentials')
-  const active =
-    mode === 'edit'
-      ? erpTypes.find((type) => type.erp_type === integration?.erp_type)
-      : erpTypes.find((type) => type.erp_type === selected)
-  // In edit mode the credential inputs only appear once replacement is chosen —
-  // there is nothing stored to show, so they would otherwise sit there empty and
-  // imply the connection has none.
-  const credentialFields =
-    (mode === 'edit' && !replacing) || !active ? [] : active.credential_fields
+  // In edit mode the grid is live, so "which connector's fields do we show" is
+  // no longer the same question as "which one is connected".
+  const switching =
+    mode === 'edit' && !!selected && selected !== integration?.erp_type
+  const active = erpTypes.find(
+    (type) =>
+      type.erp_type ===
+      (mode === 'edit' && !switching ? integration?.erp_type : selected),
+  )
+  // Editing without switching: nothing is stored to show, so the inputs appear
+  // only once replacement is chosen. Switching: a new integration has no stored
+  // credentials at all, so they are simply required.
+  const credentialFields = !active
+    ? []
+    : mode === 'edit' && !switching && !replacing
+      ? []
+      : active.credential_fields
 
   return (
     <div className="flex flex-col gap-4 border-t border-border pt-4">
@@ -500,17 +508,6 @@ function ErpConnectionFields({
         <>
           {mode === 'edit' && integration ? (
             <>
-              {/* Static: the API offers no way to change an integration's type. */}
-              <div>
-                <p className="text-sm font-medium">ERP system</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {erpTypes.find((t) => t.erp_type === integration.erp_type)
-                    ?.label ?? integration.erp_type}{' '}
-                  — connecting a different system replaces the integration,
-                  which is not done from here.
-                </p>
-              </div>
-
               <FormField
                 control={form.control}
                 name="label"
@@ -525,73 +522,83 @@ function ErpConnectionFields({
                 )}
               />
 
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center gap-3 text-sm">
-                  <Switch
-                    checked={replacing}
-                    onCheckedChange={(next: boolean) => {
-                      form.setValue('replaceCredentials', next)
-                      // Start from the connector's defaults each time it is
-                      // switched on — there is nothing stored to restore.
-                      form.setValue(
-                        'credentials',
-                        next
-                          ? defaultCredentials(
-                              erpTypes.find(
-                                (t) => t.erp_type === integration.erp_type,
-                              ),
-                            )
-                          : {},
-                      )
-                    }}
-                    aria-label="Replace credentials"
-                  />
-                  Replace credentials
-                </label>
-                <p className="text-sm text-muted-foreground">
-                  {integration.has_credentials
-                    ? 'Credentials are set. They are never shown, so replacing them means entering every field again.'
-                    : 'No credentials are stored; the connector falls back to its defaults.'}
-                </p>
-              </div>
+              {switching ? null : (
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-3 text-sm">
+                    <Switch
+                      checked={replacing}
+                      onCheckedChange={(next: boolean) => {
+                        form.setValue('replaceCredentials', next)
+                        // Start from the connector's defaults each time it is
+                        // switched on — there is nothing stored to restore.
+                        form.setValue(
+                          'credentials',
+                          next
+                            ? defaultCredentials(
+                                erpTypes.find(
+                                  (t) => t.erp_type === integration.erp_type,
+                                ),
+                              )
+                            : {},
+                        )
+                      }}
+                      aria-label="Replace credentials"
+                    />
+                    Replace credentials
+                  </label>
+                  <p className="text-sm text-muted-foreground">
+                    {integration.has_credentials
+                      ? 'Credentials are set. They are never shown, so replacing them means entering every field again.'
+                      : 'No credentials are stored; the connector falls back to its defaults.'}
+                  </p>
+                </div>
+              )}
             </>
           ) : null}
 
-          {mode === 'edit' ? null : (
-            <FormField
-              control={form.control}
-              name="erp_type"
-              // Optional when connecting an existing company: saving a name
-              // change alone must not silently connect an ERP.
-              rules={
-                mode === 'create'
-                  ? { required: 'Choose an ERP system.' }
-                  : undefined
-              }
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>ERP system</FormLabel>
-                  <FormControl>
-                    <ErpTypeGrid
-                      erpTypes={erpTypes}
-                      value={field.value}
-                      onSelect={(next) => {
-                        field.onChange(next)
-                        // Reseed the inputs from the newly chosen connector's defaults.
-                        form.setValue(
-                          'credentials',
-                          defaultCredentials(
-                            erpTypes.find((t) => t.erp_type === next),
-                          ),
-                        )
-                      }}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          )}
+          <FormField
+            control={form.control}
+            name="erp_type"
+            // Optional when connecting an existing company: saving a name
+            // change alone must not silently connect an ERP.
+            rules={
+              mode === 'create'
+                ? { required: 'Choose an ERP system.' }
+                : undefined
+            }
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>ERP system</FormLabel>
+                <FormControl>
+                  <ErpTypeGrid
+                    erpTypes={erpTypes}
+                    value={field.value}
+                    onSelect={(next) => {
+                      field.onChange(next)
+                      // Reseed the inputs from the newly chosen connector's defaults.
+                      form.setValue(
+                        'credentials',
+                        defaultCredentials(
+                          erpTypes.find((t) => t.erp_type === next),
+                        ),
+                      )
+                      // A switch supplies fresh credentials by definition, so
+                      // the edit-mode replace flag must not survive it and
+                      // then leak into a PATCH if the user selects back.
+                      form.setValue('replaceCredentials', false)
+                    }}
+                  />
+                </FormControl>
+                {mode === 'edit' ? (
+                  <FormDescription>
+                    Choosing a different system retires this connection and
+                    starts a new one. Nothing already synced is deleted.
+                  </FormDescription>
+                ) : null}
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
           {mode === 'connect' && active ? (
             <FormField
@@ -688,7 +695,9 @@ function CompanyDialog({
             // spot by the server if this is its first company.
             spend_tree_id: '',
           }),
-      erp_type: preselected?.erp_type ?? '',
+      // Seeded in edit mode too: the grid is live there now, and it must open
+      // showing what is actually connected rather than nothing selected.
+      erp_type: integration?.erp_type ?? preselected?.erp_type ?? '',
       // Credentials are write-only, so an edit form has nothing to prefill.
       credentials: defaultCredentials(preselected),
       label: integration?.label ?? '',
