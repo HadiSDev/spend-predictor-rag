@@ -16,6 +16,7 @@ import { spendTreesQueryOptions } from '#/lib/spend-trees'
 import {
   connectIntegrationMutation,
   integrationsQueryOptions,
+  replaceIntegrationMutation,
   updateIntegrationMutation,
 } from '#/lib/integrations'
 
@@ -41,6 +42,7 @@ function CompaniesSection() {
   const spendTrees = useQuery(spendTreesQueryOptions(api))
   const update = useMutation(updateCompanyMutation(api, queryClient))
   const updateIntegration = useMutation(updateIntegrationMutation(api, queryClient))
+  const replaceIntegration = useMutation(replaceIntegrationMutation(api, queryClient))
   const connectIntegration = useMutation(connectIntegrationMutation(api, queryClient))
   const setActive = useMutation(setCompanyActiveMutation(api, queryClient))
   const recomputeFx = useMutation(recomputeCompanyFxMutation(api, queryClient))
@@ -122,6 +124,17 @@ function CompaniesSection() {
             // Present only when replacement was chosen; omitting it leaves the
             // stored secret alone.
             ...(changes.credentials !== undefined ? { credentials: changes.credentials } : {}),
+          },
+        })
+      }
+      onReplaceIntegration={(id, values) =>
+        replaceIntegration.mutateAsync({
+          id,
+          body: {
+            erp_type: values.erp_type,
+            label: values.label || null,
+            credentials: values.credentials,
+            ...(values.confirm ? { confirm: true } : {}),
           },
         })
       }

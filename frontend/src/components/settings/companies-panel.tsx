@@ -56,6 +56,7 @@ import type {
   ErpIntegrationRead,
   ErpTypeRead,
   FxRecomputeResult,
+  ReplaceBlocked,
   SpendTreeRead,
 } from '#/lib/types'
 import { findCountry } from '#/lib/countries'
@@ -134,6 +135,21 @@ export interface CompaniesPanelProps {
   onUpdateIntegration?: (
     id: string,
     changes: IntegrationChanges,
+  ) => Promise<unknown>
+  /**
+   * Move a company to a different ERP. Distinct from `onUpdateIntegration`
+   * because `PATCH` cannot change `erp_type`: this retires the old integration
+   * and starts a new one. Rejects with a 409 carrying the counts it would
+   * double until `confirm` is set.
+   */
+  onReplaceIntegration?: (
+    id: string,
+    values: {
+      erp_type: string
+      label: string
+      credentials: Record<string, string>
+      confirm?: boolean
+    },
   ) => Promise<unknown>
   /** Connect an ERP to a company that has none (created before this was required). */
   onConnectIntegration?: (
@@ -279,6 +295,20 @@ export function changedFields(
     if (after[key] !== before[key]) changes[key] = after[key]
   }
   return changes
+}
+
+/** The 409 body of a blocked replacement, or null for any other failure.
+ *
+ * Read off the error's parsed body rather than its message: a count recovered
+ * from prose would break on a copy edit.
+ */
+export function replaceBlockedFrom(err: unknown): ReplaceBlocked | null {
+  const body = (err as { body?: { detail?: unknown } } | null)?.body?.detail
+  if (!body || typeof body !== 'object') return null
+  const detail = body as Partial<ReplaceBlocked>
+  return typeof detail.entries === 'number' && typeof detail.invoices === 'number'
+    ? (detail as ReplaceBlocked)
+    : null
 }
 
 /**
@@ -896,6 +926,7 @@ export function CompaniesPanel({
   onReviewStaleLines,
   onUpdate,
   onUpdateIntegration,
+  onReplaceIntegration,
   onConnectIntegration,
   onSetActive,
   onRecomputeFx,
@@ -913,10 +944,32 @@ export function CompaniesPanel({
     company: CompanyRead
     staleLines: number
   } | null>(null)
+  const [blocked, setBlocked] = React.useState<{
+    integrationId: string
+    values: { erp_type: string; label: string; credentials: Record<string, string> }
+    counts: ReplaceBlocked
+  } | null>(null)
 
   const confirmingCompany = companies.find(
     (company) => company.id === confirming,
   )
+
+  /** Post the replacement, surfacing a 409 as the confirm dialog rather than
+   *  as an error — the counts are the whole point of the refusal. */
+  async function replaceIntegration(
+    integrationId: string,
+    values: { erp_type: string; label: string; credentials: Record<string, string> },
+    confirm = false,
+  ) {
+    try {
+      await onReplaceIntegration?.(integrationId, { ...values, ...(confirm ? { confirm } : {}) })
+      setBlocked(null)
+    } catch (err) {
+      const counts = replaceBlockedFrom(err)
+      if (!counts) throw err
+      setBlocked({ integrationId, values, counts })
+    }
+  }
 
   /**
    * Save an edit. The company and its integration are separate resources with
@@ -958,7 +1011,15 @@ export function CompaniesPanel({
       ),
     )
 
-    if (integration) {
+    if (integration && values.erp_type && values.erp_type !== integration.erp_type) {
+      // The system itself changed, so this is a replacement, not an edit — the
+      // API refuses `erp_type` on a PATCH, and the two are different actions.
+      await replaceIntegration(integration.id, {
+        erp_type: values.erp_type,
+        label: values.label,
+        credentials,
+      })
+    } else if (integration) {
       const integrationChanges: IntegrationChanges = {}
       if ((integration.label ?? '') !== values.label)
         integrationChanges.label = values.label
@@ -1271,6 +1332,41 @@ export function CompaniesPanel({
                 Review them
               </Button>
             ) : null}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={blocked !== null}
+        onOpenChange={(open) => !open && setBlocked(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Switch ERP anyway?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The current connection has posted {blocked?.counts.entries} entries
+              across {blocked?.counts.invoices} invoices
+              {blocked?.counts.earliest && blocked?.counts.latest
+                ? `, from ${blocked.counts.earliest} to ${blocked.counts.latest}`
+                : ''}
+              . None of it is deleted — but the new system will deliver those
+              periods again as separate rows, so spend covering them will be
+              counted twice in reports.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="ghost" onClick={() => setBlocked(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() =>
+                blocked &&
+                void replaceIntegration(blocked.integrationId, blocked.values, true)
+              }
+            >
+              Switch anyway
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

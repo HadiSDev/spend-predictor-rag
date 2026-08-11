@@ -844,3 +844,134 @@ describe('CompaniesPanel — recompute', () => {
     ).toBeNull()
   })
 })
+
+describe('CompaniesPanel — switching ERPs', () => {
+  it('replaces the integration instead of patching it when the system changed', async () => {
+    const onReplaceIntegration = vi.fn().mockResolvedValue({ id: 'new-1' })
+    const onUpdateIntegration = vi.fn()
+    renderPanel({
+      erpTypes: [DEBUG_ERP, BILLY],
+      onReplaceIntegration,
+      onUpdateIntegration,
+    })
+
+    await clickRowAction('Acme A/S', 'Edit')
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('erp-type-billy'))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Access token')).toBeTruthy(),
+    )
+    fireEvent.change(screen.getByLabelText('Access token'), {
+      target: { value: 'tok_live' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() =>
+      expect(onReplaceIntegration).toHaveBeenCalledWith('i1', {
+        erp_type: 'billy',
+        label: 'Main',
+        credentials: { access_token: 'tok_live' },
+      }),
+    )
+    expect(onUpdateIntegration).not.toHaveBeenCalled()
+  })
+
+  it('confirms a replacement the API says would double spend', async () => {
+    const blocked = Object.assign(new Error('conflict'), {
+      status: 409,
+      body: {
+        detail: {
+          detail: 'This ERP has already posted to the ledger.',
+          invoices: 25,
+          entries: 989,
+          earliest: '2026-01-05',
+          latest: '2026-03-20',
+        },
+      },
+    })
+    const onReplaceIntegration = vi
+      .fn()
+      .mockRejectedValueOnce(blocked)
+      .mockResolvedValueOnce({ id: 'new-1' })
+    renderPanel({ erpTypes: [DEBUG_ERP, BILLY], onReplaceIntegration })
+
+    await clickRowAction('Acme A/S', 'Edit')
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('erp-type-billy'))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Access token')).toBeTruthy(),
+    )
+    fireEvent.change(screen.getByLabelText('Access token'), {
+      target: { value: 'tok_live' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(await screen.findByText(/989/)).toBeTruthy()
+    expect(screen.getByText(/25 invoices/i)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /switch anyway/i }))
+
+    await waitFor(() =>
+      expect(onReplaceIntegration).toHaveBeenLastCalledWith(
+        'i1',
+        expect.objectContaining({ confirm: true }),
+      ),
+    )
+  })
+
+  it('still patches when the selected connector is the one already connected', async () => {
+    const onReplaceIntegration = vi.fn()
+    const props = renderPanel({
+      erpTypes: [DEBUG_ERP, BILLY],
+      onReplaceIntegration,
+    })
+
+    await clickRowAction('Acme A/S', 'Edit')
+    await waitFor(() =>
+      expect(screen.getByLabelText('Connection label (optional)')).toBeTruthy(),
+    )
+
+    fireEvent.change(screen.getByLabelText('Connection label (optional)'), {
+      target: { value: 'Production' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() =>
+      expect(props.onUpdateIntegration).toHaveBeenCalledWith('i1', {
+        label: 'Production',
+      }),
+    )
+    expect(onReplaceIntegration).not.toHaveBeenCalled()
+  })
+
+  it('reports a non-409 replacement failure instead of opening the confirm dialog', async () => {
+    const onReplaceIntegration = vi
+      .fn()
+      .mockRejectedValue(new Error('Invalid credentials'))
+    renderPanel({ erpTypes: [DEBUG_ERP, BILLY], onReplaceIntegration })
+
+    await clickRowAction('Acme A/S', 'Edit')
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('erp-type-billy'))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Access token')).toBeTruthy(),
+    )
+    fireEvent.change(screen.getByLabelText('Access token'), {
+      target: { value: 'tok_live' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    // Reported as a form failure — never as the counts dialog, since there
+    // are no counts to show.
+    await waitFor(() =>
+      expect(screen.getAllByText('Invalid credentials').length).toBeGreaterThan(
+        0,
+      ),
+    )
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(screen.queryByText('Company updated')).toBeNull()
+  })
+})

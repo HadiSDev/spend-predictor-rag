@@ -145,7 +145,10 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   is a `422`), `POST /invoices/{id}/lines` (add one), `DELETE /invoice-lines/{id}`,
   `PATCH /organization`. **ERP integrations** — `POST /erp-integrations` (with
   credentials), `PATCH /erp-integrations/{id}`, `POST /erp-integrations/{id}/`
-  `disconnect|reconnect|test-connection|refresh-accounts`, `PATCH /erp-accounts/{id}`
+  `disconnect|reconnect|test-connection|refresh-accounts|replace` (management-gated;
+  `replace` moves the company to a different ERP — `PATCH` cannot change
+  `erp_type` — and `409`s with the counts a switch would double until
+  `confirm: true`), `PATCH /erp-accounts/{id}`
   (toggle `sync_enabled`/`with_vat`). **`sync_enabled` and `with_vat` are
   customer settings, not ERP metadata**: the ERP's value seeds a newly
   discovered account, and from then on neither `refresh-accounts` nor the sync
