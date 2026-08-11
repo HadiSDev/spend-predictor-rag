@@ -75,12 +75,42 @@ deleted. This is the same rule as integration disconnect and company
 deactivation — financial history is retained and filtered, never destroyed.
 
 That is right, and it creates a hazard that has to be stated where it is caused.
-Invoices are keyed by connector-specific ERP ids, and nothing deduplicates across
-integrations. **The new ERP re-delivering a period the old one already covered
-produces a second set of rows, and both count.** For any overlapping period the
-company's spend is doubled. `sync_enabled` does not help: it gates the sync fetch
-and the two entry listings, and `reporting.py` is deliberately untouched by it,
-so the doubled figures would reach every report.
+The three tables involved key differently, and the asymmetry matters: `Invoice`
+keys on `(company_id, erp_id)` (`_persist_invoices`), so a genuinely *different*
+ERP re-syncing the same paper trail collides and updates the existing invoice
+rather than duplicating it. `ErpEntry` and `ErpAccount` key on **integration**
+(`_det_id("entry", integration_id, ...)`, `UniqueConstraint(erp_integration_id,
+erp_account_code)`), which is exactly right when the new integration is a
+genuinely different system — its entries could never collide with the old
+system's, because nothing about the two ERPs' own ids is shared. **The two keying
+schemes disagree on one case: a duplicate integration against the *same* ERP.**
+There, the invoice-level key still collides and dedupes correctly, but every
+entry and account is created fresh under the new `integration_id` and cannot
+collide with what the retired integration already posted — silently doubling
+the entry ledger while leaving invoices untouched. That is precisely the shape
+of the double-click hazard below: not two different ERPs, but the same one
+provisioned twice. **For any overlapping period between two integrations against
+the same ERP, entry-level spend is doubled** even though the invoices are not.
+`sync_enabled` does not help: it gates the sync fetch and the two entry
+listings, and `reporting.py` is deliberately untouched by it, so the doubled
+figures would reach every report.
+
+**The confirm step has to be un-repeatable, or it recreates the exact hazard it
+exists to warn about.** `replace` is idempotent in neither direction: a second
+call against an already-retired integration does not error, it re-stamps
+`disconnected_at` (a no-op) and calls `provision_integration` again — a *second*
+live integration for the company, with nothing anywhere forbidding two connected
+integrations on one company. `run_sync()` syncs every integration with
+`disconnected_at IS NULL`, so a double-submitted confirm — a genuine
+double-click, or a retried request racing its own first attempt — produces
+exactly the same doubled ledger this section just finished warning about,
+except self-inflicted by the confirmation dialog itself rather than by a second
+ERP re-delivering history. Two guards close it: the endpoint refuses a `replace`
+whose addressed integration is already `disconnected_at`-stamped (422,
+deterministic, closes it server-side regardless of what the client does), and
+the confirm dialog's "Switch anyway" button carries a busy state — disabled,
+relabelled "Switching…" — for the duration of its own request, matching the
+sibling deactivate dialog's shape.
 
 So `replace` reports the cost before paying it, following the pattern already
 used for `DELETE /spend-trees/{id}` and for spend-tree reassignment's
@@ -151,6 +181,12 @@ two writes are independent and neither is worth entangling for this.
   when it has none; success with `confirm=true` in both cases.
 - `erp_type` equal to the current one is 422, not a silent no-op.
 - An integration in another organization is 404; a `member`/`viewer` role is 403.
+- A second `replace` against an already-`disconnected_at`-stamped integration is
+  422, and provisions no second integration — the server-side half of the
+  double-submit guard above.
+- Credential validation is 422 before the 409 history check fires: an invalid
+  replace against an integration *with* ledger history must never make the
+  caller confirm a consequence for a request that could not have succeeded.
 
 **Frontend** (`companies-panel.test.tsx`):
 

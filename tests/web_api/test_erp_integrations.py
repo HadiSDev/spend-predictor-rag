@@ -556,7 +556,6 @@ def seed_switchable_ledger(client, engine):
 
     with Session(engine) as session:
         account = ErpAccount(
-            company_id=company["id"],
             erp_integration_id=integration_id,
             erp_account_code="6000",
             erp_account_name="Consulting",
@@ -658,6 +657,80 @@ def test_replace_needs_no_confirmation_when_nothing_was_synced(client):
         json={"erp_type": "billy", "credentials": {"access_token": "t"}},
     )
     assert response.status_code == 201, response.text
+
+
+def test_replace_on_an_already_retired_integration_is_422(client):
+    """The frontend guards a double-click, but the API is the backstop.
+
+    Two POSTs to `replace` for the same integration — a resubmitted confirm,
+    a double-click that beat the disabled state, a retried request — must not
+    both succeed. `get_managed_integration` does not reject an already-
+    disconnected row, so without this check a second call would re-stamp
+    `disconnected_at` on the already-retired integration and provision a
+    *second* live one for the company. Nothing then forbids two connected
+    integrations on one company, and `run_sync()` syncs every integration
+    with `disconnected_at IS NULL` — so the sync runner would treat the ERP
+    as two independent sources and double every entry it posts, permanently,
+    with no way to tell the copies apart (entries are keyed by
+    ``(integration_id, erp_entry_id)``, so the duplicate never collides).
+    """
+    company = client.post(
+        "/api/v1/companies",
+        headers=auth("tokA"),
+        json={
+            "name": "Doubled",
+            "base_currency": "DKK",
+            "integration": {"erp_type": "mock", "credentials": {}},
+        },
+    ).json()
+    old_id = company["integration"]["id"]
+
+    first = client.post(
+        f"/api/v1/erp-integrations/{old_id}/replace",
+        headers=auth("tokA"),
+        json={"erp_type": "billy", "credentials": {"access_token": "t"}},
+    )
+    assert first.status_code == 201, first.text
+
+    second = client.post(
+        f"/api/v1/erp-integrations/{old_id}/replace",
+        headers=auth("tokA"),
+        json={"erp_type": "billy", "credentials": {"access_token": "t2"}},
+    )
+    assert second.status_code == 422
+    assert "retired" in second.json()["detail"].lower()
+
+    # Exactly one live integration for the company: the second attempt must
+    # not have provisioned another one alongside the first's.
+    listed = client.get("/api/v1/erp-integrations", headers=auth("tokA")).json()
+    live = [i for i in listed if i["company_id"] == company["id"]]
+    assert len(live) == 1
+    assert live[0]["id"] == first.json()["id"]
+
+
+def test_replace_validates_credentials_before_reporting_the_ledger_count(
+    client, seed_switchable_ledger
+):
+    """Credential validation must run before the 409 history check.
+
+    Otherwise a request that could never succeed — a missing required field,
+    a typo'd key — makes the user confirm a destructive-sounding consequence
+    (409 with alarming counts) only to then hit a 422 on retry. The 422 here
+    must come first, and it must leave the outgoing integration untouched,
+    exactly like any other rejected replacement.
+    """
+    old_id, _ = seed_switchable_ledger
+
+    response = client.post(
+        f"/api/v1/erp-integrations/{old_id}/replace",
+        headers=auth("tokA"),
+        json={"erp_type": "billy", "credentials": {}},  # access_token is required
+    )
+    assert response.status_code == 422
+    assert "access_token" in response.json()["detail"]
+
+    old = client.get(f"/api/v1/erp-integrations/{old_id}", headers=auth("tokA")).json()
+    assert old["disconnected_at"] is None, "an invalid replace must change nothing"
 
 
 def test_replace_on_another_orgs_integration_is_404(client, seed):

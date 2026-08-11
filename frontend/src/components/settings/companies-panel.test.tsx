@@ -494,6 +494,23 @@ describe('CompaniesPanel', () => {
     expect(chosen.checked).toBe(true)
   })
 
+  it('names the connected system when it is missing from the catalog', async () => {
+    // The connected integration is `mock` (see INTEGRATION), but the catalog
+    // here only offers `billy` — a deregistered connector, or an empty
+    // `/erp-types` response. The grid then has nothing to check, which reads
+    // as "no ERP connected" and invites a pick that is actually a switch —
+    // so the connected system must still be named somewhere in the dialog.
+    renderPanel({ erpTypes: [BILLY] })
+
+    await clickRowAction('Acme A/S', 'Edit')
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    const grid = screen.getByRole('radiogroup', { name: 'ERP system' })
+    const radios = within(grid).getAllByRole('radio') as HTMLInputElement[]
+    expect(radios.some((radio) => radio.checked)).toBe(false)
+    expect(screen.getByText(/mock/)).toBeTruthy()
+  })
+
   it('reveals the new connector fields when a different system is picked', async () => {
     renderPanel({ erpTypes: [DEBUG_ERP, BILLY] })
 
@@ -1027,5 +1044,105 @@ describe('CompaniesPanel — switching ERPs', () => {
     )
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(screen.queryByText('Company updated')).toBeNull()
+  })
+
+  it('disables the confirm dialog while a switch is in flight, so a double-click cannot double the ledger', async () => {
+    const blocked = Object.assign(new Error('conflict'), {
+      status: 409,
+      body: {
+        detail: {
+          detail: 'This ERP has already posted to the ledger.',
+          invoices: 25,
+          entries: 989,
+          earliest: '2026-01-05',
+          latest: '2026-03-20',
+        },
+      },
+    })
+    // The confirm call never resolves on its own — this test drives it by
+    // hand, so it can inspect the dialog while the request is still in flight.
+    let resolveConfirm: (value: unknown) => void = () => {}
+    const confirmPromise = new Promise((resolve) => {
+      resolveConfirm = resolve
+    })
+    const onReplaceIntegration = vi
+      .fn()
+      .mockRejectedValueOnce(blocked)
+      .mockReturnValueOnce(confirmPromise)
+    renderPanel({ erpTypes: [DEBUG_ERP, BILLY], onReplaceIntegration })
+
+    await clickRowAction('Acme A/S', 'Edit')
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('erp-type-billy'))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Access token')).toBeTruthy(),
+    )
+    fireEvent.change(screen.getByLabelText('Access token'), {
+      target: { value: 'tok_live' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByText(/989/)).toBeTruthy()
+
+    const cancelButton = screen.getByRole('button', { name: 'Cancel' })
+    fireEvent.click(screen.getByRole('button', { name: /switch anyway/i }))
+
+    // Busy: both footer buttons disabled and the action button's own label
+    // says so — the same shape as the sibling deactivate dialog.
+    const switchingButton = await screen.findByRole('button', {
+      name: /switching/i,
+    })
+    expect((switchingButton as HTMLButtonElement).disabled).toBe(true)
+    expect((cancelButton as HTMLButtonElement).disabled).toBe(true)
+    expect(onReplaceIntegration).toHaveBeenCalledTimes(2)
+
+    // A disabled button does not dispatch a click in the DOM, exactly like a
+    // real double-click landing on the same disabled control — this is what
+    // stops a second request firing while the first is still in flight.
+    fireEvent.click(switchingButton)
+    expect(onReplaceIntegration).toHaveBeenCalledTimes(2)
+
+    resolveConfirm({ id: 'new-1' })
+    await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull())
+  })
+
+  it('toasts success after a confirmed switch, since the dialog closing alone is a weak signal', async () => {
+    const blocked = Object.assign(new Error('conflict'), {
+      status: 409,
+      body: {
+        detail: {
+          detail: 'This ERP has already posted to the ledger.',
+          invoices: 25,
+          entries: 989,
+          earliest: '2026-01-05',
+          latest: '2026-03-20',
+        },
+      },
+    })
+    const onReplaceIntegration = vi
+      .fn()
+      .mockRejectedValueOnce(blocked)
+      .mockResolvedValueOnce({ id: 'new-1' })
+    renderPanel({ erpTypes: [DEBUG_ERP, BILLY], onReplaceIntegration })
+
+    await clickRowAction('Acme A/S', 'Edit')
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('erp-type-billy'))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Access token')).toBeTruthy(),
+    )
+    fireEvent.change(screen.getByLabelText('Access token'), {
+      target: { value: 'tok_live' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByText(/989/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /switch anyway/i }))
+
+    await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull())
+    // The user who took the riskier, confirmed action gets at least as much
+    // feedback as the unconfirmed success path already gets ('Company updated').
+    expect(await screen.findByText(/switch/i)).toBeTruthy()
   })
 })

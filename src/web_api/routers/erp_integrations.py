@@ -244,6 +244,26 @@ def replace_integration(
     """
     outgoing = get_managed_integration(session, scope, integration_id)
 
+    if outgoing.disconnected_at is not None:
+        # `get_managed_integration` does not reject an already-disconnected
+        # row — it only enforces tenant scope — so without this a second POST
+        # (a double-click that beat the frontend's disabled state, a retried
+        # request) would re-stamp `disconnected_at` on the already-retired
+        # integration and provision a *second* live one for the company.
+        # Nothing else forbids two connected integrations on one company, and
+        # `run_sync()` syncs every integration with `disconnected_at IS NULL`
+        # — so the sync runner would then treat the ERP as two independent
+        # sources and double every entry it posts, permanently: entries are
+        # keyed by `(integration_id, erp_entry_id)`, so the duplicate set
+        # never collides with the first.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This integration is already retired. Use "
+                "POST /erp-integrations to connect a new one."
+            ),
+        )
+
     if body.erp_type == outgoing.erp_type:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -254,6 +274,15 @@ def replace_integration(
                 "restart its sync from scratch."
             ),
         )
+
+    # Validated before the history check below: a request that could never
+    # succeed (a missing required field, a typo'd key) must not first make the
+    # user confirm a destructive-sounding consequence — 409 with alarming
+    # counts — only to hit a 422 on retry. `provision_integration` validates
+    # again further down; that repeat is harmless, and keeping it there means
+    # this endpoint's validation can never drift from the other two paths that
+    # provision an integration.
+    validate_credentials(body.erp_type, body.credentials)
 
     if not body.confirm:
         history = _integration_history(session, outgoing)

@@ -50,6 +50,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  useToast,
 } from '#/components/ui'
 import type {
   CompanyRead,
@@ -507,6 +508,16 @@ function ErpConnectionFields({
     : mode === 'edit' && !switching && !replacing
       ? []
       : active.credential_fields
+  // The catalog can lack the connected system — a connector deregistered, or
+  // `GET /erp-types` came back empty — in which case the grid has nothing to
+  // check. That reads as "no ERP connected", which invites a pick that would
+  // actually be a switch, so name what is actually connected wherever the
+  // grid cannot.
+  const connectedNotOffered =
+    mode === 'edit' &&
+    !!integration &&
+    !switching &&
+    !erpTypes.some((type) => type.erp_type === integration.erp_type)
 
   return (
     <div className="flex flex-col gap-4 border-t border-border pt-4">
@@ -585,6 +596,16 @@ function ErpConnectionFields({
                 </div>
               )}
             </>
+          ) : null}
+
+          {connectedNotOffered ? (
+            <p className="text-sm text-muted-foreground">
+              Currently connected to{' '}
+              <span className="font-medium text-foreground">
+                {integration!.erp_type}
+              </span>
+              , which is not in the list below.
+            </p>
           ) : null}
 
           <FormField
@@ -955,6 +976,14 @@ export function CompaniesPanel({
   // dialog, neither of which is open while this one is, but conflating them
   // would make each dialog's error read as if it might belong to the other.
   const [switchError, setSwitchError] = React.useState<string | null>(null)
+  // Guards `confirmSwitch` against a double-click (or a retry fired while the
+  // first request is still in flight): a second `replace` on the same
+  // integration would re-stamp `disconnected_at` and provision a *second*
+  // live integration, which the sync runner would then treat as two sources
+  // and double every entry it posts. The disabled buttons below are the
+  // user-facing half of that guard.
+  const [switchBusy, setSwitchBusy] = React.useState(false)
+  const toast = useToast()
 
   const confirmingCompany = companies.find(
     (company) => company.id === confirming,
@@ -991,7 +1020,8 @@ export function CompaniesPanel({
    * on this dialog rather than becoming a dropped, unhandled rejection.
    */
   async function confirmSwitch() {
-    if (!blocked) return
+    if (!blocked || switchBusy) return
+    setSwitchBusy(true)
     try {
       await onReplaceIntegration?.(blocked.integrationId, {
         ...blocked.values,
@@ -999,12 +1029,19 @@ export function CompaniesPanel({
       })
       setBlocked(null)
       setSwitchError(null)
+      // This action is the one that just retired an ERP connection, and
+      // `setDialogOpen(false)` alone is a weak success signal for that — so
+      // it gets its own toast rather than relying on `useSettingsSubmit`'s,
+      // which this path bypasses entirely (see the function doc above).
+      toast.add({ title: 'ERP switched' })
       // The switch has now actually happened — unlike the initial attempt,
       // there is nothing left pending, so this completes the edit the same
       // way any other successful save would.
       setDialogOpen(false)
     } catch (err) {
       setSwitchError(serverErrorMessage(err))
+    } finally {
+      setSwitchBusy(false)
     }
   }
 
@@ -1409,11 +1446,16 @@ export function CompaniesPanel({
                 setBlocked(null)
                 setSwitchError(null)
               }}
+              disabled={switchBusy}
             >
               Cancel
             </Button>
-            <Button variant="destructive" onClick={() => void confirmSwitch()}>
-              Switch anyway
+            <Button
+              variant="destructive"
+              onClick={() => void confirmSwitch()}
+              disabled={switchBusy}
+            >
+              {switchBusy ? 'Switching…' : 'Switch anyway'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
