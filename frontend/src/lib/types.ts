@@ -121,6 +121,26 @@ export interface ErpIntegrationUpdate {
   credentials?: Record<string, string>
 }
 
+/** Body of `POST /erp-integrations/{id}/replace`. Moves the company to a
+ *  different ERP: the old integration is soft-disconnected, not deleted. */
+export interface ErpIntegrationReplace {
+  erp_type: string
+  label?: string | null
+  credentials: Record<string, string>
+  /** Acknowledges that the old ERP's rows stay and the new one will re-deliver
+   *  overlapping periods, so those periods are counted twice. */
+  confirm?: boolean
+}
+
+/** The 409 body when a replacement would double already-posted spend. */
+export interface ReplaceBlocked {
+  detail: string
+  invoices: number
+  entries: number
+  earliest: string | null
+  latest: string | null
+}
+
 /** `PATCH /companies/{id}` — partial update; omitted fields are left alone. */
 export interface CompanyUpdate {
   name?: string

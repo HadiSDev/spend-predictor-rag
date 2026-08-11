@@ -4,6 +4,7 @@ import type { ApiClient } from './api-client'
 import type {
   ErpIntegrationCreate,
   ErpIntegrationRead,
+  ErpIntegrationReplace,
   ErpIntegrationUpdate,
 } from './types'
 
@@ -50,6 +51,28 @@ export function updateIntegrationMutation(
   return {
     mutationFn: ({ id, body }) =>
       api.patch<ErpIntegrationRead>(`/api/v1/erp-integrations/${id}`, body),
+    onSuccess: () => invalidateIntegrations(queryClient),
+  }
+}
+
+/**
+ * Move a company to a different ERP (`POST /erp-integrations/{id}/replace`).
+ *
+ * Not a variant of the update mutation: `PATCH` cannot change `erp_type`, and
+ * this retires an integration. Without `confirm`, the API 409s with the counts
+ * the switch would double — see `ReplaceBlocked`.
+ */
+export function replaceIntegrationMutation(
+  api: ApiClient,
+  queryClient: QueryClient,
+): UseMutationOptions<
+  ErpIntegrationRead,
+  Error,
+  { id: string; body: ErpIntegrationReplace }
+> {
+  return {
+    mutationFn: ({ id, body }) =>
+      api.post<ErpIntegrationRead>(`/api/v1/erp-integrations/${id}/replace`, body),
     onSuccess: () => invalidateIntegrations(queryClient),
   }
 }
