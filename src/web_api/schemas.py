@@ -69,6 +69,21 @@ class IntegrationReplace(IntegrationSpec):
     confirm: bool = False
 
 
+class IntegrationReplaceBlocked(BaseModel):
+    """Why a replacement needs confirming: what the outgoing ERP already posted.
+
+    Nothing here is deleted by the switch. The hazard is the opposite — the rows
+    stay, the new ERP re-delivers the same periods as separate rows, and no
+    report can tell the two apart.
+    """
+
+    detail: str
+    invoices: int
+    entries: int
+    earliest: date | None = None
+    latest: date | None = None
+
+
 class CompanyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

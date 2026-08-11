@@ -9,9 +9,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func
 from sqlmodel import Session, select
 
-from web_api.db.models import ErpAccount, ErpCredential, ErpIntegration, User
+from web_api.db.models import ErpAccount, ErpCredential, ErpEntry, ErpIntegration, User
 from ..connectors import connector_catalog, get_connector
 from ..credentials import decrypt_config, encrypt_config
 from ..deps import (
@@ -38,6 +39,7 @@ from ..schemas import (
     ErpIntegrationUpdate,
     ErpTypeRead,
     IntegrationReplace,
+    IntegrationReplaceBlocked,
     RefreshAccountsResult,
 )
 
@@ -191,6 +193,35 @@ def reconnect_integration(
     return _read(integration)
 
 
+def _integration_history(session: Session, integration: ErpIntegration) -> dict:
+    """What this integration has posted: entry count, invoice count, date span.
+
+    Reached through `ErpAccount`, because `ErpEntry` carries no integration of
+    its own and `Invoice` carries none at all. Invoices are the distinct
+    `source_invoice_id` among those entries, so an invoice with no posting on
+    this integration's accounts is not counted — under-reporting, which is the
+    safe direction here.
+    """
+    account_ids = select(ErpAccount.id).where(
+        ErpAccount.erp_integration_id == integration.id
+    )
+    row = session.exec(
+        select(
+            func.count(ErpEntry.id),
+            func.count(func.distinct(ErpEntry.source_invoice_id)),
+            func.min(ErpEntry.accounting_date),
+            func.max(ErpEntry.accounting_date),
+        ).where(ErpEntry.erp_account_id.in_(account_ids))
+    ).one()
+    entries, invoices, earliest, latest = row
+    return {
+        "entries": entries or 0,
+        "invoices": invoices or 0,
+        "earliest": earliest,
+        "latest": latest,
+    }
+
+
 @router.post(
     "/erp-integrations/{integration_id}/replace",
     response_model=ErpIntegrationRead,
@@ -223,6 +254,22 @@ def replace_integration(
                 "restart its sync from scratch."
             ),
         )
+
+    if not body.confirm:
+        history = _integration_history(session, outgoing)
+        if history["entries"] or history["invoices"]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=IntegrationReplaceBlocked(
+                    detail=(
+                        "This ERP has already posted to the ledger. Its data is "
+                        "kept, and the new ERP will deliver overlapping periods "
+                        "again as separate rows, so spend for those periods will "
+                        "be counted twice. Send confirm=true to proceed."
+                    ),
+                    **history,
+                ).model_dump(mode="json"),
+            )
 
     try:
         outgoing.disconnected_at = _now()

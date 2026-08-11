@@ -530,6 +530,136 @@ def test_replace_requires_a_management_role(client):
     assert response.status_code == 403
 
 
+@pytest.fixture
+def seed_switchable_ledger(client, engine):
+    """A company + integration with ledger history, and the counts to expect.
+
+    Written through the ORM rather than the API because no endpoint creates
+    entries — the sync runner does, and `web_api` cannot import it.
+    """
+    import datetime as dt
+
+    from sqlmodel import Session
+
+    from web_api.db.models import ErpAccount, ErpEntry, Invoice
+
+    company = client.post(
+        "/api/v1/companies",
+        headers=auth("tokA"),
+        json={
+            "name": "Historied",
+            "base_currency": "DKK",
+            "integration": {"erp_type": "mock", "credentials": {}},
+        },
+    ).json()
+    integration_id = company["integration"]["id"]
+
+    with Session(engine) as session:
+        account = ErpAccount(
+            company_id=company["id"],
+            erp_integration_id=integration_id,
+            erp_account_code="6000",
+            erp_account_name="Consulting",
+        )
+        session.add(account)
+        invoices = []
+        for n in (1, 2):
+            invoice = Invoice(company_id=company["id"], status="uncategorized", source="erp")
+            invoices.append(invoice)
+            session.add(invoice)
+        session.add_all(
+            [
+                ErpEntry(
+                    company_id=company["id"],
+                    erp_account_id=account.id,
+                    source_invoice_id=invoices[0].id,
+                    entry_type="purchase_invoice",
+                    accounting_date=dt.date(2026, 1, 5),
+                ),
+                ErpEntry(
+                    company_id=company["id"],
+                    erp_account_id=account.id,
+                    source_invoice_id=invoices[1].id,
+                    entry_type="purchase_invoice",
+                    accounting_date=dt.date(2026, 3, 20),
+                ),
+                # No source invoice: counts as an entry, not as an invoice.
+                ErpEntry(
+                    company_id=company["id"],
+                    erp_account_id=account.id,
+                    source_invoice_id=None,
+                    entry_type="journal_entry",
+                    accounting_date=dt.date(2026, 2, 1),
+                ),
+            ]
+        )
+        session.commit()
+
+    return integration_id, {"entries": 3, "invoices": 2}
+
+
+def test_replace_409s_with_counts_when_the_old_integration_has_ledger_data(
+    client, engine, seed_switchable_ledger
+):
+    """The cost is reported at the moment it is caused, not found in a report later."""
+    old_id, expected = seed_switchable_ledger
+
+    response = client.post(
+        f"/api/v1/erp-integrations/{old_id}/replace",
+        headers=auth("tokA"),
+        json={"erp_type": "billy", "credentials": {"access_token": "t"}},
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["entries"] == expected["entries"]
+    assert detail["invoices"] == expected["invoices"]
+    assert detail["earliest"] == "2026-01-05"
+    assert detail["latest"] == "2026-03-20"
+
+    old = client.get(f"/api/v1/erp-integrations/{old_id}", headers=auth("tokA")).json()
+    assert old["disconnected_at"] is None, "a blocked switch must change nothing"
+
+
+def test_replace_proceeds_with_confirm_true(client, seed_switchable_ledger):
+    """Confirming is the acknowledgement; nothing is deleted by it."""
+    old_id, _ = seed_switchable_ledger
+
+    response = client.post(
+        f"/api/v1/erp-integrations/{old_id}/replace",
+        headers=auth("tokA"),
+        json={
+            "erp_type": "billy",
+            "credentials": {"access_token": "t"},
+            "confirm": True,
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    old = client.get(f"/api/v1/erp-integrations/{old_id}", headers=auth("tokA")).json()
+    assert old["disconnected_at"] is not None
+
+
+def test_replace_needs_no_confirmation_when_nothing_was_synced(client):
+    """A never-synced integration has no history to double, so do not nag."""
+    company = client.post(
+        "/api/v1/companies",
+        headers=auth("tokA"),
+        json={
+            "name": "Fresh",
+            "base_currency": "DKK",
+            "integration": {"erp_type": "mock", "credentials": {}},
+        },
+    ).json()
+
+    response = client.post(
+        f"/api/v1/erp-integrations/{company['integration']['id']}/replace",
+        headers=auth("tokA"),
+        json={"erp_type": "billy", "credentials": {"access_token": "t"}},
+    )
+    assert response.status_code == 201, response.text
+
+
 def test_replace_on_another_orgs_integration_is_404(client, seed):
     """Tenant scope comes from get_managed_integration; assert it is applied.
 

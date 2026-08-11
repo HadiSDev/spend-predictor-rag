@@ -161,7 +161,18 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   undeclared keys are rejected. An integration's `erp_type` is **fixed once
   connected** (`PATCH` takes label + credentials only), and credentials are
   write-only: the API returns no values, and supplying `credentials` replaces
-  the whole map, so a client can only replace them wholesale, never edit one. Integration credentials are stored encrypted
+  the whole map, so a client can only replace them wholesale, never edit one.
+  Moving a company to a different ERP is `POST /erp-integrations/{id}/replace`,
+  which soft-disconnects the old integration and provisions the new one in **one
+  transaction** — composed client-side, a failure between disconnect and create
+  would leave the company connected to nothing. The old integration's accounts,
+  entries and invoices are kept, which is why the endpoint **409s with the
+  counts it would double** (entries, invoices, and the date span, joined through
+  `ErpAccount` since neither `ErpEntry` nor `Invoice` names an integration)
+  until `confirm=true`: the new ERP re-delivers overlapping periods as separate
+  rows and no report can tell them apart. The same `erp_type` is a `422`
+  pointing at `PATCH` — replacing would only retire the integration and restart
+  its sync from scratch. Integration credentials are stored encrypted
   (`WEB_API_CREDENTIAL_ENC_KEY`, Fernet) and never returned; no credential row is
   written when none are supplied, so a connector whose fields all have defaults
   needs no encryption key. Integrations are soft-disconnected. Companies are
