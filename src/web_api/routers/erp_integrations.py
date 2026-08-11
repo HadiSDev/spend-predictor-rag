@@ -37,6 +37,7 @@ from ..schemas import (
     ErpIntegrationRead,
     ErpIntegrationUpdate,
     ErpTypeRead,
+    IntegrationReplace,
     RefreshAccountsResult,
 )
 
@@ -188,6 +189,60 @@ def reconnect_integration(
     session.commit()
     session.refresh(integration)
     return _read(integration)
+
+
+@router.post(
+    "/erp-integrations/{integration_id}/replace",
+    response_model=ErpIntegrationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def replace_integration(
+    integration_id: str,
+    body: IntegrationReplace,
+    scope: TenantScope = Depends(require_management),
+    session: Session = Depends(get_session),
+) -> ErpIntegrationRead:
+    """Move a company to a different ERP: retire the old, connect the new, once.
+
+    One transaction on purpose. Composed client-side as disconnect-then-create,
+    a failure between the two calls would leave the company connected to
+    nothing — the state `POST /companies` was built to make impossible.
+
+    The outgoing integration keeps every account, entry and invoice it produced;
+    it is soft-disconnected, exactly as `/disconnect` leaves it.
+    """
+    outgoing = get_managed_integration(session, scope, integration_id)
+
+    if body.erp_type == outgoing.erp_type:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"This company is already connected to {outgoing.erp_type!r}. "
+                "Use PATCH /erp-integrations/{id} to change its label or "
+                "credentials; replacing would retire the integration and "
+                "restart its sync from scratch."
+            ),
+        )
+
+    try:
+        outgoing.disconnected_at = _now()
+        session.add(outgoing)
+        incoming = provision_integration(
+            session,
+            outgoing.company_id,
+            IntegrationSpec(
+                erp_type=body.erp_type,
+                label=body.label,
+                credentials=body.credentials,
+            ),
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    session.refresh(incoming)
+    return _read(incoming)
 
 
 @router.post("/erp-integrations/{integration_id}/test-connection",

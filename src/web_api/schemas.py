@@ -54,6 +54,21 @@ class IntegrationSpec(BaseModel):
     credentials: dict = Field(default_factory=dict)
 
 
+class IntegrationReplace(IntegrationSpec):
+    """Replace a company's ERP connection with a different system.
+
+    Subclasses `IntegrationSpec` rather than re-declaring its fields so the
+    credential shape cannot drift from the two paths that already create an
+    integration.
+
+    `confirm` acknowledges that the outgoing integration's ledger data stays and
+    the new ERP will re-deliver overlapping periods as separate rows. Required
+    only when there is such data — see the 409 body.
+    """
+
+    confirm: bool = False
+
+
 class CompanyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

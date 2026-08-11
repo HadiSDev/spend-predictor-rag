@@ -420,3 +420,131 @@ def test_erp_types_drive_valid_creation(client, seed):
     assert "not-a-connector" not in types
     assert _create(client, "tokA", seed["comp_a"],
                    erp_type="not-a-connector").status_code == 422
+
+
+# -- Replace -------------------------------------------------------------
+
+def test_replace_disconnects_the_old_and_connects_the_new(client, engine):
+    """A switch is one transaction: the old is retired, the new is live."""
+    company = client.post(
+        "/api/v1/companies",
+        headers=auth("tokA"),
+        json={
+            "name": "Switcher",
+            "base_currency": "DKK",
+            "integration": {"erp_type": "mock", "credentials": {}},
+        },
+    ).json()
+    old_id = company["integration"]["id"]
+
+    response = client.post(
+        f"/api/v1/erp-integrations/{old_id}/replace",
+        headers=auth("tokA"),
+        json={"erp_type": "billy", "label": "Billy main",
+              "credentials": {"access_token": "tok_live"}},
+    )
+
+    assert response.status_code == 201, response.text
+    new = response.json()
+    assert new["id"] != old_id
+    assert new["erp_type"] == "billy"
+    assert new["label"] == "Billy main"
+    assert new["has_credentials"] is True
+    assert new["disconnected_at"] is None
+
+    old = client.get(f"/api/v1/erp-integrations/{old_id}", headers=auth("tokA")).json()
+    assert old["disconnected_at"] is not None, "the outgoing integration must be retired"
+
+
+def test_replacing_with_the_same_erp_type_is_422(client):
+    """Not a switch. PATCH edits label and credentials; this would only churn."""
+    company = client.post(
+        "/api/v1/companies",
+        headers=auth("tokA"),
+        json={
+            "name": "Same",
+            "base_currency": "DKK",
+            "integration": {"erp_type": "mock", "credentials": {}},
+        },
+    ).json()
+    integration_id = company["integration"]["id"]
+
+    response = client.post(
+        f"/api/v1/erp-integrations/{integration_id}/replace",
+        headers=auth("tokA"),
+        json={"erp_type": "mock", "credentials": {}},
+    )
+
+    assert response.status_code == 422
+    assert "PATCH" in response.json()["detail"]
+
+
+def test_a_rejected_replacement_leaves_the_old_integration_connected(client):
+    """Atomicity: a 422 from the new connector must not retire the old one.
+
+    This is the failure the single endpoint exists to prevent — a client-side
+    disconnect-then-create would leave the company connected to nothing.
+    """
+    company = client.post(
+        "/api/v1/companies",
+        headers=auth("tokA"),
+        json={
+            "name": "Rollback",
+            "base_currency": "DKK",
+            "integration": {"erp_type": "mock", "credentials": {}},
+        },
+    ).json()
+    old_id = company["integration"]["id"]
+
+    response = client.post(
+        f"/api/v1/erp-integrations/{old_id}/replace",
+        headers=auth("tokA"),
+        json={"erp_type": "billy", "credentials": {"nonsense_key": "x"}},
+    )
+    assert response.status_code == 422
+
+    old = client.get(f"/api/v1/erp-integrations/{old_id}", headers=auth("tokA")).json()
+    assert old["disconnected_at"] is None, "a rejected switch must change nothing"
+
+    listed = client.get("/api/v1/erp-integrations", headers=auth("tokA")).json()
+    assert [i["id"] for i in listed if i["company_id"] == company["id"]] == [old_id]
+
+
+def test_replace_requires_a_management_role(client):
+    """A viewer must not be able to retire a company's ERP connection."""
+    company = client.post(
+        "/api/v1/companies",
+        headers=auth("tokA"),
+        json={
+            "name": "Gated",
+            "base_currency": "DKK",
+            "integration": {"erp_type": "mock", "credentials": {}},
+        },
+    ).json()
+
+    response = client.post(
+        f"/api/v1/erp-integrations/{company['integration']['id']}/replace",
+        headers=auth("tok_viewerA"),  # a member/viewer principal in the same org
+        json={"erp_type": "billy", "credentials": {"access_token": "t"}},
+    )
+    assert response.status_code == 403
+
+
+def test_replace_on_another_orgs_integration_is_404(client, seed):
+    """Tenant scope comes from get_managed_integration; assert it is applied.
+
+    The caller must pass the management gate first, or a 403 there would mask
+    the scope check (see `test_account_toggle_and_scope` above: a non-manager
+    gets 403 whatever org they're in, never reaching `get_managed_integration`).
+    So this uses a manager whose own permissions are fine — `tokA`, Org A — and
+    an integration provisioned for Org B, exactly as `test_detail_out_of_scope_404`
+    reaches a foreign integration.
+    """
+    iid = _create(client, "tok_sysadmin", seed["comp_b"]).json()["id"]  # Org B
+
+    response = client.post(
+        f"/api/v1/erp-integrations/{iid}/replace",
+        headers=auth("tokA"),  # Org A manager
+        json={"erp_type": "billy", "credentials": {"access_token": "t"}},
+    )
+    assert response.status_code == 404
