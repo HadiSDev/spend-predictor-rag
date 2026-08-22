@@ -134,6 +134,11 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   `PATCH /companies/{id}` (carries `spend_tree_id`; changing it reassigns and
   reports the affected line count), `POST /companies/{id}/deactivate|activate`,
   `POST /companies/{id}/recompute-fx` (rewrite stored base amounts),
+  `POST /companies/{id}/recategorize` (return the company's `ai_failed` lines to
+  `uncategorized` so the next sync's categorizer retries them — it **queues**,
+  it does not categorize: `web_api` cannot import `ai_api`, so the response
+  reports lines queued, never lines categorized; only `ai_failed` is eligible,
+  and origin is deliberately not a filter),
   `POST /invoice-lines/{id}/verify` (accept or correct the categorization),
   `POST /invoices/{id}/reprocess` (queue the attached scan to be read again —
   409 with no document or while `processing`; see Document processing),
@@ -190,7 +195,14 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 - **Line status**: `uncategorized` → `ai_failed` | `ai_categorized` → `verified`.
   The AI sync runner writes the result and sets `ai_categorized`/`ai_failed`; a
   human `POST /invoice-lines/{id}/verify` (management role) sets `verified`,
-  optionally correcting the category. `Invoice.status` is a **rollup** of its
+  optionally correcting the category.
+  **`ai_failed` is not terminal.** `_categorize_pending` processes only
+  `uncategorized` lines, so a failure used to survive every re-sync and backfill
+  — an improved categorizer could never reach the backlog it had already lost.
+  `POST /companies/{id}/recategorize` is the one transition that moves a line
+  *backwards*, audited as `requeued_for_categorization` (actor `system`) and
+  clearing the stale `error_message`. Nothing else may: a sync still never
+  resets a failure on its own. `Invoice.status` is a **rollup** of its
   lines (`uncategorized` → `categorized` → `verified`), recomputed in the same
   transaction as any line change (`web_api/rollup.py`).
 - **Audit** (`web_api/audit.py` + generic `AuditLog` table): every AI

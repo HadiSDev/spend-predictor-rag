@@ -107,6 +107,7 @@ function renderPanel(overrides: Partial<CompaniesPanelProps> = {}) {
       unconverted: 1,
       unchanged: 3,
     }),
+    onRecategorize: vi.fn().mockResolvedValue({ company_id: 'c1', queued: 28 }),
     ...overrides,
   }
   render(
@@ -1144,5 +1145,88 @@ describe('CompaniesPanel — switching ERPs', () => {
     // The user who took the riskier, confirmed action gets at least as much
     // feedback as the unconfirmed success path already gets ('Company updated').
     expect(await screen.findByText(/switch/i)).toBeTruthy()
+  })
+})
+
+describe('CompaniesPanel — recategorize failed lines', () => {
+  it('offers the action to a management user', async () => {
+    renderPanel()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Acme A/S' }))
+
+    expect(
+      await screen.findByRole('menuitem', { name: 'Recategorize failed lines' }),
+    ).toBeTruthy()
+  })
+
+  it('does not offer it without management rights', () => {
+    renderPanel({ canManage: false })
+
+    // The whole row menu is withheld from a read-only user, rather than shown
+    // with a disabled item claiming a permission that will never be granted.
+    expect(
+      screen.queryByRole('button', { name: 'Actions for Acme A/S' }),
+    ).toBeNull()
+  })
+
+  it('does not offer it when the container provides no handler', async () => {
+    renderPanel({ onRecategorize: undefined })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Acme A/S' }))
+    await screen.findByRole('menuitem', { name: 'Edit' })
+
+    expect(
+      screen.queryByRole('menuitem', { name: 'Recategorize failed lines' }),
+    ).toBeNull()
+  })
+
+  it('says the lines are queued, not categorized, before running', async () => {
+    const props = renderPanel()
+
+    await clickRowAction('Acme A/S', 'Recategorize failed lines')
+
+    // The API cannot categorize — it resets the status and the sync picks the
+    // lines up — so a dialog promising a result would be a lie with an hour's
+    // latency on it.
+    expect(
+      await screen.findByText(/categorized on the next sync run/i),
+    ).toBeTruthy()
+    expect(screen.getByText(/nothing is categorized right now/i)).toBeTruthy()
+    expect(props.onRecategorize).not.toHaveBeenCalled()
+  })
+
+  it('reports how many lines were queued', async () => {
+    const props = renderPanel()
+
+    await clickRowAction('Acme A/S', 'Recategorize failed lines')
+    fireEvent.click(await screen.findByRole('button', { name: 'Queue for recategorization' }))
+
+    await waitFor(() => expect(props.onRecategorize).toHaveBeenCalledWith('c1'))
+    expect(await screen.findByText(/28/)).toBeTruthy()
+  })
+
+  it('says plainly when there was nothing to queue', async () => {
+    const props = renderPanel({
+      onRecategorize: vi.fn().mockResolvedValue({ company_id: 'c1', queued: 0 }),
+    })
+
+    await clickRowAction('Acme A/S', 'Recategorize failed lines')
+    fireEvent.click(await screen.findByRole('button', { name: 'Queue for recategorization' }))
+
+    await waitFor(() => expect(props.onRecategorize).toHaveBeenCalled())
+    // Not "0 lines queued", which reads as work done.
+    expect(await screen.findByText(/no failed lines/i)).toBeTruthy()
+  })
+
+  it('does not report success when the request fails', async () => {
+    renderPanel({
+      onRecategorize: vi.fn().mockRejectedValue(new Error('boom')),
+    })
+
+    await clickRowAction('Acme A/S', 'Recategorize failed lines')
+    fireEvent.click(await screen.findByRole('button', { name: 'Queue for recategorization' }))
+
+    expect(await screen.findByText(/boom/i)).toBeTruthy()
+    expect(screen.queryByText(/queued for the categorizer/i)).toBeNull()
   })
 })

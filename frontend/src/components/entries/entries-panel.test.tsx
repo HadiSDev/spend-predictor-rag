@@ -447,6 +447,42 @@ describe('EntriesPanel — voucher rows', () => {
     expect(screen.getByRole('columnheader', { name: 'Amount' })).toBeTruthy()
   })
 
+  it('says where a line stands, which its empty category cannot', async () => {
+    const failed: VoucherGroupRead = {
+      ...VOUCHER,
+      lines: [line({ status: 'ai_failed', level_1: null, level_2: null, level_3: null })],
+    }
+    setup({ result: { items: [failed], page: 1, page_size: 25, total: 1 } })
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
+    await screen.findByText('Figma Organization, 12 seats')
+
+    expect(screen.getByRole('columnheader', { name: 'Status' })).toBeTruthy()
+    const row = screen.getByText('Figma Organization, 12 seats').closest('tr')
+    expect(row?.textContent).toContain('failed')
+  })
+
+  it('distinguishes a failed line from one nobody has categorized yet', async () => {
+    // Both render "—" under Spend category. Only one of them is a problem, and
+    // before the Status column there was nothing on the row that said which.
+    const mixed: VoucherGroupRead = {
+      ...VOUCHER,
+      lines: [
+        line({ id: 'l-failed', description: 'Togbillet', status: 'ai_failed' }),
+        line({ id: 'l-pending', description: 'Kamera', status: 'uncategorized' }),
+      ],
+    }
+    setup({ result: { items: [mixed], page: 1, page_size: 25, total: 1 } })
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
+    await screen.findByText('Togbillet')
+
+    const status = screen.getByRole('columnheader', { name: 'Status' })
+    const index = [...(status.closest('tr')?.children ?? [])].indexOf(status)
+    const cell = (description: string) =>
+      screen.getByText(description).closest('tr')?.children[index]?.textContent
+
+    expect(cell('Togbillet')).not.toBe(cell('Kamera'))
+  })
+
   it('shows a line’s spend category as its full path', async () => {
     const categorized: VoucherGroupRead = {
       ...VOUCHER,

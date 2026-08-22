@@ -18,6 +18,7 @@ import type { VoucherKey } from '#/lib/entries'
 import { formatMoney, toNumber } from '#/lib/format'
 import type { InvoiceLineRead, LineOrigin, VoucherGroupRead, VoucherTab } from '#/lib/types'
 import { ConvertedAmount } from './converted-amount'
+import { LineStatusBadge } from './line-status'
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' })
 
@@ -247,6 +248,10 @@ function LineHeaderRow() {
       <TableHead className="h-8">Unit</TableHead>
       <TableHead className="h-8 text-right">Unit price</TableHead>
       <TableHead className="h-8">Spend category</TableHead>
+      {/* Its own column, because an empty Spend category means "not tried
+          yet", "tried and failed", and "no tree to try against" identically —
+          and only the middle one is a problem worth acting on. */}
+      <TableHead className="h-8">Status</TableHead>
       <TableHead className="h-8 text-right">Amount</TableHead>
     </TableRow>
   )
@@ -285,6 +290,9 @@ function LineRow({ line, onSelect }: { line: InvoiceLineRead; onSelect: () => vo
       </TableCell>
       <TableCell>
         <SpendCategory line={line} />
+      </TableCell>
+      <TableCell>
+        <LineStatusBadge line={line} />
       </TableCell>
       <TableCell className="text-right">
         <ConvertedAmount
@@ -335,12 +343,13 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
           {/* The supplier's own number, which is what a human reconciles
               against — not the ERP's voucher sequence beside it. */}
           <TableHead>Invoice no.</TableHead>
-          {/* Spans two because a line row carries one more column than a
-              voucher row does, and Amount has to stay under Total Spend — a
-              figure that landed one column right of the total it belongs to
-              would be read against the wrong header. Supplier takes the slack
-              because its names are the longest text in the row. */}
-          <TableHead colSpan={2}>Supplier</TableHead>
+          {/* Spans three because a line row carries two more columns than a
+              voucher row does — Spend category and Status — and Amount has to
+              stay under Total Spend: a figure that landed a column right of the
+              total it belongs to would be read against the wrong header.
+              Supplier takes the slack because its names are the longest text in
+              the row. */}
+          <TableHead colSpan={3}>Supplier</TableHead>
           <TableHead>Date</TableHead>
           {/* No Type column. Payments are excluded server-side, so what is left
               is overwhelmingly purchase_invoice — a column that reads the same
@@ -409,7 +418,7 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
                 <TableCell>
                   <InvoiceNumber group={group} />
                 </TableCell>
-                <TableCell colSpan={2}>
+                <TableCell colSpan={3}>
                   {group.vendor_name ?? <span className="text-muted-foreground">—</span>}
                 </TableCell>
                 <TableCell className="whitespace-nowrap">{formatDate(group.accounting_date)}</TableCell>

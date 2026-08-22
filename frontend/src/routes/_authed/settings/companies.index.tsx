@@ -7,6 +7,7 @@ import { canManageCompanies, useApi, usePrincipal } from '#/lib/auth'
 import {
   companiesQueryOptions,
   createCompanyMutation,
+  recategorizeCompanyMutation,
   recomputeCompanyFxMutation,
   setCompanyActiveMutation,
   updateCompanyMutation,
@@ -46,6 +47,7 @@ function CompaniesSection() {
   const connectIntegration = useMutation(connectIntegrationMutation(api, queryClient))
   const setActive = useMutation(setCompanyActiveMutation(api, queryClient))
   const recomputeFx = useMutation(recomputeCompanyFxMutation(api, queryClient))
+  const recategorize = useMutation(recategorizeCompanyMutation(api, queryClient))
 
   if (companies.isError) {
     return (
@@ -148,6 +150,7 @@ function CompaniesSection() {
       }
       onSetActive={(id, active) => setActive.mutateAsync({ id, active })}
       onRecomputeFx={(id) => recomputeFx.mutateAsync({ id })}
+      onRecategorize={(id) => recategorize.mutateAsync({ id })}
       onManageAccounts={(companyId) =>
         navigate({ to: '/settings/companies/$companyId/accounts', params: { companyId } })
       }

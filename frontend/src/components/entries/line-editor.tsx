@@ -1,7 +1,8 @@
 import * as React from 'react'
-import { AlertTriangle, Trash2 } from 'lucide-react'
-import { Badge, Button, Field, FieldControl, FieldLabel, Progress } from '#/components/ui'
+import { Trash2 } from 'lucide-react'
+import { Button, Field, FieldControl, FieldLabel, Progress } from '#/components/ui'
 import { TreeSelector } from '#/components/spend-tree/tree-selector'
+import { LineStatusBadge } from './line-status'
 import { formatMoney, toNumber } from '#/lib/format'
 import { serverErrorMessage } from '#/lib/form-errors'
 import type {
@@ -37,19 +38,6 @@ export interface LineEditorProps {
   onUpdate: (lineId: string, changes: InvoiceLineUpdate) => Promise<void>
   /** Delete the line (`DELETE /invoice-lines/{id}`). Omit to hide the control. */
   onDelete?: (lineId: string) => Promise<void>
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  uncategorized: 'Uncategorized',
-  ai_failed: 'AI categorization failed',
-  ai_categorized: 'AI categorized',
-  verified: 'Verified',
-}
-
-function statusVariant(status: string): 'default' | 'destructive' | 'success' {
-  if (status === 'verified') return 'success'
-  if (status === 'ai_failed') return 'destructive'
-  return 'default'
 }
 
 /** The path a line's stored levels describe, trailing levels dropped. */
@@ -196,17 +184,9 @@ export function LineEditor({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {stale ? (
-            // Distinct from `ai_failed` in words as well as colour: nothing
-            // failed here, the taxonomy moved out from under a decision.
-            <Badge variant="warning">
-              <AlertTriangle className="mr-1 size-3" aria-hidden />
-              Needs review
-            </Badge>
-          ) : null}
-          <Badge variant={statusVariant(line.status)}>
-            {STATUS_LABEL[line.status] ?? line.status}
-          </Badge>
+          {/* Shared with the Entries table's Status column, so the two views
+              cannot drift into describing the same line differently. */}
+          <LineStatusBadge line={line} />
           {canManage && onDelete !== undefined ? (
             <Button
               size="sm"

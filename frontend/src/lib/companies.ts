@@ -8,6 +8,7 @@ import type {
   CompanyUpdate,
   CompanyUpdateResult,
   FxRecomputeResult,
+  RecategorizeResult,
 } from './types'
 
 /** Key prefix for every company list. Invalidating it refreshes both the
@@ -94,5 +95,27 @@ export function recomputeCompanyFxMutation(
       api.post<FxRecomputeResult>(`/api/v1/companies/${id}/recompute-fx`),
     // Every amount in the app may have just changed.
     onSuccess: () => queryClient.invalidateQueries(),
+  }
+}
+
+/**
+ * Put a company's failed lines back in the categorizer's queue
+ * (`POST /companies/{id}/recategorize`).
+ *
+ * It queues; it does not categorize. The categorizer lives in the AI package
+ * and runs only in the sync, so the lines are picked up on its next run — which
+ * is why this reports a count rather than a result, and why the dialog that
+ * calls it says so.
+ */
+export function recategorizeCompanyMutation(
+  api: ApiClient,
+  queryClient: QueryClient,
+): UseMutationOptions<RecategorizeResult, Error, { id: string }> {
+  return {
+    mutationFn: ({ id }) =>
+      api.post<RecategorizeResult>(`/api/v1/companies/${id}/recategorize`),
+    // Line statuses moved, so anything showing a line is now stale. The company
+    // list itself is untouched — no company field changed.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['erp-entries'] }),
   }
 }

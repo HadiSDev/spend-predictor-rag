@@ -161,6 +161,19 @@ class FxRecomputeResult(BaseModel):
     unchanged: int
 
 
+class RecategorizeResult(BaseModel):
+    """How many lines were returned to the categorizer's queue.
+
+    ``queued`` is lines *queued*, never lines categorized. The web API cannot
+    categorize anything — ``web_api`` does not import ``ai_api``, so the
+    categorizer runs only in the sync — and reporting a categorization outcome
+    here would be reporting something this request cannot know.
+    """
+
+    company_id: str
+    queued: int
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

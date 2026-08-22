@@ -259,6 +259,17 @@ export interface FxRecomputeResult {
 }
 
 /**
+ * What `POST /companies/{id}/recategorize` reports back.
+ *
+ * `queued` is lines *queued*, never lines categorized: the web API cannot
+ * categorize anything, so the lines wait for the next sync run.
+ */
+export interface RecategorizeResult {
+  company_id: string
+  queued: number
+}
+
+/**
  * The conversion carried on every money-bearing payload: the same figure in the
  * company's currency, and the rate that got it there. All null together when
  * the row could not be converted — never zero.

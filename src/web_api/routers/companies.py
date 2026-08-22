@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session, select
 
-from web_api.db.models import Company, SpendTree
+from web_api.db.models import Company, InvoiceLine, LineStatus, SpendTree
+from ..audit import record_audit
+from ..db.models.audit_log import SYSTEM_ACTOR
 from ..deps import (
     TenantScope,
     get_managed_company,
@@ -25,7 +27,9 @@ from ..schemas import (
     CompanyUpdate,
     CompanyUpdateResult,
     FxRecomputeResult,
+    RecategorizeResult,
 )
+from ..rollup import recompute_invoice_status
 from ..spend_trees import service as tree_service
 from ..spend_trees.reassign import reassign_company_tree
 
@@ -206,6 +210,77 @@ def recompute_company_fx(
         unconverted=counts[UNCONVERTED],
         unchanged=counts[UNCHANGED],
     )
+
+
+#: The audit action for a line put back in the categorizer's queue. Defined
+#: beside its writer, as `withdrawn_by_erp` and `superseded_by_extraction` are.
+REQUEUED_ACTION = "requeued_for_categorization"
+
+
+@router.post("/companies/{company_id}/recategorize", response_model=RecategorizeResult)
+def recategorize_company_lines(
+    company_id: str,
+    scope: TenantScope = Depends(require_management),
+    session: Session = Depends(get_session),
+) -> RecategorizeResult:
+    """Return this company's `ai_failed` lines to `uncategorized`.
+
+    **This queues; it does not categorize.** `web_api` does not import `ai_api`,
+    so the categorizer runs only in the sync — and it processes exactly the
+    `uncategorized` lines, which is what makes a status reset sufficient to
+    requeue and why no flag or queue table is needed.
+
+    Without this, `ai_failed` is terminal: the sync never retries a failure, so
+    a line lost to a categorizer that has since improved could never be reached
+    again short of hand-written SQL.
+
+    Only `ai_failed` is eligible. `verified` is human authority and requeueing it
+    would license an overwrite; `ai_categorized` did not fail, and resetting it
+    would discard a usable result to re-derive it. Origin is deliberately not a
+    filter — a stand-in line's spend is real spend, and most of a real ledger is
+    stand-ins.
+    """
+    company = get_managed_company(session, scope, company_id)
+    lines = session.exec(
+        select(InvoiceLine).where(
+            InvoiceLine.company_id == company.id,
+            InvoiceLine.status == LineStatus.AI_FAILED,
+        )
+    ).all()
+
+    try:
+        for line in lines:
+            changes = [
+                {"field": "status", "old": line.status, "new": LineStatus.UNCATEGORIZED.value}
+            ]
+            # The message describes an attempt that is no longer this line's
+            # state; left in place it reports a queued line as still failing.
+            if line.error_message is not None:
+                changes.append(
+                    {"field": "error_message", "old": line.error_message, "new": None}
+                )
+            record_audit(
+                session,
+                entity_type="invoice_line",
+                entity_id=line.id,
+                action=REQUEUED_ACTION,
+                actor=SYSTEM_ACTOR,
+                changes=changes,
+            )
+            line.status = LineStatus.UNCATEGORIZED
+            line.error_message = None
+            session.add(line)
+
+        # In the same transaction: an invoice must never claim to be categorized
+        # while the lines it rolls up from are sitting in the queue.
+        session.flush()
+        for invoice_id in {line.invoice_id for line in lines}:
+            recompute_invoice_status(session, invoice_id)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return RecategorizeResult(company_id=company.id, queued=len(lines))
 
 
 @router.post("/companies/{company_id}/deactivate", response_model=CompanyRead)

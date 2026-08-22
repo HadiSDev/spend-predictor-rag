@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
   Pencil,
   RefreshCw,
+  Sparkles,
   RotateCcw,
 } from 'lucide-react'
 import {
@@ -57,6 +58,7 @@ import type {
   ErpIntegrationRead,
   ErpTypeRead,
   FxRecomputeResult,
+  RecategorizeResult,
   ReplaceBlocked,
   SpendTreeRead,
 } from '#/lib/types'
@@ -169,6 +171,15 @@ export interface CompaniesPanelProps {
    * both, for a caller that has no such endpoint.
    */
   onRecomputeFx?: (companyId: string) => Promise<FxRecomputeResult>
+  /**
+   * Put this company's `ai_failed` lines back in the categorizer's queue
+   * (`POST /companies/{id}/recategorize`). Omitting it hides the action.
+   *
+   * A sibling of `onRecomputeFx` by design: company-scoped maintenance, run
+   * after something upstream changed, reporting a count rather than changing
+   * what is on screen.
+   */
+  onRecategorize?: (companyId: string) => Promise<RecategorizeResult>
   /** Navigate to a company's ERP account settings. */
   onManageAccounts?: (companyId: string) => void
 }
@@ -226,6 +237,13 @@ interface RecomputeState {
   /** Set when the prompt follows a currency change; null when opened directly. */
   currency: string | null
   result: FxRecomputeResult | null
+  busy: boolean
+}
+
+/** The requeue prompt: which company, and how far it has got. */
+interface RecategorizeState {
+  company: CompanyRead
+  result: RecategorizeResult | null
   busy: boolean
 }
 
@@ -378,6 +396,88 @@ function RecomputeDialog({
               </Button>
               <Button onClick={() => void onRun()} disabled={state?.busy}>
                 {state?.busy ? 'Recomputing…' : 'Recompute'}
+              </Button>
+            </>
+          )}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/**
+ * Ask before putting a company's failed lines back in the categorizer's queue.
+ *
+ * The wording carries the whole design constraint. The API cannot categorize —
+ * the categorizer lives in the AI package and runs only in the sync — so this
+ * resets the lines' status and they are picked up on the next run. A dialog
+ * promising a result would be a lie with an hour's latency on it, and the user
+ * would come back to a screen that looked unchanged and conclude it was broken.
+ *
+ * Confirmed rather than immediate for the same reason the recompute is: it
+ * writes across every invoice of a company, and the count it reports is the
+ * only evidence it did anything.
+ */
+function RecategorizeDialog({
+  state,
+  onClose,
+  onRun,
+}: {
+  state: RecategorizeState | null
+  onClose: () => void
+  onRun: () => void | Promise<void>
+}) {
+  const result = state?.result
+
+  return (
+    <AlertDialog
+      open={state !== null}
+      onOpenChange={(next: boolean) => {
+        if (!next && !state?.busy) onClose()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {result
+              ? result.queued === 0
+                ? 'Nothing to queue'
+                : 'Queued for the categorizer'
+              : `Recategorize ${state?.company.name}’s failed lines?`}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {result ? (
+              result.queued === 0 ? (
+                // Not "0 lines queued", which reads as work done.
+                <>
+                  No failed lines were found, so nothing changed. Only lines the
+                  AI tried and failed on are eligible.
+                </>
+              ) : (
+                <>
+                  {result.queued} lines are queued. They will be categorized on
+                  the next sync run — nothing has been categorized yet.
+                </>
+              )
+            ) : (
+              <>
+                Lines the AI failed on are returned to the queue and categorized
+                on the next sync run. Nothing is categorized right now, and
+                lines a person has verified are left alone.
+              </>
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          {result ? (
+            <Button onClick={onClose}>Done</Button>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={onClose} disabled={state?.busy}>
+                Not now
+              </Button>
+              <Button onClick={() => void onRun()} disabled={state?.busy}>
+                {state?.busy ? 'Queueing…' : 'Queue for recategorization'}
               </Button>
             </>
           )}
@@ -952,6 +1052,7 @@ export function CompaniesPanel({
   onConnectIntegration,
   onSetActive,
   onRecomputeFx,
+  onRecategorize,
   onManageAccounts,
 }: CompaniesPanelProps) {
   const [dialogOpen, setDialogOpen] = React.useState(false)
@@ -962,6 +1063,8 @@ export function CompaniesPanel({
   const [recomputing, setRecomputing] = React.useState<RecomputeState | null>(
     null,
   )
+  const [recategorizing, setRecategorizing] =
+    React.useState<RecategorizeState | null>(null)
   const [reassigned, setReassigned] = React.useState<{
     company: CompanyRead
     staleLines: number
@@ -1111,6 +1214,23 @@ export function CompaniesPanel({
         label: values.label,
         credentials,
       })
+    }
+  }
+
+  async function runRecategorize() {
+    if (!recategorizing || !onRecategorize) return
+    setRecategorizing({ ...recategorizing, busy: true })
+    setError(null)
+    try {
+      const result = await onRecategorize(recategorizing.company.id)
+      setRecategorizing((current) =>
+        current ? { ...current, busy: false, result } : null,
+      )
+    } catch (failure) {
+      setError(serverErrorMessage(failure))
+      setRecategorizing((current) =>
+        current ? { ...current, busy: false } : null,
+      )
     }
   }
 
@@ -1278,6 +1398,21 @@ export function CompaniesPanel({
                                 Recompute currency figures
                               </DropdownMenuItem>
                             ) : null}
+                            {onRecategorize ? (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setError(null) // never open onto a stale failure
+                                  setRecategorizing({
+                                    company,
+                                    result: null,
+                                    busy: false,
+                                  })
+                                }}
+                              >
+                                <Sparkles />
+                                Recategorize failed lines
+                              </DropdownMenuItem>
+                            ) : null}
                             <DropdownMenuSeparator />
                             {company.is_active ? (
                               <DropdownMenuItem
@@ -1374,6 +1509,12 @@ export function CompaniesPanel({
         state={recomputing}
         onClose={() => setRecomputing(null)}
         onRun={runRecompute}
+      />
+
+      <RecategorizeDialog
+        state={recategorizing}
+        onClose={() => setRecategorizing(null)}
+        onRun={runRecategorize}
       />
 
       <AlertDialog
