@@ -443,6 +443,21 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   `max(1% , 1.00)`. Lines that miss a line would be categorized, aggregated and
   surfaced as a savings opportunity with nothing downstream able to tell they
   were wrong. A rejection keeps the invoice's existing lines.
+- **The comparison is made in one currency, or refused by name**
+  (`ai_api/documents/currency.py`). A document is frequently denominated
+  differently from its posting — Anthropic bills in EUR, Cloudflare in USD, EK
+  Waterblocks in EUR, all booked to a DKK ledger — and comparing those
+  magnitudes directly rejected correctly-read documents for arithmetic that was
+  never wrong, recording "the extracted lines do not reconcile" over a currency
+  problem. The lines are converted into the invoice's currency at the rate in
+  force on **the invoice's own date** (the same rule every stored amount
+  follows) and only then judged; with no rate available the refusal names the
+  mismatch. It converts a **sum, for a comparison, and nothing else** — no
+  converted figure is stored, `replace_invoice_lines` still writes the
+  document's own amounts, and `POST /companies/{id}/recompute-fx` stays the only
+  writer of base figures. Needs `FX_ENABLED=true` to resolve a cross-currency
+  case at all; off, such a document is refused with the true reason rather than
+  a misleading one.
 - **Replacement is whole-invoice, in one transaction, and audited.** Every
   removed line gets an `AuditLog` row (`superseded_by_extraction`, actor
   `system`) carrying its categorization — the only record a human's verified
@@ -456,12 +471,47 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 - **No bytes are persisted.** The scan is fetched live per run through
   `web_api/documents.py::resolve_document_source` — the same rule
   `GET /invoices/{id}/document` uses, shared so the two cannot disagree about
-  which voucher holds it. Dispatch is on the ERP's declared media type: a JPEG
-  receipt records a clean unsupported-media failure rather than "Invalid PDF
-  structure" over a perfectly good document. **A vision model is not yet wired
-  in**, so images and text-layerless PDFs fail cleanly and keep their stand-ins.
+  which voucher holds it. Dispatch is on the ERP's declared media type, never
+  guessed: a JPEG handed to a PDF parser produces "Invalid PDF structure" over a
+  perfectly good document — our bug reported against blameless input.
+- **A document we can turn into pixels is a document we can read**
+  (`ai_api/documents/images.py`, `vision.py`). A PDF with a text layer takes the
+  text path, because text is cheap and exact; an image, or a PDF whose pages
+  carry a scan, is rendered and shown to the model. `UnsupportedMediaError` now
+  means only what it always said — a type we cannot open. The earlier rule
+  refused images outright because "a vision model is not yet wired in", while
+  the deployment had been serving a multimodal model the whole time and half the
+  dev org's unread invoices were screenshots and phone photos.
+- **Each page is its own request, merged in code.** A model handed eight images
+  in one message attends to none of them properly, and what degrades first is an
+  amount, in a column, in small type. Header fields (supplier, invoice number,
+  currency) come from the **first** page stating one, totals from the **last**;
+  lines concatenate in page order and are never deduplicated. An unreadable page
+  is logged and skipped rather than losing the readable ones — reconciliation is
+  the backstop — but a document whose pages *all* fail is a failure. Bounded by
+  `DOC_VISION_MAX_PAGES` and `DOC_VISION_MAX_EDGE`; pages are *rendered* at the
+  target size rather than rendered large and shrunk.
+- **`VisionPage` requires nothing, and that is load-bearing.** A page is a
+  fragment: page 3 of 5 names no supplier and prints no total. The prompt says to
+  leave what a page does not state as null, the model does exactly that, and
+  validating the reply against `ExtractedInvoice` — whose `vendor_name` and
+  `total` are mandatory, correctly, for a *whole* invoice — threw away perfect
+  readings and reported them as model failures. The whole-invoice requirements
+  apply to the merge, never to a page.
+- **Numbers are transcribed, not interpreted.** The text path rewrites European
+  separators before the model reads them (`numbers.py`); pixels cannot be
+  rewritten, so every figure comes back as a **string exactly as printed** and
+  `parse_amount` decides what it means — both paths end at the same tested pure
+  function. Asking the model to normalize was tried first and lost: a DSB receipt
+  printing `5.780,00` came back as `5.78`. An amount that cannot be read becomes
+  **no amount, never a guess** (`LineItem.amount` is nullable for this): an EKWB
+  invoice returned a 13-digit barcode as a line total, which a `float` field
+  accepted without a murmur. What a prompt still cannot fix is *which column*
+  holds the money — a small vision model on a wide table is this path's real
+  limit, and `parse_amount` turns its wrong answers into no answer.
 - Env: `DOC_MAX_ATTEMPTS`, `DOC_RECONCILE_TOLERANCE_PCT`,
-  `DOC_RECONCILE_TOLERANCE_ABS`, `DOC_STALE_CLAIM_MINUTES`.
+  `DOC_RECONCILE_TOLERANCE_ABS`, `DOC_STALE_CLAIM_MINUTES`,
+  `DOC_VISION_MAX_PAGES`, `DOC_VISION_MAX_EDGE`.
 
 ## Vendors (global supplier catalog)
 

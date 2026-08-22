@@ -30,6 +30,48 @@ from decimal import Decimal
 
 logger = logging.getLogger("ai_api.documents")
 
+#: Symbols with exactly one reading, mapped to their ISO code. A document prints
+#: what it prints, and the model reports it: a real reply gave `€` where the
+#: prompt asked for `EUR`, which compared as a mismatch between a currency and
+#: itself and refused a document already in the invoice's own currency.
+#:
+#: Deliberately excludes the ambiguous ones. A bare `$` is a dozen currencies and
+#: `kr` is DKK, NOK, SEK or ISK; guessing either compares at a confidently wrong
+#: rate, which is worse than not comparing at all.
+_SYMBOLS = {
+    "€": "EUR",
+    "£": "GBP",
+    "US$": "USD",
+    "USD$": "USD",
+    "CA$": "CAD",
+    "A$": "AUD",
+    "NZ$": "NZD",
+    "R$": "BRL",
+    "₹": "INR",
+    "₺": "TRY",
+    "₽": "RUB",
+    "₩": "KRW",
+    "₪": "ILS",
+    "DKR": "DKK",
+    "SKR": "SEK",
+    "NKR": "NOK",
+}
+
+
+def _code(written: str | None) -> str | None:
+    """The ISO code a currency was written as, or ``None`` if we cannot tell.
+
+    ``None`` means "unstated", which the caller compares at face value — the
+    behaviour that preceded any currency check. It never means "assume the
+    invoice's own", which would silently accept a foreign-currency document.
+    """
+    text = (written or "").strip().rstrip(".").strip().upper()
+    if not text:
+        return None
+    if len(text) == 3 and text.isalpha():
+        return text
+    return _SYMBOLS.get(text)
+
 
 def comparable_total(
     lines_total: Decimal,
@@ -51,10 +93,10 @@ def comparable_total(
     larger invented one. The same applies when the *invoice* names no currency:
     there is nothing to convert to.
     """
-    document = (document_currency or "").strip().upper()
-    invoice = (invoice_currency or "").strip().upper()
+    document = _code(document_currency)
+    invoice = _code(invoice_currency)
 
-    if not document or not invoice or document == invoice:
+    if document is None or invoice is None or document == invoice:
         return lines_total, None
 
     resolved = fx.get_rate(document, invoice, on_date)

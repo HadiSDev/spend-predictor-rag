@@ -20,6 +20,7 @@ writes base figures.
 """
 from __future__ import annotations
 
+import pytest
 from datetime import date
 from decimal import Decimal
 
@@ -135,3 +136,74 @@ def test_an_invoice_with_no_date_cannot_be_converted_and_says_so():
 
     assert total is None
     assert reason is not None and "EUR" in reason
+
+
+# -- What counts as a stated currency ----------------------------------------
+
+
+def test_a_currency_symbol_is_read_as_its_code():
+    """A real reply gave `€` where the prompt asked for `EUR`. Comparing the two
+    as strings declared a mismatch between a currency and itself, and refused a
+    document that was already in the invoice's own currency."""
+    fx = _Rates()
+
+    total, reason = comparable_total(
+        Decimal("90.30"), "€", "EUR", date(2026, 6, 1), fx
+    )
+
+    assert total == Decimal("90.30")
+    assert reason is None
+    assert fx.asked == [], "same currency, differently written, needs no rate"
+
+
+def test_a_symbol_is_resolved_before_a_genuine_mismatch_is_declared():
+    fx = _Rates({("EUR", "DKK"): "7.4736"})
+
+    total, reason = comparable_total(
+        Decimal("62.11"), "€", "DKK", date(2026, 6, 4), fx
+    )
+
+    assert reason is None
+    assert fx.asked == [("EUR", "DKK", date(2026, 6, 4))]
+
+
+def test_a_dollar_that_names_its_country_is_resolved():
+    """A real reply gave `US$`, which is one currency and not a dozen."""
+    fx = _Rates({("USD", "DKK"): "6.44"})
+
+    total, reason = comparable_total(
+        Decimal("10.46"), "US$", "DKK", date(2026, 7, 9), fx
+    )
+
+    assert reason is None
+    assert fx.asked == [("USD", "DKK", date(2026, 7, 9))]
+
+
+@pytest.mark.parametrize("written", ["eur", " EUR ", "€", "EUR."])
+def test_the_same_currency_written_any_way_is_not_a_mismatch(written):
+    fx = _Rates()
+
+    total, reason = comparable_total(
+        Decimal("90.30"), written, "EUR", date(2026, 6, 1), fx
+    )
+
+    assert total == Decimal("90.30") and reason is None
+
+
+@pytest.mark.parametrize("written", ["kr", "$", "Fr.", "shekels", "?"])
+def test_a_currency_we_cannot_resolve_is_treated_as_unstated(written):
+    """`kr` is DKK, NOK, SEK or ISK, and a bare `$` is a dozen currencies.
+
+    Refusing the document would be worse than the behaviour that preceded any
+    currency check — comparing at face value — and *guessing* a code is worse
+    still, since it compares at a confidently wrong rate.
+    """
+    fx = _Rates({("USD", "DKK"): "6.44"})
+
+    total, reason = comparable_total(
+        Decimal("58.00"), written, "DKK", date(2026, 6, 4), fx
+    )
+
+    assert total == Decimal("58.00")
+    assert reason is None
+    assert fx.asked == []
