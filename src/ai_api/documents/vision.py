@@ -201,11 +201,17 @@ _INSTRUCTIONS = (
     "Return every line item visible here, with its description and its amount. "
     "Leave any field this page does not state as null.\n"
     "\n"
-    "A line item is a thing bought or a charge billed. A row that totals other "
-    "rows is not one: 'Total', 'Subtotal', 'Sum', 'Grand Total', 'Samlet pris', "
-    "'Pris i alt', 'Gesamt' and VAT rows are summaries — leave them out. "
-    "Shipping, postage, handling and fees ARE line items, because they are money "
-    "charged rather than money re-stated.\n"
+    # Deliberately NOT told to exclude summary rows. That instruction was tried
+    # and made things worse: on a DSB receipt it pushed the model off the product
+    # table ("1 Voksen 58,00") and onto the itinerary above it, returning three
+    # journey legs with no amounts where it had previously returned the item and
+    # its total. Dropping the total is `_is_summary_row`'s job — it is a fact in
+    # tested code, and asking for it here only made the harder judgement (which
+    # table holds the items) come out wrong.
+    "Take the line items from the table that carries prices — the one with a "
+    "quantity, unit price or amount column. Rows without any money value, such "
+    "as a travel itinerary, a delivery schedule or an address block, are not "
+    "line items.\n"
     "\n"
     "Copy every number EXACTLY as printed, as a string, including its separators "
     "and any currency symbol: write \"1 919,20\", \"5.780,00\" or \"kr. 58,00\" "
@@ -310,12 +316,18 @@ def _merge(pages: list[VisionPage]) -> ExtractedInvoice:
     # twice, and collapsing that is a correction we have no standing to make.
     # A total is not a line item: `Samlet pris` beside `1 Voksen` doubled a DSB
     # receipt against its own posting and cost us the document entirely.
-    merged["line_items"] = [
-        item.to_line_item()
-        for page in pages
-        for item in page.line_items
-        if not _is_summary_row(item.description)
-    ]
+    #
+    # Judged across the whole document, not per page — a multi-page invoice
+    # prints its items early and its total last, and a page-local rule would
+    # keep the total whenever it arrived alone on the final page.
+    stated = [item for page in pages for item in page.line_items]
+    itemised = [item for item in stated if not _is_summary_row(item.description)]
+    # …unless the totals were all we were given. The filter exists to stop
+    # double-counting, and with nothing left to double-count it has no work to
+    # do: a lone total can only equal the document's own total, so keeping it
+    # cannot inflate anything, while dropping it throws the document away and
+    # leaves the invoice on an ERP stand-in that says less.
+    merged["line_items"] = [item.to_line_item() for item in (itemised or stated)]
     return ExtractedInvoice(**merged)
 
 

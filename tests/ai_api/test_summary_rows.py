@@ -135,9 +135,42 @@ def test_a_line_with_no_description_is_still_kept():
     assert len(result.line_items) == 1
 
 
-def test_dropping_every_row_leaves_no_lines_rather_than_raising():
-    """A document of nothing but totals reads as empty, and the stage reports
-    'the document yielded no lines' — which is true and actionable."""
+def test_a_document_whose_only_row_is_a_total_keeps_it():
+    """The filter exists to stop double-counting. With one row there is nothing
+    to double-count, and dropping it throws the document away.
+
+    This reverses an earlier decision here, on evidence. Asked to read the DSB
+    receipt, the model returned `1 Voksen` *and* `Samlet pris` on one run and
+    only `Samlet pris` on the next. Discarding the second reading left the
+    invoice on its ERP stand-in — strictly less than the document offered, since
+    a lone total can only ever equal the document's own total and so cannot
+    inflate anything.
+    """
     result = _read([{"description": "Total", "amount": "58,00"}])
 
-    assert result.line_items == []
+    assert [l.description for l in result.line_items] == ["Total"]
+    assert result.line_items[0].amount == 58.0
+
+
+def test_a_total_is_still_dropped_when_real_lines_stand_beside_it():
+    """The rule only relaxes when relaxing costs nothing."""
+    result = _read([
+        {"description": "Widget", "amount": "40,00"},
+        {"description": "Gadget", "amount": "18,00"},
+        {"description": "Total", "amount": "58,00"},
+    ])
+
+    assert [l.description for l in result.line_items] == ["Widget", "Gadget"]
+
+
+def test_a_page_of_only_totals_beside_a_page_of_lines_still_drops_them():
+    """The judgement is made across the whole document, not page by page — a
+    multi-page invoice prints its total on the last page and its items earlier."""
+    replies = [
+        _reply([{"description": "Widget", "amount": "40,00"}]),
+        _reply([{"description": "Total", "amount": "40,00"}]),
+    ]
+    pages = [_page(), _page()]
+    result = look_at("", pages, complete=lambda m: replies.pop(0))
+
+    assert [l.description for l in result.line_items] == ["Widget"]
