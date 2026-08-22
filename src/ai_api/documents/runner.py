@@ -31,6 +31,7 @@ from web_api import integrations as integrations_mod
 
 from .. import config
 from .extractor import EmptyDocumentError, UnsupportedMediaError, extract_lines
+from .vision import VisionUnreadableError
 from .currency import comparable_total
 from .reconcile import reconcile
 from .replace import replace_invoice_lines
@@ -151,7 +152,12 @@ def process_invoice(
 
     try:
         extracted = extract(payload)
-    except (UnsupportedMediaError, EmptyDocumentError) as exc:
+    except (UnsupportedMediaError, EmptyDocumentError, VisionUnreadableError) as exc:
+        # A document we cannot open, cannot render, or whose every page the model
+        # failed to read. All three are outcomes of the document, not defects in
+        # us, so each records its own message rather than the run loop's
+        # "extraction crashed" — which would send a reader hunting a bug that is
+        # not there.
         _fail(session, invoice, str(exc))
         return "failed"
 

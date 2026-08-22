@@ -17,6 +17,7 @@ from sqlmodel import Session, select
 from ai_api import config
 from ai_api.documents import runner as docs
 from ai_api.documents.extractor import EmptyDocumentError, ExtractedLines, UnsupportedMediaError
+from ai_api.documents.vision import VisionUnreadableError
 from ai_api.models import LineItem
 from ai_api.sync import runner as sync_runner
 from web_api.connectors.base import DocumentPayload, ErpConnectionError
@@ -278,6 +279,26 @@ def test_a_pdf_with_no_text_layer_fails_cleanly(engine, synced):
 
     assert counts["failed"] == 1
     assert "text layer" in _invoice(engine).doc_error
+
+
+def test_an_unreadable_scan_fails_cleanly_rather_than_as_a_crash(engine, synced):
+    """A document the model could not read is an outcome, not a bug in us.
+
+    Without this the run's catch-all still saves the run, but files the failure
+    as "extraction crashed", which sends whoever reads it looking for a defect
+    that is not there.
+    """
+    def _extract(payload):
+        raise VisionUnreadableError("none of the 3 page(s) of this document could be read")
+
+    counts = docs.run_documents(extract=_extract)
+
+    assert counts["failed"] == 1
+    invoice = _invoice(engine)
+    assert invoice.doc_status == DocStatus.FAILED
+    assert "could be read" in invoice.doc_error
+    assert "crashed" not in invoice.doc_error
+    assert [l.origin for l in _lines(engine)] == [LineOrigin.ENTRY_FALLBACK]
 
 
 def test_a_crash_is_recorded_rather_than_raised(engine, synced):

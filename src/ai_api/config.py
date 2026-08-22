@@ -22,6 +22,16 @@ VLLM_API_KEY = os.getenv("VLLM_API_KEY", "not-needed")
 # timeout is a safety net so a stalled request fails instead of blocking forever.
 VLLM_MAX_TOKENS = int(os.getenv("VLLM_MAX_TOKENS", "8192"))
 VLLM_TIMEOUT = int(os.getenv("VLLM_TIMEOUT", "120"))
+
+# Every consumer of `get_llm()` is a *reading* task — extracting an invoice,
+# categorizing a line, summarizing a supplier's page — and none of them wants
+# variety. Left unset, calls inherited the server's default and the effect was
+# visible on real data: the same DSB screenshot was read correctly on one run of
+# the document stage and came back with no amounts on the next. An invoice whose
+# fate turns on a sampler is worse than one that fails consistently, because
+# nobody can tell whether a fix worked. The synthetic-data generator, which does
+# want variety, builds its own LLM and is untouched by this.
+VLLM_TEMPERATURE = float(os.getenv("VLLM_TEMPERATURE", "0.0"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
 # Qdrant vector store (replaces ChromaDB)
@@ -96,4 +106,5 @@ def get_llm() -> LLM:
         api_key=VLLM_API_KEY,
         max_tokens=VLLM_MAX_TOKENS,
         timeout=VLLM_TIMEOUT,
+        temperature=VLLM_TEMPERATURE,
     )
