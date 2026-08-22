@@ -745,6 +745,19 @@ deliberate, exactly as `?include_inactive` reaches them in the company list.
 
 - Local vLLM at `http://localhost:8000/v1`, model `google/gemma-4-E4B-it`
   (CrewAI: `hosted_vllm/google/gemma-4-E4B-it`). Configured via `.env`.
+- **The deployment is multimodal, and the document stage uses it** — images and
+  rasterized PDF pages go to the same endpoint as text, through `get_llm()`.
+  CrewAI passes an OpenAI-style content list straight through, so there is no
+  second client to drift out of sync.
+- **`VLLM_TEMPERATURE` defaults to 0.0.** Every `get_llm()` consumer is a
+  *reading* task — extracting an invoice, categorizing a line, summarizing a
+  supplier page — and none wants variety. Unset, calls inherited the server
+  default and the same screenshot read correctly on one run and returned nothing
+  on the next; an invoice whose fate turns on a sampler is worse than one that
+  fails consistently, because nobody can tell whether a fix worked. The
+  **synthdata generator builds its own LLM** and is deliberately excluded —
+  variety is the point there (`synthdata/content.py`), and a test pins that so a
+  later tidy-up cannot fold it in.
 
 ## Layout
 
