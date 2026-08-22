@@ -17,12 +17,30 @@ from web_api.db.models import (
     SpendCategory,
 )
 from web_api.spend_trees import service
-from ai_api.sync.categorizer import (
-    build_candidates_from_tree,
-    categorize,
-    default_candidates,
-)
+from ai_api.sync.categorizer import build_candidates_from_tree, default_candidates
+from ai_api.sync.llm_categorizer import LineContext, categorize_line
 from ai_api.sync.runner import _categorize_pending, _tree_candidates
+
+
+def _choosing(fragment: str):
+    """A stubbed model that picks the candidate whose path mentions ``fragment``.
+
+    These tests are about *which tree* a company is categorized against and
+    whether the chosen node resolves inside it — not about a model's judgment.
+    Stubbing the choice keeps them offline and deterministic while still driving
+    the real prompt-building and grounding.
+    """
+    import re as _re
+
+    def complete(prompt: str) -> str:
+        for raw in prompt.split("Categories:", 1)[-1].splitlines():
+            match = _re.match(r"\s*(\d+)\.\s+(.*)", raw)
+            if match and fragment.lower() in match.group(2).lower():
+                return f'{{"choice": {match.group(1)}, "confidence": 0.9, "rationale": "stub"}}'
+        return '{"choice": 0, "confidence": 0.0, "rationale": "stub found no such candidate"}'
+
+    return complete
+
 
 
 @pytest.fixture()
@@ -58,17 +76,13 @@ def test_candidates_are_leaves_only(session):
     assert all(len(c.path) == 3 for c in candidates)
 
 
-def test_template_seeded_nodes_keep_their_curated_keywords(session):
-    tree = service.ensure_default_tree(session, "org")
-    session.commit()
+def test_a_custom_node_is_a_candidate_like_any_other(session):
+    """A node the customer wrote is offered to the model exactly as a seeded one.
 
-    candidates = build_candidates_from_tree(_nodes(session, tree.id))
-    cloud = next(c for c in candidates if c.code == "6010")
-    assert "hosting" in cloud.keywords and "cdn" in cloud.keywords
-
-
-def test_a_custom_node_matches_on_its_own_words(session):
-    """No curated synonyms, so name and description are the whole corpus."""
+    Under the keyword matcher a custom node matched worse than a template one,
+    because only template nodes carried curated synonyms. The model reads the
+    node's own words, so that asymmetry is gone.
+    """
     tree = service.create_tree(session, "org", "Custom", max_depth=3)
     root = service.add_node(session, tree, "Indirect")
     mid = service.add_node(session, tree, "Machinery", parent_id=root.id)
@@ -79,7 +93,10 @@ def test_a_custom_node_matches_on_its_own_words(session):
     session.commit()
 
     candidates = build_candidates_from_tree(_nodes(session, tree.id))
-    match = categorize("Carbide inserts for the lathe", None, candidates)
+    match = categorize_line(
+        LineContext(description="Carbide inserts for the lathe"), candidates,
+        complete=_choosing("Lathe Tooling"),
+    )
 
     assert match.matched
     assert match.level_3 == "Lathe Tooling"
@@ -104,7 +121,10 @@ def test_a_match_carries_the_node_id(session):
     session.commit()
     candidates = build_candidates_from_tree(_nodes(session, tree.id))
 
-    match = categorize("Cloud server monthly hosting", None, candidates)
+    match = categorize_line(
+        LineContext(description="Cloud server monthly hosting"), candidates,
+        complete=_choosing("Cloud"),
+    )
 
     assert match.matched
     node = session.get(SpendCategory, match.spend_category_id)
@@ -127,7 +147,10 @@ def test_a_depth_four_match_records_its_leaf(session):
     session.commit()
 
     candidates = build_candidates_from_tree(_nodes(session, tree.id))
-    match = categorize("Virtual machine instances", None, candidates)
+    match = categorize_line(
+        LineContext(description="Virtual machine instances"), candidates,
+        complete=_choosing("Compute"),
+    )
 
     assert match.matched and match.level_4 == "Compute"
 
@@ -158,7 +181,10 @@ def test_two_companies_on_different_trees_get_different_candidates(session):
 
     for company_id, expected in (("co-default", "Technology"), ("co-custom", "IT")):
         candidates = _tree_candidates(session, company_id)
-        match = categorize("Cloud server monthly hosting", None, candidates)
+        match = categorize_line(
+        LineContext(description="Cloud server monthly hosting"), candidates,
+        complete=_choosing("Cloud"),
+    )
         assert match.level_2 == expected, (
             f"{company_id} was categorized against the wrong tree"
         )
@@ -187,9 +213,13 @@ def test_categorization_writes_the_node_onto_the_line(session):
     candidates = _tree_candidates(session, "co")
     # No integration in this fixture, so drive the invoice scope directly.
     line = session.get(InvoiceLine, "ln-co")
-    from ai_api.sync.categorizer import categorize as _cat
-
-    match = _cat(line.description, None, candidates)
+    # A stubbed model picking the first candidate: this test is about the node
+    # resolving inside the company's own tree, not about the model's judgment.
+    match = categorize_line(
+        LineContext(description=line.description),
+        candidates,
+        complete=lambda prompt: '{"choice": 1, "confidence": 0.9, "rationale": "stub"}',
+    )
     assert match.matched
 
     node = session.get(SpendCategory, match.spend_category_id)

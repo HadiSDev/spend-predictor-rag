@@ -69,7 +69,8 @@ from web_api.fx import CONVERTED, UNCHANGED, UNCONVERTED, FxService
 from web_api.integrations import connector_config as _connector_config
 from web_api.rollup import recompute_invoice_status
 from web_api.verified import clear_verified, is_verified
-from .categorizer import build_candidates_from_tree, categorize
+from .categorizer import build_candidates_from_tree
+from .llm_categorizer import CategorizerUnavailable, LineContext, categorize_line
 
 logger = logging.getLogger("ai_api.sync")
 
@@ -823,6 +824,17 @@ def _categorize_pending(
         select(Invoice).where(Invoice.id.in_(invoice_ids))
     ).all() if invoice_ids else []
 
+    # The ERP's own name for each account, looked up once. A posting-derived
+    # line often has no description at all, and "Edb-udgifter / software" is
+    # then the only statement of what was bought — a bare code is not.
+    account_names = {
+        code: name for code, name in session.exec(
+            select(ErpAccount.erp_account_code, ErpAccount.erp_account_name)
+            .where(ErpAccount.erp_integration_id == integration_id)
+        ).all()
+    }
+    vendor_names: dict[str, str] = {}
+
     stats = {"categorized": 0, "failed": 0, "invoices_completed": 0, "invoices_failed": 0}
     for inv in invoices:
         lines = session.exec(
@@ -836,7 +848,27 @@ def _categorize_pending(
 
         any_failed = False
         for ln in pending:
-            match = categorize(ln.description or "", ln.native_account_code, candidates)
+            if inv.vendor_id and inv.vendor_id not in vendor_names:
+                vendor = session.get(Vendor, inv.vendor_id)
+                vendor_names[inv.vendor_id] = vendor.name if vendor else ""
+            context = LineContext(
+                description=ln.description,
+                native_account_code=ln.native_account_code,
+                native_account_name=account_names.get(ln.native_account_code or ""),
+                supplier=vendor_names.get(inv.vendor_id or "") or inv.supplier_name,
+                amount=ln.amount,
+                currency=inv.currency,
+            )
+            try:
+                match = categorize_line(context, candidates)
+            except CategorizerUnavailable as exc:
+                # Not this line's failure. Left `uncategorized`, it is picked up
+                # by the next run; marked `ai_failed` it would need an explicit
+                # requeue, so an outage would bury the whole batch.
+                logger.warning("    categorizer unavailable, stopping: %s", exc)
+                stats["unavailable"] = str(exc)
+                session.commit()
+                return stats
 
             before = {f: getattr(ln, f) for f in LINE_AUDIT_FIELDS}
 
