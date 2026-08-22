@@ -469,6 +469,18 @@ def _persist_invoices(
         if inv.voucher_id is not None:
             voucher_invoice_map[inv.voucher_id] = invoice_id
 
+        # An invoice holds exactly one *automated* origin at a time. Once a
+        # document has been read, its lines are the better source — the only one
+        # that knows what was actually bought — and re-adding the ERP's bill
+        # lines beside them describes the same spend twice and doubles the
+        # invoice's total. Extraction deletes the rows it replaces, which frees
+        # the ERP's deterministic line ids, so without this the next sync
+        # silently re-inserts every one of them.
+        superseded = _superseding_origins(session, invoice_id)
+        if superseded:
+            n_withdrawn += _withdraw_superseded_erp_lines(session, invoice_id)
+            continue
+
         stated_line_ids: set[str] = set()
         for idx, line in enumerate(inv.lines):
             line_key = line.line_erp_id or str(idx)
@@ -513,6 +525,70 @@ def _persist_invoices(
             n_withdrawn += _withdraw_unstated_lines(session, invoice_id, stated_line_ids)
     session.commit()
     return voucher_invoice_map, len(invoices), n_lines, n_queued, n_withdrawn
+
+
+def _superseding_origins(session: Session, invoice_id: str) -> bool:
+    """Whether a document has been read for this invoice.
+
+    Only ``document_ai`` supersedes the ERP's own bill lines: the document is the
+    single source that knows what was bought, and the two describe the same
+    money.
+
+    A ``human`` line deliberately does **not**. Splitting a stand-in means adding
+    real lines beside it and then deleting it, so treating a human line as
+    superseding would delete the very line the reviewer is working against,
+    mid-operation. The reconciliation warning covers that intermediate state
+    instead.
+    """
+    return session.exec(
+        select(InvoiceLine.id).where(
+            InvoiceLine.invoice_id == invoice_id,
+            InvoiceLine.origin == LineOrigin.DOCUMENT_AI,
+        ).limit(1)
+    ).first() is not None
+
+
+def _withdraw_superseded_erp_lines(session: Session, invoice_id: str) -> int:
+    """Remove ERP-derived lines left beside a better source's.
+
+    Prevention alone would leave every pair already stored, and an invoice whose
+    lines sum to twice its total can never reconcile again. Audited like any
+    other withdrawal, and `human` and `document_ai` lines are untouched.
+    """
+    doomed = session.exec(
+        select(InvoiceLine).where(
+            InvoiceLine.invoice_id == invoice_id,
+            InvoiceLine.origin.in_(  # type: ignore[union-attr]
+                (LineOrigin.ERP, LineOrigin.ENTRY_FALLBACK)
+            ),
+        )
+    ).all()
+    if not doomed:
+        return 0
+
+    doomed_ids = [line.id for line in doomed]
+    for entry in session.exec(
+        select(ErpEntry).where(ErpEntry.source_invoice_line_id.in_(doomed_ids))  # type: ignore[union-attr]
+    ).all():
+        entry.source_invoice_line_id = None
+        session.add(entry)
+
+    for line in doomed:
+        record_audit(
+            session,
+            entity_type="invoice_line",
+            entity_id=line.id,
+            action=WITHDRAWN_ACTION,
+            actor=SYSTEM_ACTOR,
+            changes=[
+                {"field": field, "old": _audit_value(line, field), "new": None}
+                for field in _WITHDRAWN_FIELDS
+            ],
+        )
+        session.delete(line)
+    session.flush()
+    recompute_invoice_status(session, invoice_id)
+    return len(doomed)
 
 
 def _withdraw_unstated_lines(

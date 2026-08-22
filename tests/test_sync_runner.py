@@ -971,3 +971,120 @@ def test_a_connector_that_reports_no_voids_withdraws_nothing(sqlite_engine):
     assert summary["entries_withdrawn"] == 0
     with Session(sqlite_engine) as s:
         assert s.exec(select(func.count()).select_from(ErpEntry)).one() == 8
+
+
+# -- extraction outranks the ERP's own lines ---------------------------------
+#
+# An invoice holds exactly one *automated* origin at a time: two describe the
+# same spend twice and double its total. Extraction replaces the ERP's lines
+# with the document's, and the next sync must not put them back.
+
+
+def _extracted(session, invoice_id: str) -> None:
+    """Stand in for the document stage, faithfully.
+
+    Replacement is whole-invoice: the old rows are **deleted** and new ones
+    inserted with fresh random ids. That detail is the bug — deleting them frees
+    the ERP's deterministic line ids, so the next sync re-inserts them beside the
+    extracted ones. A helper that merely flipped `origin` would leave the ids in
+    place, reproduce nothing, and pass against broken code.
+    """
+    company_id = None
+    for line in session.exec(
+        select(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id)
+    ).all():
+        company_id = line.company_id
+        session.delete(line)
+    session.flush()
+    session.add(InvoiceLine(
+        company_id=company_id, invoice_id=invoice_id,
+        description="Cloud hosting, as the document states it",
+        amount=Decimal("1000.00"), status="uncategorized",
+        origin="document_ai", sequence=0,
+    ))
+
+
+def test_a_resync_does_not_re_add_lines_extraction_replaced(sqlite_engine):
+    runner.run_sync()
+    with Session(sqlite_engine) as s:
+        invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
+        _extracted(s, invoice.id)
+        s.commit()
+        invoice_id = invoice.id
+
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        lines = s.exec(
+            select(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id)
+        ).all()
+        # One origin, not two: the document read what was bought, and the ERP's
+        # bill line describes the same money.
+        assert {ln.origin for ln in lines} == {"document_ai"}
+
+
+def test_an_extracted_invoice_keeps_its_total(sqlite_engine):
+    """The failure this prevents, stated as the number a reader would see."""
+    runner.run_sync()
+    with Session(sqlite_engine) as s:
+        invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
+        _extracted(s, invoice.id)
+        s.commit()
+        invoice_id, total = invoice.id, invoice.total
+
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        line_sum = sum(
+            (ln.amount or Decimal(0)) for ln in s.exec(
+                select(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id)
+            ).all()
+        )
+        assert line_sum < Decimal(str(total))  # never 2x
+
+
+def test_a_stale_erp_line_beside_an_extracted_one_is_withdrawn(sqlite_engine):
+    """Cleanup, not just prevention: the pairs already stored must resolve."""
+    runner.run_sync()
+    with Session(sqlite_engine) as s:
+        invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
+        _extracted(s, invoice.id)
+        # A leftover from before extraction ran, exactly as the dev org holds.
+        s.add(InvoiceLine(company_id=invoice.company_id, invoice_id=invoice.id,
+                          description="stale ERP copy", amount=Decimal("1000.00"),
+                          status="ai_failed", origin="erp", sequence=9))
+        s.commit()
+        invoice_id = invoice.id
+
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        origins = {
+            ln.origin for ln in s.exec(
+                select(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id)
+            ).all()
+        }
+        assert origins == {"document_ai"}
+
+
+def test_a_human_line_still_survives_beside_an_extracted_one(sqlite_engine):
+    """A reviewer splitting a line is the deliberate exception to one-origin."""
+    runner.run_sync()
+    with Session(sqlite_engine) as s:
+        invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
+        _extracted(s, invoice.id)
+        s.add(InvoiceLine(company_id=invoice.company_id, invoice_id=invoice.id,
+                          description="split out by a reviewer", amount=Decimal("10.00"),
+                          status="uncategorized", origin="human", sequence=8))
+        s.commit()
+        invoice_id = invoice.id
+
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        origins = {
+            ln.origin for ln in s.exec(
+                select(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id)
+            ).all()
+        }
+        assert origins == {"document_ai", "human"}
