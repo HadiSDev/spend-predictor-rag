@@ -136,3 +136,37 @@ def test_the_page_cap_still_applies(monkeypatch):
     monkeypatch.setattr(config, "DOC_VISION_MAX_IMAGES", 99)
 
     assert len(pdf_page_images(_pdf(pages=6))) == 4
+
+
+def test_bands_never_span_two_pages(monkeypatch):
+    """Pages are read individually — a band is always a slice of one page.
+
+    Proven by giving the document two pages of *different shapes*: every band
+    inherits the width of the page it was cut from, so two distinct widths in
+    the output means the bands were never stitched across the page boundary.
+    A merged render would produce one width for everything.
+    """
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.pdfgen import canvas
+
+    monkeypatch.setattr(config, "DOC_VISION_PAGE_BANDS", 2)
+    monkeypatch.setattr(config, "DOC_VISION_MAX_IMAGES", 99)
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    c.drawString(100, 750, "portrait page")
+    c.showPage()
+    c.setPageSize(landscape(A4))
+    c.drawString(100, 400, "landscape page")
+    c.showPage()
+    c.save()
+
+    sizes = _sizes(pdf_page_images(buf.getvalue()))
+
+    assert len(sizes) == 4, "two pages, two bands each"
+    portrait_widths = {w for w, _h in sizes[:2]}
+    landscape_widths = {w for w, _h in sizes[2:]}
+    assert len(portrait_widths) == 1 and len(landscape_widths) == 1
+    assert portrait_widths != landscape_widths, (
+        "each band carries its own page's shape, so no band spans two pages"
+    )

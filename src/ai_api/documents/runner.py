@@ -32,7 +32,7 @@ from web_api import integrations as integrations_mod
 from .. import config
 from .extractor import EmptyDocumentError, UnsupportedMediaError, extract_lines
 from .vision import VisionUnreadableError
-from .currency import comparable_total
+from .currency import comparable_total, conversion_rate
 from .reconcile import reconcile
 from .replace import replace_invoice_lines
 
@@ -181,12 +181,16 @@ def process_invoice(
     # bills in EUR, Cloudflare in USD, both booked in DKK — and comparing those
     # magnitudes directly rejects a correctly read document for arithmetic that
     # was never wrong.
-    comparable, mismatch = comparable_total(
-        lines_total, extracted.currency, invoice.currency, invoice.invoice_date, fx
+    # One rate for both decisions: what the lines are judged at is what they are
+    # stored at, so the figure that reconciled and the figure in the ledger can
+    # never disagree.
+    rate, mismatch = conversion_rate(
+        extracted.currency, invoice.currency, invoice.invoice_date, fx
     )
-    if comparable is None:
+    if rate is None:
         _fail(session, invoice, mismatch or "the document's currency cannot be compared")
         return "rejected"
+    comparable = lines_total * rate
 
     verdict = reconcile(comparable, invoice.total, invoice.tax)
     if not verdict.ok:
@@ -194,7 +198,7 @@ def process_invoice(
         return "rejected"
 
     n_removed, n_written = replace_invoice_lines(
-        session, invoice, extracted, fx=fx, base_currency=base_currency
+        session, invoice, extracted, fx=fx, base_currency=base_currency, rate=rate
     )
     session.commit()
     logger.info(

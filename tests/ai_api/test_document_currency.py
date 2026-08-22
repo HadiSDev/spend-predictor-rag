@@ -24,7 +24,7 @@ import pytest
 from datetime import date
 from decimal import Decimal
 
-from ai_api.documents.currency import comparable_total
+from ai_api.documents.currency import comparable_total, conversion_rate
 
 
 class _Rates:
@@ -207,3 +207,62 @@ def test_a_currency_we_cannot_resolve_is_treated_as_unstated(written):
     assert total == Decimal("58.00")
     assert reason is None
     assert fx.asked == []
+
+
+# -- What gets stored, not just what gets compared ----------------------------
+
+
+def test_the_rate_used_for_the_comparison_is_available_for_storage():
+    """Comparing in one currency and storing in another is how a EUR 18.80 line
+    ended up in a DKK column reading 18.80.
+
+    The comparison was made currency-aware; storage was not, and
+    `replace_invoice_lines` writes the document's own figure while
+    `fx.convert_line` treats it as the invoice's currency. The rate has to leave
+    this module for the writer to put the line in the invoice's money.
+    """
+    fx = _Rates({("EUR", "DKK"): "7.4736"})
+
+    rate, reason = conversion_rate("EUR", "DKK", date(2026, 6, 4), fx)
+
+    assert reason is None
+    assert rate == Decimal("7.4736")
+
+
+def test_a_same_currency_document_converts_at_one():
+    """Not None — a rate of 1 multiplies harmlessly and needs no special case
+    at the call site, which is where a forgotten None becomes a crash."""
+    fx = _Rates()
+
+    rate, reason = conversion_rate("DKK", "DKK", date(2026, 6, 4), fx)
+
+    assert rate == Decimal("1") and reason is None
+    assert fx.asked == []
+
+
+def test_an_unstated_document_currency_converts_at_one():
+    fx = _Rates()
+
+    rate, reason = conversion_rate(None, "DKK", date(2026, 6, 4), fx)
+
+    assert rate == Decimal("1") and reason is None
+
+
+def test_no_rate_is_refused_rather_than_defaulted_to_one():
+    """Defaulting to 1 is exactly the bug: it stores a foreign figure as local."""
+    fx = _Rates()
+
+    rate, reason = conversion_rate("EUR", "DKK", date(2026, 6, 4), fx)
+
+    assert rate is None
+    assert reason is not None and "EUR" in reason
+
+
+def test_the_comparable_total_is_the_sum_scaled_by_that_rate():
+    """One rate, one decision — the comparison and the stored lines must agree."""
+    fx = _Rates({("EUR", "DKK"): "7.4736"})
+
+    rate, _ = conversion_rate("EUR", "DKK", date(2026, 6, 4), fx)
+    total, _ = comparable_total(Decimal("62.11"), "EUR", "DKK", date(2026, 6, 4), fx)
+
+    assert total == Decimal("62.11") * rate

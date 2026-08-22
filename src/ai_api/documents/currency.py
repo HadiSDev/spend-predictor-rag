@@ -73,6 +73,49 @@ def _code(written: str | None) -> str | None:
     return _SYMBOLS.get(text)
 
 
+_ONE = Decimal("1")
+
+
+def conversion_rate(
+    document_currency: str | None,
+    invoice_currency: str | None,
+    on_date: date | None,
+    fx,
+) -> tuple[Decimal | None, str | None]:
+    """What one unit of the document's money is worth in the invoice's.
+
+    Returns ``(rate, None)`` or ``(None, reason)``. A document in the invoice's
+    own currency — or naming none — converts at exactly ``1`` rather than
+    ``None``, so a caller can multiply unconditionally; a ``None`` that has to
+    be special-cased at every call site is a crash waiting for the one site that
+    forgets.
+
+    **Never defaults to 1 when a rate is genuinely missing**, because that is
+    precisely the bug this exists to prevent: it stores a foreign figure in a
+    local column, and an EUR 18.80 line reads as DKK 18.80 forever after.
+    """
+    document = _code(document_currency)
+    invoice = _code(invoice_currency)
+
+    if document is None or invoice is None or document == invoice:
+        return _ONE, None
+
+    resolved = fx.get_rate(document, invoice, on_date)
+    if resolved is None:
+        return None, (
+            f"the document is in {document} but the invoice is posted in "
+            f"{invoice}, and no {document}→{invoice} rate is available for "
+            f"{on_date or 'an unknown date'}, so the two cannot be compared"
+        )
+
+    rate, published = resolved
+    logger.info(
+        "  document is in %s, invoice in %s: converting at %s (rate of %s)",
+        document, invoice, rate, published,
+    )
+    return rate, None
+
+
 def comparable_total(
     lines_total: Decimal,
     document_currency: str | None,
@@ -93,24 +136,9 @@ def comparable_total(
     larger invented one. The same applies when the *invoice* names no currency:
     there is nothing to convert to.
     """
-    document = _code(document_currency)
-    invoice = _code(invoice_currency)
-
-    if document is None or invoice is None or document == invoice:
-        return lines_total, None
-
-    resolved = fx.get_rate(document, invoice, on_date)
-    if resolved is None:
-        return None, (
-            f"the document is in {document} but the invoice is posted in "
-            f"{invoice}, and no {document}→{invoice} rate is available for "
-            f"{on_date or 'an unknown date'}, so the two cannot be compared"
-        )
-
-    rate, published = resolved
-    converted = lines_total * rate
-    logger.info(
-        "  document is in %s, invoice in %s: comparing at %s (rate of %s)",
-        document, invoice, rate, published,
-    )
-    return converted, None
+    rate, reason = conversion_rate(document_currency, invoice_currency, on_date, fx)
+    if rate is None:
+        return None, reason
+    # The same rate the caller stores the lines at — one decision, so the figure
+    # judged and the figure written can never disagree.
+    return lines_total * rate, None

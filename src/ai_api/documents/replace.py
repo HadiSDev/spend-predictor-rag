@@ -32,6 +32,7 @@ from web_api.audit import LINE_AUDIT_FIELDS, LINE_VALUE_AUDIT_FIELDS, record_aud
 from web_api.db.models import DocStatus, ErpEntry, Invoice, InvoiceLine, LineOrigin, LineStatus
 from web_api.db.models.audit_log import SYSTEM_ACTOR
 from web_api.fx import FxService
+from web_api.fx.service import convert as fx_convert
 from web_api.rollup import recompute_invoice_status
 
 from .extractor import ExtractedLines
@@ -66,6 +67,20 @@ def _dec(value) -> Decimal | None:
     return Decimal(str(value))
 
 
+def _money(value, rate: Decimal | None) -> Decimal | None:
+    """A money figure restated in the invoice's currency.
+
+    A quantity is deliberately *not* passed through here: five of something is
+    five of it whatever the money is worth.
+    """
+    amount = _dec(value)
+    if amount is None or rate is None or rate == 1:
+        return amount
+    # `fx.convert` owns the rounding, so a converted line and a converted
+    # invoice round the same way rather than drifting an øre apart.
+    return fx_convert(amount, rate)
+
+
 def replace_invoice_lines(
     session: Session,
     invoice: Invoice,
@@ -73,6 +88,7 @@ def replace_invoice_lines(
     *,
     fx: FxService,
     base_currency: str | None,
+    rate: Decimal | None = None,
 ) -> tuple[int, int]:
     """Replace the invoice's provisional lines with ``lines``. Does not commit.
 
@@ -128,8 +144,13 @@ def replace_invoice_lines(
             # an ERP bill line carries a quantity and no unit at all — which is
             # most of the value of reading it.
             unit=(item.unit_type or "").strip() or None,
-            unit_price=_dec(item.unit_price),
-            amount=_dec(item.amount),
+            # In the invoice's money, not the document's. Anthropic bills in
+            # EUR against a DKK posting; writing the printed 90.00 into a DKK
+            # column made a 672.83 invoice claim 90.00 of spend. `rate` is the
+            # very one the reconciliation used, so the figure judged and the
+            # figure written cannot disagree.
+            unit_price=_money(item.unit_price, rate),
+            amount=_money(item.amount, rate),
             # Left uncategorized on purpose: the categorizer categorizes, on its
             # own schedule, exactly as it does for every other line.
             status=LineStatus.UNCATEGORIZED,
