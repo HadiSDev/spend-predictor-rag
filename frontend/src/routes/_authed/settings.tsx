@@ -31,8 +31,19 @@ function SettingsLayout() {
 
       <Tabs value={active}>
         <TabsList>
+          {/* Each tab is a real anchor, not a button styled as one: they
+              navigate, and middle-click and open-in-new-tab only work on a
+              link. `nativeButton={false}` tells Base UI that is deliberate — it
+              otherwise assumes its default `<button>` and warns, because a
+              non-button carrying the button role is announced as something it
+              cannot behave like. */}
           {TABS.map((tab) => (
-            <TabsTab key={tab.to} value={tab.to} render={<Link to={tab.to} />}>
+            <TabsTab
+              key={tab.to}
+              value={tab.to}
+              nativeButton={false}
+              render={<Link to={tab.to} />}
+            >
               {tab.label}
             </TabsTab>
           ))}
