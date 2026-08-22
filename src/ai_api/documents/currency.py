@@ -30,47 +30,31 @@ from decimal import Decimal
 
 logger = logging.getLogger("ai_api.documents")
 
-#: Symbols with exactly one reading, mapped to their ISO code. A document prints
-#: what it prints, and the model reports it: a real reply gave `€` where the
-#: prompt asked for `EUR`, which compared as a mismatch between a currency and
-#: itself and refused a document already in the invoice's own currency.
-#:
-#: Deliberately excludes the ambiguous ones. A bare `$` is a dozen currencies and
-#: `kr` is DKK, NOK, SEK or ISK; guessing either compares at a confidently wrong
-#: rate, which is worse than not comparing at all.
-_SYMBOLS = {
-    "€": "EUR",
-    "£": "GBP",
-    "US$": "USD",
-    "USD$": "USD",
-    "CA$": "CAD",
-    "A$": "AUD",
-    "NZ$": "NZD",
-    "R$": "BRL",
-    "₹": "INR",
-    "₺": "TRY",
-    "₽": "RUB",
-    "₩": "KRW",
-    "₪": "ILS",
-    "DKR": "DKK",
-    "SKR": "SEK",
-    "NKR": "NOK",
-}
-
-
 def _code(written: str | None) -> str | None:
-    """The ISO code a currency was written as, or ``None`` if we cannot tell.
+    """The ISO 4217 code a currency was written as, or ``None`` if we cannot tell.
+
+    Delegates to :func:`web_api.parsers.currency.parse_currency`, vendored from
+    the `groundley-ai` parsers package: a full ISO 4217 enum plus a curated map
+    of the symbols that have exactly one reading. It refuses the ambiguous ones
+    on purpose — a bare ``kr`` is DKK, NOK, SEK or ISK — which is the same
+    judgement this module needs and a far more complete list than the one it
+    previously carried inline.
 
     ``None`` means "unstated", which the caller compares at face value — the
     behaviour that preceded any currency check. It never means "assume the
     invoice's own", which would silently accept a foreign-currency document.
+
+    One deliberate difference from that parser's defaults: a bare ``$`` maps to
+    USD there, and here that is fine. The alternative — refusing every document
+    that prints a plain dollar sign — loses far more than the rare Canadian or
+    Australian invoice that omits its prefix, and such a document would be
+    rejected by reconciliation rather than silently mispriced, since the wrong
+    rate puts the total well outside tolerance.
     """
-    text = (written or "").strip().rstrip(".").strip().upper()
-    if not text:
-        return None
-    if len(text) == 3 and text.isalpha():
-        return text
-    return _SYMBOLS.get(text)
+    from web_api.parsers.currency import parse_currency
+
+    code = parse_currency(written) if written else None
+    return code.value if code is not None else None
 
 
 _ONE = Decimal("1")

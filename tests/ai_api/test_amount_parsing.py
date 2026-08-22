@@ -59,9 +59,6 @@ def test_an_unambiguous_amount_is_parsed(printed, expected):
 @pytest.mark.parametrize(
     "printed",
     [
-        # 1234 in Copenhagen, 1.234 in London. Refused, never guessed.
-        "1.234",
-        "1,234",
         # Not an amount at all: the EKWB barcode that arrived as a line total.
         "3831109813256",
         "",
@@ -99,3 +96,63 @@ def test_a_bare_dot_group_is_still_left_alone_in_text():
     """No comma decimal means no evidence the text is European. Hands off."""
     assert normalize_numbers("Ordre 1.234") == "Ordre 1.234"
     assert normalize_numbers("Total 1919.20 DKK") == "Total 1919.20 DKK"
+
+
+# -- Dot grouping, for money specifically ------------------------------------
+
+
+@pytest.mark.parametrize(
+    "printed, expected",
+    [
+        # The DSB receipt: `5.780 kr.` is 5780 kroner, and the ledger agrees.
+        ("5.780 kr.", 5780.0),
+        ("5.780", 5780.0),
+        ("1.234", 1234.0),
+        ("1.234.567", 1234567.0),
+        ("DKK 12.500", 12500.0),
+        ("-1.500", -1500.0),
+        # A comma group reads the same way, for the same reason: as money, the
+        # only alternative is three decimal places, which no ordinary currency
+        # has.
+        ("1,234", 1234.0),
+        ("1,234,567", 1234567.0),
+    ],
+)
+def test_a_dot_group_of_three_is_thousands_when_the_figure_is_money(printed, expected):
+    """`1.234` is genuinely ambiguous in free text and this module refuses it
+    there — but not here.
+
+    An amount is not free text. No ordinary currency carries three decimal
+    places, so three digits after a lone dot can only be a thousands group. A
+    real DSB receipt priced `5.780 kr.` against a DKK 5780.00 posting was
+    refused on the general rule and cost us the document, while the ledger sat
+    beside it stating the answer.
+
+    The trade-off, accepted: a three-decimal currency (KWD, BHD, TND) would be
+    misread by a factor of a thousand. None appears in this ledger, and the
+    alternative is refusing every Danish and German amount printed this way.
+    """
+    assert parse_amount(printed) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "printed, expected",
+    [
+        # One or two digits after the dot is a decimal, not a group.
+        ("1.23", 1.23),
+        ("1.2", 1.2),
+        ("1919.20", 1919.2),
+        # A comma decimal still wins outright when both are present.
+        ("5.780,50", 5780.5),
+    ],
+)
+def test_a_short_dot_group_is_still_a_decimal(printed, expected):
+    assert parse_amount(printed) == pytest.approx(expected)
+
+
+def test_free_text_normalization_still_refuses_the_same_shape():
+    """The relaxation is `parse_amount`'s alone. In a text layer, `1.234` may be
+    a quantity, an order reference or a version, and rewriting it would corrupt
+    all three."""
+    assert normalize_numbers("Ordre 1.234") == "Ordre 1.234"
+    assert normalize_numbers("Dato 03.07.2026") == "Dato 03.07.2026"

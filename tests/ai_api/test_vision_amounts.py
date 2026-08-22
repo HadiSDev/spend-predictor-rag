@@ -82,7 +82,10 @@ def test_a_line_whose_amount_cannot_be_read_is_kept_without_one():
     """Dropped hides money; guessed invents it; kept-and-short reconciles false."""
     reply = _reply([
         {"description": "Readable", "amount": "58,00"},
-        {"description": "Unreadable", "amount": "1.234"},
+        # A 13-digit article number, which is what an EKWB invoice actually
+        # returned in an amount field. `1.234` used to sit here and no longer
+        # belongs: as *money* it reads unambiguously as 1234.
+        {"description": "Unreadable", "amount": "3831109813256"},
     ])
 
     result = look_at("", [_page()], complete=lambda m: reply)

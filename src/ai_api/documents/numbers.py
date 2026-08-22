@@ -39,6 +39,8 @@ from __future__ import annotations
 
 import re
 
+from web_api.parsers.amount import normalize_parse_amount
+
 #: The separators a PDF actually emits for grouping: a space or a non-breaking
 #: space. A thin space shows up in some generators too.
 _GROUP = "[ \u00a0\u2009\u202f]"
@@ -70,63 +72,45 @@ def normalize_numbers(text: str) -> str:
     return _BARE.sub(lambda m: f"{m.group(1)}.{m.group(2)}", text)
 
 
-#: What the whole cleaned figure must look like to be money: optional sign, then
-#: digits, then at most one dot decimal. Anything else — a bare `1.234`, a
-#: 13-digit barcode with no decimal, a date — is refused.
-_MONEY = re.compile(r"^-?\d+(?:\.\d{1,2})?$")
-
-#: A digit run this long with no decimal is an article number or a barcode, not
-#: a price. The EKWB invoice returned `3831109813256` as a line total.
-_MAX_PLAIN_DIGITS = 9
-
-#: The figure inside a printed amount: a digit, then any run of digits and
-#: separators, ending on a digit. Anchored on digits at both ends so a trailing
-#: `kr.`'s dot or a leading symbol never joins the number.
-_FIGURE = re.compile(rf"\d(?:[\d,.{_GROUP[1:-1]}]*\d)?")
+#: U+2212 MINUS SIGN, which PDFs emit where a keyboard would type a hyphen. The
+#: vendored parser reads a hyphen and strips anything else as decoration, so a
+#: minus written this way would silently lose its sign — a credit note becoming
+#: a charge. Normalized here rather than in the parser, which is kept verbatim.
+_UNICODE_MINUS = "\u2212"
 
 
 def parse_amount(printed: object) -> float | None:
-    """Read one amount exactly as printed, or refuse it.
+    """Read one printed amount as money, or refuse it.
 
-    Returns ``None`` — never a guess — when the figure is ambiguous or is not a
-    figure at all. A refused amount becomes a line with no amount, which
-    reconciliation then reports as not adding up; a *guessed* one becomes a
-    wrong number that reconciles by luck and is never questioned again.
+    A thin wrapper over :func:`web_api.parsers.amount.normalize_parse_amount`,
+    vendored from the `groundley-ai` parsers package. That parser analyses the
+    figure's groups and separators rather than pattern-matching a handful of
+    shapes, which is why it gets the cases this module previously could not:
+
+    * ``5.780 kr.`` is 5780, not 5.78 — a dot group of three is thousands, since
+      no ordinary currency carries three decimal places. A real DSB receipt was
+      refused on the old hand-rolled rule and cost us the document.
+    * ``31.12.99`` is a date and yields nothing, where a looser reading would
+      have produced 31.12 and quietly wrong spend.
+    * ``1.003,37``, ``1 919,20``, ``1,919.20``, ``(1.003,37)`` and ``13,37`` all
+      resolve, in whichever convention the supplier printed.
+    * A 13-digit barcode is not money, so an EKWB article number stays refused.
+
+    Returns ``None`` rather than a guess, and ``None`` becomes a line with no
+    amount — which reconciliation reports as not adding up. A *guessed* amount
+    would reconcile by luck and never be questioned again.
     """
     if printed is None:
         return None
-    if isinstance(printed, (int, float)) and not isinstance(printed, bool):
+    if isinstance(printed, bool):
+        return None
+    if isinstance(printed, (int, float)):
         return float(printed)
 
-    text = str(printed).strip()
-    if not text or text.lower() in {"null", "none", "n/a", "na", "-", "—", "–"}:
+    text = str(printed).strip().replace(_UNICODE_MINUS, "-")
+    if not text:
         return None
-
-    text = text.replace("−", "-")  # U+2212 MINUS SIGN, which PDFs emit
-    # Accounting parentheses and a leading minus both mean negative. Read before
-    # the figure is isolated, since isolating it discards them.
-    negative = (text.startswith("(") and text.endswith(")")) or text.lstrip(
-        "€$£kr. "
-    ).startswith("-")
-
-    # The figure is *found*, not carved out by deleting everything around it:
-    # `kr. 58,00` loses its letters but keeps the abbreviation's dot, and
-    # `.58.00` is not a number. Currency symbols and codes ride along with the
-    # amount on a real document — `DKK 5.780,00`, `€90.30`, `1 919,20 DKK`.
-    found = _FIGURE.search(text)
-    if not found:
+    try:
+        return normalize_parse_amount(text)
+    except Exception:  # noqa: BLE001 - a malformed figure is not a crash
         return None
-
-    normalized = normalize_numbers(found.group(0))
-    # A US-grouped figure is unambiguous once a dot decimal is present.
-    if re.fullmatch(r"\d{1,3}(?:,\d{3})+\.\d{1,2}", normalized):
-        normalized = normalized.replace(",", "")
-    normalized = re.sub(r"\s+", "", normalized)
-
-    if not _MONEY.fullmatch(normalized):
-        return None
-    if "." not in normalized and len(normalized.lstrip("-")) > _MAX_PLAIN_DIGITS:
-        return None
-
-    value = float(normalized)
-    return -value if negative and value > 0 else value

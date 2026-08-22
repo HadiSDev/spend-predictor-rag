@@ -190,12 +190,12 @@ def test_the_same_currency_written_any_way_is_not_a_mismatch(written):
     assert total == Decimal("90.30") and reason is None
 
 
-@pytest.mark.parametrize("written", ["kr", "$", "Fr.", "shekels", "?"])
+@pytest.mark.parametrize("written", ["kr", "shekels", "?", "kroner"])
 def test_a_currency_we_cannot_resolve_is_treated_as_unstated(written):
-    """`kr` is DKK, NOK, SEK or ISK, and a bare `$` is a dozen currencies.
+    """`kr` is DKK, NOK, SEK or ISK — the vendored parser refuses it on purpose.
 
-    Refusing the document would be worse than the behaviour that preceded any
-    currency check — comparing at face value — and *guessing* a code is worse
+    Refusing the *document* would be worse than the behaviour that preceded any
+    currency check — comparing at face value — and guessing a code is worse
     still, since it compares at a confidently wrong rate.
     """
     fx = _Rates({("USD", "DKK"): "6.44"})
@@ -266,3 +266,30 @@ def test_the_comparable_total_is_the_sum_scaled_by_that_rate():
     total, _ = comparable_total(Decimal("62.11"), "EUR", "DKK", date(2026, 6, 4), fx)
 
     assert total == Decimal("62.11") * rate
+
+
+@pytest.mark.parametrize(
+    "written, code",
+    [
+        ("$", "USD"), ("US$", "USD"), ("CA$", "CAD"), ("A$", "AUD"),
+        ("Fr.", "CHF"), ("zł", "PLN"), ("₹", "INR"), ("฿", "THB"),
+        ("R$", "BRL"), ("₪", "ILS"), ("£", "GBP"), ("€", "EUR"),
+    ],
+)
+def test_the_vendored_parser_resolves_the_symbols_it_knows(written, code):
+    """Adopted wholesale rather than reimplemented — this is a far more complete
+    map than the inline one it replaced, and pinning it here means a later
+    upgrade of the vendored package cannot change our behaviour unnoticed.
+
+    A bare `$` resolving to USD is a deliberate acceptance: refusing every
+    document that prints a plain dollar sign loses far more than the rare
+    Canadian or Australian invoice that omits its prefix, and that one is
+    rejected by reconciliation — a wrong rate puts the total well outside
+    tolerance — rather than silently mispriced.
+    """
+    fx = _Rates({(code, "DKK"): "7"})
+
+    rate, reason = conversion_rate(written, "DKK", date(2026, 6, 4), fx)
+
+    assert reason is None
+    assert fx.asked == [(code, "DKK", date(2026, 6, 4))]
