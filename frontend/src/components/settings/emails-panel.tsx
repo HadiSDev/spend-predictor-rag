@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Badge, Button, Input } from '#/components/ui'
+import { Badge, Button, CodeInput, Input } from '#/components/ui'
 import type { ClerkEmailAddress, ClerkUser } from '#/lib/clerk-types'
 import { serverErrorMessage } from '#/lib/form-errors'
 import { SettingsCard } from './form'
@@ -64,11 +64,10 @@ export function EmailsView({
     )
   }
 
-  function handleVerify(event: React.FormEvent) {
-    event.preventDefault()
-    if (!code.trim()) return
+  function submitCode(value: string) {
+    if (!value.trim()) return
     void run(
-      () => onVerify(code.trim()),
+      () => onVerify(value.trim()),
       () => {
         // Verified — back to the idle state with a clean form.
         setPending(null)
@@ -76,6 +75,11 @@ export function EmailsView({
         setCode('')
       },
     )
+  }
+
+  function handleVerify(event: React.FormEvent) {
+    event.preventDefault()
+    submitCode(code)
   }
 
   return (
@@ -122,15 +126,20 @@ export function EmailsView({
             <p className="text-sm text-muted-foreground">
               Enter the code sent to <span className="font-medium text-foreground">{pending}</span>.
             </p>
+            <CodeInput
+              aria-label="Verification code"
+              value={code}
+              onChange={setCode}
+              disabled={busy}
+              onComplete={(value) => {
+                // A pasted code verifies with no further click. `busy` guards a
+                // second submit while one is in flight.
+                if (!busy) submitCode(value)
+              }}
+            />
+            {/* The cells are a wide row, so the actions sit on their own line
+                rather than wrapping raggedly beside them. */}
             <div className="flex flex-wrap items-center gap-2">
-              <Input
-                aria-label="Verification code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                className="max-w-40"
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-              />
               <Button type="submit" disabled={busy || !code.trim()}>
                 {busy ? 'Verifying…' : 'Verify'}
               </Button>

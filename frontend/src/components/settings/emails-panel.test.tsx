@@ -44,10 +44,11 @@ describe('EmailsView', () => {
     await waitFor(() => expect(props.onAdd).toHaveBeenCalledWith('new@example.com'))
     await waitFor(() => expect(screen.getByLabelText('Verification code')).toBeTruthy())
 
+    // The completed code verifies on its own — no click.
     fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
     await waitFor(() => expect(props.onVerify).toHaveBeenCalledWith('123456'))
+    expect(props.onVerify).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(screen.getByLabelText('New email address')).toBeTruthy())
   })
 
@@ -64,9 +65,14 @@ describe('EmailsView', () => {
     await waitFor(() => expect(screen.getByLabelText('Verification code')).toBeTruthy())
 
     fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '000000' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
     await waitFor(() => expect(screen.getByText('That code is incorrect.')).toBeTruthy())
+    expect(onVerify).toHaveBeenCalledTimes(1)
+
+    // The button is the retry path: the code is unchanged, so completion does
+    // not re-fire on its own.
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    await waitFor(() => expect(onVerify).toHaveBeenCalledTimes(2))
     // Still on the verification step, with the code kept so it can be corrected.
     expect(screen.getByLabelText<HTMLInputElement>('Verification code').value).toBe('000000')
     expect(screen.getByRole('button', { name: 'Resend code' })).toBeTruthy()

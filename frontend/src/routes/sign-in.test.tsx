@@ -71,13 +71,39 @@ describe('sign-in (passwordless email code)', () => {
       expect(clerk.emailCode.sendCode).toHaveBeenCalledWith({ emailAddress: 'a@b.com' }),
     )
 
-    // Step 2: enter the code and verify.
+    // Step 2: the completed code submits on its own — no click. A code arrives
+    // by paste from an email, and asking for a button press after it is already
+    // whole is the click this field exists to remove.
     fireEvent.change(await screen.findByLabelText('Verification code'), {
       target: { value: '123456' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /Verify & sign in/ }))
 
     await waitFor(() => expect(clerk.emailCode.verifyCode).toHaveBeenCalledWith({ code: '123456' }))
     await waitFor(() => expect(clerk.finalize).toHaveBeenCalledTimes(1))
+    expect(clerk.emailCode.verifyCode).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the button as the retry path after a rejected code', async () => {
+    clerk.status = 'complete'
+    clerk.emailCode.sendCode.mockResolvedValue({ error: null })
+    clerk.emailCode.verifyCode.mockResolvedValue({ error: { message: 'Incorrect code' } })
+
+    render(<SignInPage />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Email code' }))
+    fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'a@b.com' } })
+    fireEvent.click(screen.getByRole('button', { name: /Email me a code/ }))
+
+    const field = await screen.findByLabelText('Verification code')
+    fireEvent.change(field, { target: { value: '000000' } })
+
+    // Auto-submit ran and Clerk rejected it.
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(clerk.emailCode.verifyCode).toHaveBeenCalledTimes(1)
+
+    // The same code is still on screen, so completion does not re-fire; the
+    // button is what resubmits it.
+    fireEvent.click(screen.getByRole('button', { name: /Verify & sign in/ }))
+    await waitFor(() => expect(clerk.emailCode.verifyCode).toHaveBeenCalledTimes(2))
+    expect(clerk.finalize).not.toHaveBeenCalled()
   })
 })

@@ -1,8 +1,10 @@
+import * as React from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useForm } from 'react-hook-form'
 import {
   Button,
+  CodeInput,
   type ColumnDef,
   Combobox,
   ComboboxContent,
@@ -204,6 +206,202 @@ describe('NumberInput', () => {
       />,
     )
     expect(screen.getByDisplayValue('kr 1,234,567.50')).toBeTruthy()
+  })
+})
+
+/**
+ * `CodeInput` is controlled, so the tests drive it through a host that owns the
+ * value — the same way both call sites use it.
+ */
+function CodeHost({
+  length,
+  onComplete,
+  disabled,
+  initial = '',
+}: {
+  length?: number
+  onComplete?: (code: string) => void
+  disabled?: boolean
+  initial?: string
+}) {
+  const [code, setCode] = React.useState(initial)
+  // Associated by `htmlFor`, not by wrapping: the cells render inside the
+  // component, so a wrapping <label> would fold the entered digits into its own
+  // text and the field's accessible name would drift as the user types.
+  return (
+    <>
+      <label htmlFor="code">Verification code</label>
+      <CodeInput
+        id="code"
+        value={code}
+        onChange={setCode}
+        onComplete={onComplete}
+        length={length}
+        disabled={disabled}
+      />
+    </>
+  )
+}
+
+const cells = () => document.querySelectorAll('[data-slot="code-input-cell"]')
+const cellText = () => Array.from(cells()).map((cell) => cell.textContent)
+
+describe('CodeInput', () => {
+  it('renders one cell per digit, at the requested length', () => {
+    const { unmount } = render(<CodeHost />)
+    expect(cells().length).toBe(6)
+    unmount()
+
+    render(<CodeHost length={4} />)
+    expect(cells().length).toBe(4)
+  })
+
+  it('fills only its own cells for a value shorter than the length', () => {
+    render(<CodeHost initial="12" />)
+    expect(cellText()).toEqual(['1', '2', '', '', '', ''])
+  })
+
+  it('is empty with no placeholder digit', () => {
+    render(<CodeHost />)
+    expect(cellText().join('')).toBe('')
+  })
+
+  it('reports the accumulated code as one string, not per cell', () => {
+    render(<CodeHost />)
+    const field = screen.getByLabelText<HTMLInputElement>('Verification code')
+
+    fireEvent.change(field, { target: { value: '1' } })
+    fireEvent.change(field, { target: { value: '12' } })
+    fireEvent.change(field, { target: { value: '123' } })
+
+    expect(field.value).toBe('123')
+    expect(cellText()).toEqual(['1', '2', '3', '', '', ''])
+  })
+
+  it('rejects a non-digit without changing the code', () => {
+    render(<CodeHost initial="12" />)
+    const field = screen.getByLabelText<HTMLInputElement>('Verification code')
+
+    fireEvent.change(field, { target: { value: '12a' } })
+
+    expect(field.value).toBe('12')
+    expect(cellText()).toEqual(['1', '2', '', '', '', ''])
+  })
+
+  it('clears the last digit on Backspace', () => {
+    render(<CodeHost initial="123" />)
+    const field = screen.getByLabelText<HTMLInputElement>('Verification code')
+
+    fireEvent.keyDown(field, { key: 'Backspace' })
+    expect(field.value).toBe('12')
+
+    fireEvent.keyDown(field, { key: 'Backspace' })
+    fireEvent.keyDown(field, { key: 'Backspace' })
+    expect(field.value).toBe('')
+
+    // Nothing left to delete — Backspace on an empty field is harmless.
+    fireEvent.keyDown(field, { key: 'Backspace' })
+    expect(field.value).toBe('')
+  })
+
+  it('does not move the entry point on an arrow key', () => {
+    render(<CodeHost initial="123" />)
+    const field = screen.getByLabelText<HTMLInputElement>('Verification code')
+
+    fireEvent.keyDown(field, { key: 'ArrowLeft' })
+    fireEvent.keyDown(field, { key: 'ArrowRight' })
+
+    expect(field.value).toBe('123')
+    expect(cellText()).toEqual(['1', '2', '3', '', '', ''])
+  })
+
+  it('distributes a pasted code across the cells, grouped or not', () => {
+    const { unmount } = render(<CodeHost />)
+    fireEvent.change(screen.getByLabelText('Verification code'), {
+      target: { value: '123456' },
+    })
+    expect(cellText()).toEqual(['1', '2', '3', '4', '5', '6'])
+    unmount()
+
+    // Mail clients group a code; the space must not occupy a cell.
+    render(<CodeHost />)
+    fireEvent.change(screen.getByLabelText('Verification code'), {
+      target: { value: '123 456' },
+    })
+    expect(cellText()).toEqual(['1', '2', '3', '4', '5', '6'])
+  })
+
+  it('discards pasted digits beyond the last cell', () => {
+    render(<CodeHost />)
+    const field = screen.getByLabelText<HTMLInputElement>('Verification code')
+
+    fireEvent.change(field, { target: { value: '1234567890' } })
+
+    expect(field.value).toBe('123456')
+    expect(cellText()).toEqual(['1', '2', '3', '4', '5', '6'])
+  })
+
+  it('reports completion once, on the transition into a complete code', () => {
+    const onComplete = vi.fn()
+    render(<CodeHost initial="12345" onComplete={onComplete} />)
+    const field = screen.getByLabelText<HTMLInputElement>('Verification code')
+
+    // Five of six digits is not complete.
+    expect(onComplete).not.toHaveBeenCalled()
+
+    fireEvent.change(field, { target: { value: '123456' } })
+    expect(onComplete).toHaveBeenCalledTimes(1)
+    expect(onComplete).toHaveBeenCalledWith('123456')
+
+    // Re-rendering a still-complete, unchanged code must not resubmit.
+    fireEvent.focus(field)
+    fireEvent.blur(field)
+    expect(onComplete).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports completion for a code that arrives in one paste', () => {
+    const onComplete = vi.fn()
+    render(<CodeHost onComplete={onComplete} />)
+
+    fireEvent.change(screen.getByLabelText('Verification code'), {
+      target: { value: '654321' },
+    })
+
+    expect(onComplete).toHaveBeenCalledTimes(1)
+    expect(onComplete).toHaveBeenCalledWith('654321')
+  })
+
+  it('reports completion again after the code is broken and remade', () => {
+    const onComplete = vi.fn()
+    render(<CodeHost initial="123456" onComplete={onComplete} />)
+    const field = screen.getByLabelText<HTMLInputElement>('Verification code')
+    expect(onComplete).toHaveBeenCalledTimes(1)
+
+    fireEvent.keyDown(field, { key: 'Backspace' })
+    fireEvent.change(field, { target: { value: '123459' } })
+
+    expect(onComplete).toHaveBeenCalledTimes(2)
+    expect(onComplete).toHaveBeenLastCalledWith('123459')
+  })
+
+  it('is one labelled tab stop offering one-time-code autofill', () => {
+    render(<CodeHost />)
+    const field = screen.getByLabelText<HTMLInputElement>('Verification code')
+
+    expect(field.getAttribute('autocomplete')).toBe('one-time-code')
+    expect(field.getAttribute('inputmode')).toBe('numeric')
+    // One real control, so one tab stop — the cells are presentational.
+    expect(document.querySelectorAll('input').length).toBe(1)
+    expect(field.tabIndex).toBe(0)
+  })
+
+  it('blocks entry when disabled', () => {
+    render(<CodeHost disabled initial="12" />)
+    const field = screen.getByLabelText<HTMLInputElement>('Verification code')
+
+    expect(field.disabled).toBe(true)
+    fireEvent.change(field, { target: { value: '123' } })
+    expect(cellText()).toEqual(['1', '2', '', '', '', ''])
   })
 })
 

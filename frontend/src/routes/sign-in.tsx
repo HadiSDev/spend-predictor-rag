@@ -6,6 +6,7 @@ import { BarChart3 } from 'lucide-react'
 import {
   Button,
   Card,
+  CodeInput,
   Form,
   FormControl,
   FormField,
@@ -170,11 +171,16 @@ function EmailCodePanel({ signIn, setError, finish }: PanelProps) {
             <FormItem>
               <FormLabel>Verification code</FormLabel>
               <FormControl>
-                <Input
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  placeholder="123456"
+                <CodeInput
                   {...field}
+                  onComplete={() => {
+                    // A pasted code verifies with no further click. Guarded on
+                    // isSubmitting so a re-completion mid-flight cannot submit
+                    // twice; the button remains the retry path.
+                    if (!codeForm.formState.isSubmitting) {
+                      void codeForm.handleSubmit(verify)()
+                    }
+                  }}
                 />
               </FormControl>
               <FormMessage />
