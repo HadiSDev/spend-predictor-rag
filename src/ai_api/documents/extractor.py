@@ -22,6 +22,7 @@ from ..agents import make_extractor
 from ..models import ExtractedInvoice, LineItem
 from ..parsing import json_format_hint, parse_model
 from ..pdf_loader import extract_text_from_bytes
+from .numbers import normalize_numbers
 
 logger = logging.getLogger("ai_api.documents")
 
@@ -65,7 +66,12 @@ def document_text(payload: DocumentPayload) -> str:
                 f"{payload.filename}: the PDF has no extractable text layer "
                 "(a scan or photo needs a vision model)"
             )
-        return text
+        # Danish invoices write 1919.20 as `1 919,20`. Printed beside a quantity
+        # column that reads as quantity 1 and amount 919,20 — which is exactly
+        # what a real Elgiganten order confirmation produced, and reconciliation
+        # then rejected the whole extraction. Removing the ambiguity beats
+        # instructing the model not to fall for it.
+        return normalize_numbers(text)
     raise UnsupportedMediaError(
         f"{payload.filename}: no extractor for media type {media_type or 'unknown'!r}"
     )
