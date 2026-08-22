@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 
 from pydantic import BaseModel, Field
 
@@ -74,6 +75,52 @@ class VisionUnreadableError(Exception):
 #: Words a model writes when it means "nothing here". A literal `"null"` string
 #: arrived as a real reply's currency; left alone it becomes a currency code.
 _NOT_STATED = {"", "null", "none", "n/a", "na", "nil", "-", "—", "–", "unknown"}
+
+#: Labels that mark a row as a *summary of other rows* rather than a thing
+#: bought. Two DSB receipts, identical in shape, settled this: one was read as a
+#: single `1 Voksen` line and reconciled, the other returned `1 Voksen` **and**
+#: `Samlet pris` — double the posting — and was rejected, keeping its ERP
+#: stand-in. Whether a total is an item is not a judgement worth making twice.
+#:
+#: Danish, English and German, because that is what this ledger's suppliers
+#: invoice in. Deliberately excludes shipping, postage, handling and fees: those
+#: are billed money inside the total, and dropping them would fail every invoice
+#: that carries any.
+_SUMMARY_LABELS = {
+    # Danish
+    "samlet pris", "pris i alt", "i alt", "at betale", "total dkk", "subtotal",
+    "moms", "beløb", "beløb i alt", "total i alt", "sum i alt",
+    # English
+    "total", "sub total", "sub-total", "grand total", "sum", "amount due",
+    "balance due", "order total", "total amount", "net total", "total due",
+    "vat", "tax", "total excl. vat", "total incl. vat", "items subtotal",
+    "item(s) subtotal",
+    # German
+    "gesamt", "gesamtbetrag", "zwischensumme", "summe", "mwst", "nettobetrag",
+    "rechnungsbetrag",
+}
+
+
+def _is_summary_row(description: str | None) -> bool:
+    """Is this row a total rather than a thing bought?
+
+    Matched on the **whole** label, never as a substring: "Total Station Kit" is
+    a surveying instrument and "Sumatra coffee" is a coffee. Silently deleting a
+    real line would be a far worse bug than the double-count this prevents, so
+    the rule stays narrow and a trailing colon, percentage or currency code is
+    all it will look past.
+    """
+    text = (description or "").strip().lower()
+    if not text:
+        # Blank is not a summary word. A line with no description is ordinary —
+        # half of Billy's bill lines carry none.
+        return False
+    # Trim the decoration a total is printed with: `Total:`, `Moms 25%`,
+    # `Total EUR`, `Sum (incl. VAT)`.
+    text = re.sub(r"[\s:.\-–—]+$", "", text)
+    text = re.sub(r"\s*\(?\d+([.,]\d+)?\s*%\)?$", "", text).strip()
+    text = re.sub(r"\s+(dkk|eur|usd|gbp|sek|nok)$", "", text).strip()
+    return text in _SUMMARY_LABELS
 
 
 def _clean(value: str | None) -> str | None:
@@ -153,6 +200,12 @@ _INSTRUCTIONS = (
     "\n"
     "Return every line item visible here, with its description and its amount. "
     "Leave any field this page does not state as null.\n"
+    "\n"
+    "A line item is a thing bought or a charge billed. A row that totals other "
+    "rows is not one: 'Total', 'Subtotal', 'Sum', 'Grand Total', 'Samlet pris', "
+    "'Pris i alt', 'Gesamt' and VAT rows are summaries — leave them out. "
+    "Shipping, postage, handling and fees ARE line items, because they are money "
+    "charged rather than money re-stated.\n"
     "\n"
     "Copy every number EXACTLY as printed, as a string, including its separators "
     "and any currency symbol: write \"1 919,20\", \"5.780,00\" or \"kr. 58,00\" "
@@ -255,8 +308,13 @@ def _merge(pages: list[VisionPage]) -> ExtractedInvoice:
     merged["vendor_name"] = merged.get("vendor_name") or ""
     # Never deduplicated: a supplier who billed the same item twice billed it
     # twice, and collapsing that is a correction we have no standing to make.
+    # A total is not a line item: `Samlet pris` beside `1 Voksen` doubled a DSB
+    # receipt against its own posting and cost us the document entirely.
     merged["line_items"] = [
-        item.to_line_item() for page in pages for item in page.line_items
+        item.to_line_item()
+        for page in pages
+        for item in page.line_items
+        if not _is_summary_row(item.description)
     ]
     return ExtractedInvoice(**merged)
 
