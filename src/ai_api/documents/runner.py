@@ -31,6 +31,7 @@ from web_api import integrations as integrations_mod
 
 from .. import config
 from .extractor import EmptyDocumentError, UnsupportedMediaError, extract_lines
+from .currency import comparable_total
 from .reconcile import reconcile
 from .replace import replace_invoice_lines
 
@@ -158,15 +159,34 @@ def process_invoice(
         _fail(session, invoice, "the document yielded no lines")
         return "failed"
 
-    lines_total = sum((Decimal(str(item.amount)) for item in extracted.lines), _ZERO)
-    verdict = reconcile(lines_total, invoice.total, invoice.tax)
+    company = session.get(Company, invoice.company_id)
+    base_currency = company.base_currency if company is not None else None
+    fx = FxService(session)
+
+    # A null amount is an unstated figure, not a zero — the vision path keeps a
+    # line whose amount it could not read rather than guessing at one. Summing
+    # it as zero would report a shortfall the line never claimed; skipping it
+    # leaves the invoice visibly short, which is what reconciliation is for.
+    lines_total = sum(
+        (Decimal(str(item.amount)) for item in extracted.lines if item.amount is not None),
+        _ZERO,
+    )
+    # The document may be denominated differently from the posting — Anthropic
+    # bills in EUR, Cloudflare in USD, both booked in DKK — and comparing those
+    # magnitudes directly rejects a correctly read document for arithmetic that
+    # was never wrong.
+    comparable, mismatch = comparable_total(
+        lines_total, extracted.currency, invoice.currency, invoice.invoice_date, fx
+    )
+    if comparable is None:
+        _fail(session, invoice, mismatch or "the document's currency cannot be compared")
+        return "rejected"
+
+    verdict = reconcile(comparable, invoice.total, invoice.tax)
     if not verdict.ok:
         _fail(session, invoice, verdict.reason or "the extracted lines do not reconcile")
         return "rejected"
 
-    company = session.get(Company, invoice.company_id)
-    base_currency = company.base_currency if company is not None else None
-    fx = FxService(session)
     n_removed, n_written = replace_invoice_lines(
         session, invoice, extracted, fx=fx, base_currency=base_currency
     )

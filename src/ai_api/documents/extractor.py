@@ -1,18 +1,28 @@
 """Read a fetched document and return the lines it states.
 
-Two things this deliberately does not do:
+**A document we can turn into pixels is a document we can read.** A PDF with a
+text layer takes the text path, because text is cheap and exact. Everything else
+we can open — a photographed receipt, a screenshot, a scan sealed inside a PDF —
+is rendered and shown to the model. :class:`UnsupportedMediaError` is reserved
+for what it always meant: a type we genuinely cannot open at all.
 
-* **Guess the media type.** It comes from the ERP's own file record, and the
-  dispatch is on that. A good share of real Billy attachments are phone photos
-  of a receipt, and handing a JPEG to a PDF parser produces "Invalid PDF
-  structure" over a document that is perfectly fine — a confusing failure
-  against blameless input.
+That rule replaced an earlier one which refused images outright, on the stated
+grounds that reading them "needs a vision model". The deployment had been
+serving a multimodal model the whole time, and half the dev org's unread
+invoices were screenshots and photos that any human reads at a glance.
+
+Two things this still deliberately does not do:
+
+* **Guess the media type.** It comes from the ERP's own file record. Handing a
+  JPEG to a PDF parser produces "Invalid PDF structure" over a document that is
+  perfectly fine — our bug reported against blameless input.
 * **Categorize.** Extraction produces lines; the categorizer categorizes them,
   on its own schedule, exactly as it does for every other line.
 """
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 
 from pydantic import BaseModel
 
@@ -22,13 +32,12 @@ from ..agents import make_extractor
 from ..models import ExtractedInvoice, LineItem
 from ..parsing import json_format_hint, parse_model
 from ..pdf_loader import extract_text_from_bytes
+from .images import IMAGE_MEDIA_TYPES, DocumentImage, ImageDecodeError, image_from_bytes, pdf_page_images
 from .numbers import normalize_numbers
 
 logger = logging.getLogger("ai_api.documents")
 
-#: Media types we can turn into text today. An image needs a vision model; until
-#: one is deployed, an image records a clean unsupported-media failure rather
-#: than a misleading parse error, and keeps its stand-in lines.
+#: Media types whose text layer we try first.
 _PDF_MEDIA_TYPES = {"application/pdf", "application/x-pdf"}
 
 
@@ -37,7 +46,24 @@ class UnsupportedMediaError(Exception):
 
 
 class EmptyDocumentError(Exception):
-    """The document parsed, but carries no text to extract from."""
+    """The document opened, but carries nothing to extract from.
+
+    Now a genuinely empty document — a zero-page PDF — rather than a scan. A PDF
+    with no text layer *has* something to extract from: its pages, as pictures.
+    """
+
+
+@dataclass(frozen=True)
+class DocumentContent:
+    """What one document gave us: text, or pictures, never both.
+
+    A union rather than a bag of optional fields, because the two paths cost
+    very different amounts and a document that produced both would leave the
+    choice to whoever read the struct next.
+    """
+
+    text: str | None = None
+    images: tuple[DocumentImage, ...] = ()
 
 
 class ExtractedLines(BaseModel):
@@ -54,44 +80,102 @@ class ExtractedLines(BaseModel):
     invoice_number: str | None = None
 
 
+def _media_type(payload: DocumentPayload) -> str:
+    return (payload.media_type or "").split(";")[0].strip().lower()
+
+
 def document_text(payload: DocumentPayload) -> str:
-    """The document's text, dispatched on the media type the ERP declared."""
-    media_type = (payload.media_type or "").split(";")[0].strip().lower()
+    """The document's text layer.
+
+    Still the text path's own entry point, and still strict: it answers "what
+    does this document say in text", and a scan says nothing in text. Callers
+    wanting the fallback to pixels use :func:`document_content`.
+    """
+    media_type = _media_type(payload)
+    if media_type not in _PDF_MEDIA_TYPES:
+        raise UnsupportedMediaError(
+            f"{payload.filename}: no extractor for media type {media_type or 'unknown'!r}"
+        )
+    text = extract_text_from_bytes(payload.content)
+    if not text.strip():
+        raise EmptyDocumentError(
+            f"{payload.filename}: the PDF has no extractable text layer "
+            "(a scan or photo needs a vision model)"
+        )
+    # Danish invoices write 1919.20 as `1 919,20`. Printed beside a quantity
+    # column that reads as quantity 1 and amount 919,20 — which is exactly what a
+    # real Elgiganten order confirmation produced, and reconciliation then
+    # rejected the whole extraction. Removing the ambiguity beats instructing the
+    # model not to fall for it.
+    return normalize_numbers(text)
+
+
+def document_content(payload: DocumentPayload) -> DocumentContent:
+    """Whatever this document can give a model, by the cheapest route available."""
+    media_type = _media_type(payload)
+
     if media_type in _PDF_MEDIA_TYPES:
         text = extract_text_from_bytes(payload.content)
-        if not text.strip():
-            # A scanned-image PDF: valid, parseable, and carrying no text layer.
-            # Same answer as an image — we cannot read it without a vision model.
+        if text.strip():
+            return DocumentContent(text=normalize_numbers(text))
+        # No text layer: the page *is* the document. Render it rather than
+        # refusing a scan any human reads at a glance.
+        pages = pdf_page_images(payload.content)
+        if not pages:
             raise EmptyDocumentError(
-                f"{payload.filename}: the PDF has no extractable text layer "
-                "(a scan or photo needs a vision model)"
+                f"{payload.filename}: the PDF has no text layer and no pages to render"
             )
-        # Danish invoices write 1919.20 as `1 919,20`. Printed beside a quantity
-        # column that reads as quantity 1 and amount 919,20 — which is exactly
-        # what a real Elgiganten order confirmation produced, and reconciliation
-        # then rejected the whole extraction. Removing the ambiguity beats
-        # instructing the model not to fall for it.
-        return normalize_numbers(text)
+        logger.info("%s: no text layer, reading %d page(s) as images",
+                    payload.filename, len(pages))
+        return DocumentContent(images=tuple(pages))
+
+    if media_type in IMAGE_MEDIA_TYPES:
+        try:
+            image = image_from_bytes(payload.content)
+        except ImageDecodeError as exc:
+            # Name the document, not the decoder: the customer can act on
+            # "we could not open your file", not on a Pillow traceback.
+            raise UnsupportedMediaError(
+                f"{payload.filename}: declared {media_type} but the image "
+                f"could not be opened ({exc})"
+            ) from exc
+        return DocumentContent(images=(image,))
+
     raise UnsupportedMediaError(
         f"{payload.filename}: no extractor for media type {media_type or 'unknown'!r}"
     )
 
 
-def extract_lines(payload: DocumentPayload, *, kickoff=None) -> ExtractedLines:
-    """Extract the document's invoice lines.
+def extract_lines(payload: DocumentPayload, *, kickoff=None, look=None) -> ExtractedLines:
+    """Extract the document's invoice lines, by whichever route it supports.
 
-    ``kickoff`` is the seam the tests stub: it takes the prompt text and returns
-    an :class:`~ai_api.models.ExtractedInvoice`. The default runs the same
-    extraction agent the PDF flow uses, prompting for JSON and parsing the reply
-    rather than constraining generation — guided decoding on the local vLLM
-    deployment times out under concurrency.
+    ``kickoff`` and ``look`` are the two seams the tests stub — the text
+    extractor and the vision one. Both return an
+    :class:`~ai_api.models.ExtractedInvoice`, so everything downstream of here
+    is identical and nothing can tell how the document was read.
+
+    The default text extractor is the same agent the PDF flow uses, prompting
+    for JSON and parsing the reply rather than constraining generation: guided
+    decoding on the local vLLM deployment times out under concurrency.
     """
-    text = document_text(payload)
-    run = kickoff or _kickoff_extractor
-    extracted = run(
-        "Extract the structured invoice data from the following invoice text. "
-        "Leave any missing field null.\n\n" + text
-    )
+    content = document_content(payload)
+
+    if content.text is not None:
+        run = kickoff or _kickoff_extractor
+        extracted = run(
+            "Extract the structured invoice data from the following invoice text. "
+            "Leave any missing field null.\n\n" + content.text
+        )
+    else:
+        from .vision import look_at
+
+        see = look or look_at
+        extracted = see(
+            "Extract the structured invoice data from the invoice shown in the "
+            "following image(s). Leave any missing field null.",
+            list(content.images),
+        )
+
     return ExtractedLines(
         lines=list(extracted.line_items),
         currency=extracted.currency,

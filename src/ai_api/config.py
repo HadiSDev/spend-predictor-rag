@@ -70,6 +70,23 @@ DOC_RECONCILE_TOLERANCE_ABS = _web_config.DOC_RECONCILE_TOLERANCE_ABS
 # invoice is picked up again.
 DOC_STALE_CLAIM_MINUTES = int(os.getenv("DOC_STALE_CLAIM_MINUTES", "60"))
 
+# A document with no text layer — a photo, a screenshot, a scan — is read by
+# showing it to the model rather than by refusing it. Two bounds keep that
+# affordable, and both are read through this module at call time so a test (and
+# an operator) can move them:
+#
+# How many pages of one document are rendered. A page is an image and an image
+# is thousands of tokens, so an unbounded statement would overflow the context
+# window and fail an invoice we could otherwise have read. Invoices are short;
+# the cap bites on bank statements, where the first pages carry the header.
+DOC_VISION_MAX_PAGES = int(os.getenv("DOC_VISION_MAX_PAGES", "8"))
+
+# The longest edge, in pixels, of an image sent to the model. A phone photo is
+# ~4000px wide and a receipt holds nothing at that resolution; the vision
+# encoder charges for the pixels either way. Pages are rendered straight to this
+# size rather than rendered large and shrunk.
+DOC_VISION_MAX_EDGE = int(os.getenv("DOC_VISION_MAX_EDGE", "1600"))
+
 
 def get_llm() -> LLM:
     """Return a CrewAI LLM pointed at the local vLLM OpenAI-compatible endpoint."""

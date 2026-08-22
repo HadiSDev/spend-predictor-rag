@@ -20,8 +20,9 @@ class LineItem(BaseModel):
     unit_price: float | None = Field(
         default=None, description="Price per unit, excluding VAT, if stated."
     )
-    amount: float = Field(
-        description="Net line amount (quantity x unit_price), excluding VAT."
+    amount: float | None = Field(
+        default=None,
+        description="Net line amount (quantity x unit_price), excluding VAT.",
     )
     vat_code: str | None = Field(
         default=None,
