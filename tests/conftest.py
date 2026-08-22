@@ -26,6 +26,28 @@ def mock_erp_connector():
 
 
 @pytest.fixture(autouse=True)
+def offline_fx(monkeypatch):
+    """No test ever fetches a rate over the network.
+
+    `FX_ENABLED` is read from the environment, and the environment includes the
+    developer's own `.env`. Switching FX on for real work therefore reached into
+    the suite: two tests asserting the off-by-default posture began failing, and
+    — far worse — `default_provider()` started handing back the Frankfurter
+    client, so a full run made outbound HTTP requests. The codebase promises the
+    opposite in as many words: "tests and offline runs make no outbound
+    request."
+
+    Forcing it off costs no coverage. Every test that wants rates injects its
+    own `StubProvider` into `FxService`; only `default_provider()` consults this
+    flag, and what those two tests assert is precisely the default. A test that
+    genuinely needs the flag on can monkeypatch it back.
+    """
+    from web_api import config as web_config
+
+    monkeypatch.setattr(web_config, "FX_ENABLED", False)
+
+
+@pytest.fixture(autouse=True)
 def offline_categorizer(monkeypatch):
     """No test ever calls a real model.
 
