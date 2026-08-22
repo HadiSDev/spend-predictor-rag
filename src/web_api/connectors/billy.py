@@ -126,6 +126,10 @@ class BillyConnector(HttpErpConnector):
         #: accountId → accountNo. Postings and bill lines both name their account
         #: by id, while everything downstream keys on the number.
         self._account_no_by_id: dict[str, str] = {}
+        #: voucher ids the last fetch saw Billy mark voided (see
+        #: ``voided_voucher_ids``); cleared at the start of every fetch so it
+        #: never reports a voucher this run did not look at.
+        self._voided_voucher_ids: set[str] = set()
         #: transaction id → the bill id it originated from, built while fetching
         #: entries so `fetch_invoice_scan` needs no extra lookup.
         self._bill_id_by_voucher: dict[str, str] = {}
@@ -416,6 +420,11 @@ class BillyConnector(HttpErpConnector):
     def fetch_entries(
         self, since: date | None = None, account_codes: set[str] | None = None
     ) -> list[ErpEntryData]:
+        # Reset before the early return, not after it: `voided_voucher_ids`
+        # describes *this* fetch, and a caller acting on the previous fetch's
+        # set would withdraw postings on the strength of a scan that never ran.
+        self._voided_voucher_ids.clear()
+
         # An empty selection means "no accounts chosen" — nothing to ask for.
         if account_codes is not None and len(account_codes) == 0:
             return []
@@ -428,7 +437,13 @@ class BillyConnector(HttpErpConnector):
             # reversal (isVoid). Skipping both leaves every total unchanged —
             # the pair nets to zero — and keeps a bill reachable from exactly
             # one voucher, which the invoice join depends on.
+            #
+            # Recorded as well as skipped: a transaction voided *after* we
+            # synced it would otherwise keep the postings we already stored, and
+            # since Billy re-books the same bill under a new transaction, the
+            # bill ends up under two vouchers with its spend counted twice.
             if transaction.get("isVoid") or transaction.get("isVoided"):
+                self._voided_voucher_ids.add(str(transaction["id"]))
                 continue
 
             entry_type = self._entry_type(transaction)
@@ -618,6 +633,9 @@ class BillyConnector(HttpErpConnector):
             # come from the file record rather than from the response.
             filename=file.get("fileName") or f"voucher_{voucher_id}",
         )
+
+    def voided_voucher_ids(self) -> set[str]:
+        return set(self._voided_voucher_ids)
 
     def _download(self, url: str) -> bytes | None:
         """Fetch a document, withholding our credential from a foreign host.

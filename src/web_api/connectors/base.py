@@ -213,6 +213,25 @@ class ErpConnector(ABC):
         whose account is in it.
         """
 
+    def voided_voucher_ids(self) -> set[str]:
+        """Vouchers seen during the last fetch that the ERP has since voided.
+
+        Not abstract: an ERP with no notion of voiding correctly reports none,
+        and the default costs such a connector nothing.
+
+        This exists because skipping a voided transaction is not enough. A
+        transaction voided *after* we synced it is simply never mentioned again,
+        so its postings stay in our ledger for good — counting spend that was
+        undone, and (when the ERP re-books the same bill under a new voucher)
+        putting one invoice under two vouchers with its lines rendered twice.
+
+        Reporting the ids the fetch *observed* is deliberately narrow: it says
+        "these are voided", never "everything else is still valid". A fetch is
+        scoped by watermark and by account selection, so absence from it is not
+        evidence of anything, and deleting on absence would delete the ledger.
+        """
+        return set()
+
     @abstractmethod
     def fetch_invoice_scan(self, voucher_id: str) -> ErpInvoiceData | None:
         """The invoice scan attached to a voucher, or ``None`` if it has none.

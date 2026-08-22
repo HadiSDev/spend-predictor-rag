@@ -882,3 +882,92 @@ def test_running_the_sync_twice_does_not_duplicate_accounts(sqlite_engine):
     with Session(sqlite_engine) as s:
         codes = [a.erp_account_code for a in s.exec(select(ErpAccount)).all()]
         assert len(codes) == len(set(codes)), f"duplicate accounts: {codes}"
+
+
+# -- vouchers the ERP has voided ---------------------------------------------
+#
+# Billy voids a transaction by marking the original `isVoided` and adding an
+# `isVoid` reversal, and the connector skips both — they net to zero. But a
+# transaction voided *after* we synced it leaves its postings behind: the
+# connector never mentions it again, so nothing withdraws them. On the dev org
+# that put one bill under two vouchers, counted its expense twice, and rendered
+# its lines under both.
+
+
+def test_a_voucher_voided_after_it_was_synced_loses_its_entries(
+    sqlite_engine, monkeypatch
+):
+    runner.run_sync()
+    with Session(sqlite_engine) as s:
+        assert s.exec(
+            select(func.count()).select_from(ErpEntry).where(ErpEntry.voucher_id == "V1")
+        ).one() == 3
+
+    # The ERP now reports V1 as voided, and stops stating its postings.
+    original = _FakeConnector.fetch_entries
+
+    def without_v1(self, since=None, account_codes=None):
+        return [e for e in original(self, since, account_codes) if e.voucher_id != "V1"]
+
+    monkeypatch.setattr(_FakeConnector, "fetch_entries", without_v1)
+    monkeypatch.setattr(_FakeConnector, "voided_voucher_ids", lambda self: {"V1"}, raising=False)
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        assert s.exec(
+            select(func.count()).select_from(ErpEntry).where(ErpEntry.voucher_id == "V1")
+        ).one() == 0
+        # Its sibling voucher is untouched — this withdraws what was named, not
+        # everything the fetch happened not to restate.
+        assert s.exec(
+            select(func.count()).select_from(ErpEntry).where(ErpEntry.voucher_id == "V2")
+        ).one() == 3
+
+
+def test_a_voided_voucher_does_not_take_its_invoice_with_it(sqlite_engine, monkeypatch):
+    """The bill is still a real bill; only the posting of it was undone.
+
+    Deleting the invoice would destroy a human's corrections and any lines read
+    from its document, and Billy's re-booking re-posts the *same* bill under a
+    new voucher — which then has an invoice to link to.
+    """
+    runner.run_sync()
+    monkeypatch.setattr(_FakeConnector, "voided_voucher_ids", lambda self: {"V1"}, raising=False)
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
+        assert invoice is not None
+        assert s.exec(
+            select(func.count()).select_from(InvoiceLine)
+            .where(InvoiceLine.invoice_id == invoice.id)
+        ).one() >= 1
+
+
+def test_withdrawing_a_voided_voucher_is_audited(sqlite_engine, monkeypatch):
+    """Deleting a ledger row silently is not acceptable, even a voided one."""
+    runner.run_sync()
+    with Session(sqlite_engine) as s:
+        entry_ids = [
+            e.id for e in s.exec(select(ErpEntry).where(ErpEntry.voucher_id == "V1")).all()
+        ]
+
+    monkeypatch.setattr(_FakeConnector, "voided_voucher_ids", lambda self: {"V1"}, raising=False)
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        rows = s.exec(
+            select(AuditLog).where(AuditLog.action == runner.VOIDED_ACTION)
+        ).all()
+        assert {r.entity_id for r in rows} == set(entry_ids)
+        assert all(r.entity_type == "erp_entry" and r.actor == "system" for r in rows)
+
+
+def test_a_connector_that_reports_no_voids_withdraws_nothing(sqlite_engine):
+    """The default: a connector with no notion of voiding loses no entries."""
+    runner.run_sync()
+    summary = _summary(runner.run_sync())
+
+    assert summary["entries_withdrawn"] == 0
+    with Session(sqlite_engine) as s:
+        assert s.exec(select(func.count()).select_from(ErpEntry)).one() == 8

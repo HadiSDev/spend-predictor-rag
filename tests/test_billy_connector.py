@@ -602,3 +602,36 @@ def test_a_payment_voucher_has_no_document(connector):
     payment = next(e.voucher_id for e in connector.fetch_entries()
                    if e.entry_type == "payment")
     assert connector.fetch_invoice_document(payment) is None
+
+
+def test_the_voided_transactions_are_reported_not_only_skipped(connector):
+    """Skipping is not enough for one voided after we already synced it.
+
+    Billy never mentions such a transaction again, so without this its postings
+    stay in our ledger for good — counting spend that was undone, and, since
+    Billy re-books the same bill under a new transaction, putting one bill under
+    two vouchers with its lines rendered under both.
+    """
+    source = load("transactions")["transactions"]
+    voided = {t["id"] for t in source if t["isVoid"] or t["isVoided"]}
+
+    connector.fetch_entries()
+
+    assert connector.voided_voucher_ids() == voided
+
+
+def test_voided_ids_describe_the_last_fetch_only(connector):
+    """Never a standing claim about vouchers this run did not look at.
+
+    A fetch is bounded by the watermark and by the account selection, so the set
+    has to be rebuilt each time rather than accumulated — otherwise it would
+    keep naming vouchers from a window the caller is no longer syncing.
+    """
+    connector.fetch_entries()
+    first = connector.voided_voucher_ids()
+    assert first
+
+    # An empty account selection fetches nothing at all.
+    connector.fetch_entries(account_codes=set())
+
+    assert connector.voided_voucher_ids() == set()

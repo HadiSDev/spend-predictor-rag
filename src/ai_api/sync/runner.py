@@ -85,6 +85,18 @@ _ZERO = Decimal("0")
 #: ledger simply no longer carries the line it was built from.
 WITHDRAWN_ACTION = "withdrawn_by_erp"
 
+#: The audit action for a posting removed because its voucher was voided.
+#: Distinct from `withdrawn_by_erp`: that line was restated differently, this
+#: whole transaction was undone.
+VOIDED_ACTION = "voucher_voided_in_erp"
+
+#: What a withdrawn posting held, for the audit row that is now its only record.
+_VOIDED_ENTRY_FIELDS = (
+    "voucher_id", "entry_type", "accounting_date", "description",
+    "debit_amount", "credit_amount", "currency", "erp_entry_id",
+    "source_invoice_id", "source_invoice_line_id",
+)
+
 # Auditing a removal by diffing the line against nothing yields everything it
 # held, which is the only record it ever existed. Mirrors
 # `documents/replace.py::_REMOVED_FIELDS` and for the same reason: `description`
@@ -566,9 +578,9 @@ def _withdraw_unstated_lines(
     return len(doomed)
 
 
-def _audit_value(line: InvoiceLine, field: str):
-    """A line's value for the audit trail, JSON-safe."""
-    value = getattr(line, field, None)
+def _audit_value(row, field: str):
+    """A row's value for the audit trail, JSON-safe. Lines and postings alike."""
+    value = getattr(row, field, None)
     if isinstance(value, Decimal):
         return str(value)
     if isinstance(value, (date, datetime)):
@@ -789,6 +801,57 @@ def _tree_candidates(session: Session, company_id: str) -> list | None:
     if not nodes:
         return None
     return build_candidates_from_tree(nodes)
+
+
+def _withdraw_voided_vouchers(
+    session: Session, integration_id: str, voucher_ids: set[str]
+) -> int:
+    """Delete this integration's postings for vouchers the ERP has voided.
+
+    Skipping a voided transaction at fetch time is not enough. One voided
+    *after* we synced it is simply never mentioned again, so its postings stay —
+    counting spend that was undone, and, because Billy re-books the same bill
+    under a new transaction, putting one invoice under two vouchers with its
+    lines rendered under both.
+
+    Scoped to the ids the connector actually named. Absence from a fetch is not
+    evidence of a void: a fetch is bounded by the watermark and by the account
+    selection, so deleting on absence would delete the ledger.
+
+    The invoice is **not** deleted with them. The bill is still a real bill; only
+    the posting of it was undone, and the re-booking that follows needs an
+    invoice to link to. Deleting it would also destroy any human correction and
+    any line read from its document.
+
+    Does not commit — the caller owns the transaction.
+    """
+    if not voucher_ids:
+        return 0
+    entries = session.exec(
+        select(ErpEntry)
+        .join(ErpAccount, ErpEntry.erp_account_id == ErpAccount.id)
+        .where(
+            ErpAccount.erp_integration_id == integration_id,
+            ErpEntry.voucher_id.in_(voucher_ids),  # type: ignore[union-attr]
+        )
+    ).all()
+    for entry in entries:
+        record_audit(
+            session,
+            entity_type="erp_entry",
+            entity_id=entry.id,
+            action=VOIDED_ACTION,
+            actor=SYSTEM_ACTOR,
+            changes=[
+                {"field": field, "old": _audit_value(entry, field), "new": None}
+                for field in _VOIDED_ENTRY_FIELDS
+            ],
+        )
+        session.delete(entry)
+    if entries:
+        logger.info("    withdrew %d posting(s) from %d voided voucher(s)",
+                    len(entries), len(voucher_ids))
+    return len(entries)
 
 
 def _categorize_pending(
@@ -1069,6 +1132,12 @@ def _sync_one(
             session, company_id, integration_id, entries,
             voucher_invoice_map, account_map, fx, base_currency, fx_counts
         )
+        # After persisting, so a voucher voided *and* restated in the same run
+        # ends up withdrawn rather than half-written.
+        n_entries_withdrawn = _withdraw_voided_vouchers(
+            session, integration_id, connector.voided_voucher_ids()
+        )
+        session.commit()
         # After the entries, because a stand-in line stands in for a *posting* —
         # there is nothing to stand in for until they are persisted.
         n_standin = _persist_standin_lines(
@@ -1137,6 +1206,9 @@ def _sync_one(
         # A removal is the one thing a sync does that a re-run cannot undo, so
         # it is reported rather than left to the audit trail alone.
         summary["lines_withdrawn"] = n_withdrawn
+        # A voided voucher's postings are deleted, which no re-run can undo, so
+        # the count is reported rather than left to the audit trail alone.
+        summary["entries_withdrawn"] = n_entries_withdrawn
         summary["base_currency"] = base_currency
         summary["fx"] = fx_counts
         return summary
