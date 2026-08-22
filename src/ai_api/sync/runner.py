@@ -79,6 +79,22 @@ _NS = uuid.UUID("5f4d6c3b-2a1e-4f8d-9c7b-0a1b2c3d4e5f")
 
 _ZERO = Decimal("0")
 
+#: The audit action for a line the ERP has stopped stating. Distinct from
+#: `superseded_by_extraction`: nothing replaced this line's *content* — the
+#: ledger simply no longer carries the line it was built from.
+WITHDRAWN_ACTION = "withdrawn_by_erp"
+
+# Auditing a removal by diffing the line against nothing yields everything it
+# held, which is the only record it ever existed. Mirrors
+# `documents/replace.py::_REMOVED_FIELDS` and for the same reason: `description`
+# and `amount` say *which* line went, `verified_fields` says whether anyone had
+# settled any of it, and the categorization is what a human may have supplied.
+_WITHDRAWN_FIELDS = (
+    "description", "quantity", "unit", "unit_price", "amount",
+    "native_account_code", "origin", "sequence", "verified_fields",
+    *LINE_AUDIT_FIELDS,
+)
+
 
 def _det_id(*parts: str) -> str:
     return str(uuid.uuid5(_NS, ":".join(parts)))
@@ -393,7 +409,7 @@ def _persist_invoices(
     base_currency: str,
     fx_counts: dict[str, int],
     hard_reset: bool = False,
-) -> tuple[dict[str, str], int, int, int]:
+) -> tuple[dict[str, str], int, int, int, int]:
     """Upsert Invoice + InvoiceLine (+ scan File) as pending.
 
     The invoice is a purely internal scan: it references the File domain and is
@@ -402,14 +418,16 @@ def _persist_invoices(
     scan's ERP id is still used to derive a stable, deterministic invoice id so
     re-syncs upsert instead of duplicating.
 
-    Returns ``(voucher_invoice_map, n_invoices, n_lines, n_queued)`` where the map
-    ties each scan's voucher to its persisted invoice id, so entries can be linked
-    without the invoice storing the voucher, and ``n_queued`` is how many invoices
-    this run left waiting for document processing.
+    Returns ``(voucher_invoice_map, n_invoices, n_lines, n_queued, n_withdrawn)``
+    where the map ties each scan's voucher to its persisted invoice id, so entries
+    can be linked without the invoice storing the voucher, ``n_queued`` is how many
+    invoices this run left waiting for document processing, and ``n_withdrawn`` how
+    many lines the ERP stopped stating and this run therefore removed.
     """
     voucher_invoice_map: dict[str, str] = {}
     n_lines = 0
     n_queued = 0
+    n_withdrawn = 0
     for inv in invoices:
         invoice_id = _det_id("invoice", company_id, inv.erp_id)
         vendor_id = vendor_map.get(inv.vendor_erp_id)
@@ -438,9 +456,11 @@ def _persist_invoices(
         if inv.voucher_id is not None:
             voucher_invoice_map[inv.voucher_id] = invoice_id
 
+        stated_line_ids: set[str] = set()
         for idx, line in enumerate(inv.lines):
             line_key = line.line_erp_id or str(idx)
             line_id = _det_id("line", invoice_id, line_key)
+            stated_line_ids.add(line_id)
             lrow = session.get(InvoiceLine, line_id)
             if lrow is None:
                 lrow = InvoiceLine(id=line_id, company_id=company_id,
@@ -471,8 +491,88 @@ def _persist_invoices(
                 ),
             )
             n_lines += 1
+
+        # Guarded on the ERP having stated *something*: a bill that comes back
+        # with no lines at all is far more likely a transient empty response
+        # than a customer deleting every line, and wiping the invoice on one
+        # would be unrecoverable.
+        if stated_line_ids:
+            n_withdrawn += _withdraw_unstated_lines(session, invoice_id, stated_line_ids)
     session.commit()
-    return voucher_invoice_map, len(invoices), n_lines, n_queued
+    return voucher_invoice_map, len(invoices), n_lines, n_queued, n_withdrawn
+
+
+def _withdraw_unstated_lines(
+    session: Session, invoice_id: str, stated_ids: set[str]
+) -> int:
+    """Remove the invoice's ERP lines that this fetch did not restate.
+
+    A line's identity is ``(invoice, line_erp_id)``, and an ERP may re-issue a
+    line under a *new* id rather than mutating the old one — Billy does exactly
+    that when a bill line is re-coded to another account. The replacement then
+    lands as a second row and, with no prune, sits beside its predecessor for
+    good: the invoice's lines sum to twice its total, it can never reconcile
+    again, and its spend is double-counted wherever lines are summed.
+
+    Only ``origin=ERP`` rows are eligible. A ``human`` line is a reviewer's own
+    work and was never the ERP's to withdraw; a stand-in is keyed off its
+    posting, not a line id, and is reconciled by the path that writes it.
+
+    Returns the number removed. Does not commit — the caller owns the
+    transaction, so the unlinking, the audit rows and the deletes land together.
+    """
+    doomed = [
+        line for line in session.exec(
+            select(InvoiceLine).where(
+                InvoiceLine.invoice_id == invoice_id,
+                InvoiceLine.origin == LineOrigin.ERP,
+            )
+        ).all()
+        if line.id not in stated_ids
+    ]
+    if not doomed:
+        return 0
+
+    doomed_ids = [line.id for line in doomed]
+    # Break the FK before deleting. Re-pointing the posting at the replacement
+    # would mean matching on amount — the guessing the derived link refuses — so
+    # unlinked is the honest end state, exactly as extraction leaves it.
+    for entry in session.exec(
+        select(ErpEntry).where(ErpEntry.source_invoice_line_id.in_(doomed_ids))  # type: ignore[union-attr]
+    ).all():
+        entry.source_invoice_line_id = None
+        session.add(entry)
+
+    for line in doomed:
+        record_audit(
+            session,
+            entity_type="invoice_line",
+            entity_id=line.id,
+            action=WITHDRAWN_ACTION,
+            actor=SYSTEM_ACTOR,
+            changes=[
+                {"field": field, "old": _audit_value(line, field), "new": None}
+                for field in _WITHDRAWN_FIELDS
+            ],
+        )
+        session.delete(line)
+
+    # The categorizer recomputes this rollup, but only for an invoice that has
+    # pending lines — so an invoice whose withdrawn line was its last unverified
+    # one would keep a status describing lines that are gone.
+    session.flush()
+    recompute_invoice_status(session, invoice_id)
+    return len(doomed)
+
+
+def _audit_value(line: InvoiceLine, field: str):
+    """A line's value for the audit trail, JSON-safe."""
+    value = getattr(line, field, None)
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
 
 
 def _source_line_id(
@@ -929,7 +1029,7 @@ def _sync_one(
         # 2. Persist
         logger.info("  [2/6] Persisting to PostgreSQL…")
         vendor_map = _persist_vendors(session, vendors)
-        voucher_invoice_map, n_inv, n_lines, n_queued = _persist_invoices(
+        voucher_invoice_map, n_inv, n_lines, n_queued, n_withdrawn = _persist_invoices(
             session, company_id, invoices, vendor_map, fx, base_currency, fx_counts,
             hard_reset=hard_reset,
         )
@@ -1002,6 +1102,9 @@ def _sync_one(
         # database.
         summary["documents_queued"] = n_queued
         summary["standin_lines"] = n_standin
+        # A removal is the one thing a sync does that a re-run cannot undo, so
+        # it is reported rather than left to the audit trail alone.
+        summary["lines_withdrawn"] = n_withdrawn
         summary["base_currency"] = base_currency
         summary["fx"] = fx_counts
         return summary

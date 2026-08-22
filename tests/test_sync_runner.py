@@ -38,6 +38,7 @@ from web_api.db.models import (
     Vendor,
 )
 from web_api.fx import FxService
+from web_api.rollup import recompute_invoice_status
 from web_api.spend_trees.service import ensure_default_tree
 from ai_api.persistence import LineGroundTruth
 from ai_api.sync import runner
@@ -501,6 +502,170 @@ def test_run_sync_is_idempotent(sqlite_engine):
         assert s.exec(select(func.count()).select_from(InvoiceLine)).one() == 2
         assert s.exec(select(func.count()).select_from(ErpEntry)).one() == 8
         assert s.exec(select(func.count()).select_from(File)).one() == 2
+
+
+# -- lines the ERP has stopped stating ---------------------------------------
+#
+# A line's identity is `(invoice, line_erp_id)`, so a line the ERP re-issues
+# under a new id arrives as a *second* row. Billy does exactly that when a bill
+# line is re-coded to another account, which made seven invoices state their
+# spend twice on the dev org before this was pruned.
+
+
+def _invoice_lines(session, invoice_number: str) -> list[InvoiceLine]:
+    invoice = session.exec(
+        select(Invoice).where(Invoice.invoice_number == invoice_number)
+    ).one()
+    return list(session.exec(
+        select(InvoiceLine).where(InvoiceLine.invoice_id == invoice.id)
+    ).all())
+
+
+def _recode_v1_line(monkeypatch, line_erp_id: str = "1-recoded", code: str = "6020") -> None:
+    """The ERP restates V1's only line under a new id, on a different account."""
+    monkeypatch.setattr(_SCANS["V1"], "lines", [
+        ErpInvoiceLineData(line_erp_id=line_erp_id,
+                           description="Cloud server - monthly hosting",
+                           amount=1000.0, native_account_code=code),
+    ])
+
+
+def test_a_line_the_erp_no_longer_states_is_removed(sqlite_engine, monkeypatch):
+    """The replacement lands, and the row it replaced does not survive beside it.
+
+    Keeping both is not a cosmetic duplicate: the invoice's lines then sum to
+    twice its total, so it can never reconcile again and its spend is counted
+    twice everywhere lines are summed.
+    """
+    runner.run_sync()
+    with Session(sqlite_engine) as s:
+        assert [ln.native_account_code for ln in _invoice_lines(s, "INV1")] == ["6010"]
+
+    _recode_v1_line(monkeypatch)
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        assert [ln.native_account_code for ln in _invoice_lines(s, "INV1")] == ["6020"]
+
+
+def test_a_posting_on_a_removed_line_is_unlinked_not_dangling(sqlite_engine, monkeypatch):
+    """The posting outlives the line, pointing at no line — as extraction does.
+
+    An `ErpEntry.source_invoice_line_id` left pointing at a deleted row is a
+    dangling FK that aborts the sync on PostgreSQL, and re-pointing it at the
+    replacement would be the amount-matching the derived link exists to refuse.
+    """
+    runner.run_sync()
+    _recode_v1_line(monkeypatch)
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        entry = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == "E1")).one()
+        assert entry.source_invoice_line_id is None
+        assert entry.source_invoice_id is not None  # the invoice link is untouched
+
+
+def test_a_removed_line_leaves_its_values_in_the_audit_trail(sqlite_engine, monkeypatch):
+    """The audit row is the only record the line ever existed."""
+    runner.run_sync()
+    with Session(sqlite_engine) as s:
+        removed_id = _invoice_lines(s, "INV1")[0].id
+
+    _recode_v1_line(monkeypatch)
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        # The line already carries an `ai_categorize` row from the first run;
+        # the withdrawal is appended beside it, never in place of it.
+        entry = s.exec(
+            select(AuditLog).where(
+                AuditLog.entity_id == removed_id,
+                AuditLog.action == runner.WITHDRAWN_ACTION,
+            )
+        ).one()
+        assert entry.entity_type == "invoice_line"
+        assert entry.actor == "system"
+        changed = {c["field"]: c["old"] for c in entry.changes}
+        assert changed["amount"] == "1000.00"
+        assert changed["native_account_code"] == "6010"
+
+
+def test_a_human_added_line_is_never_pruned(sqlite_engine, monkeypatch):
+    """A reviewer's own line is not the ERP's to withdraw.
+
+    Splitting a stand-in means adding real lines beside it before deleting it,
+    so a prune that removed every line the ERP did not state would delete the
+    reviewer's work the moment the next sync ran.
+    """
+    runner.run_sync()
+    with Session(sqlite_engine) as s:
+        invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
+        s.add(InvoiceLine(company_id=invoice.company_id, invoice_id=invoice.id,
+                          description="Split out by a reviewer", amount=Decimal("400.00"),
+                          status="uncategorized", origin="human", sequence=1))
+        s.commit()
+
+    _recode_v1_line(monkeypatch)
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        origins = sorted(ln.origin for ln in _invoice_lines(s, "INV1"))
+        assert origins == ["erp", "human"]
+
+
+def test_withdrawing_a_line_recomputes_the_invoice_status(sqlite_engine, monkeypatch):
+    """The rollup follows the lines that remain, not the ones that were there.
+
+    The categorizer recomputes the rollup, but only for an invoice with pending
+    lines — so an invoice whose *only* verified line is withdrawn, the rest
+    already categorized, would otherwise keep claiming to be verified with no
+    verified line left under it.
+    """
+    two_lines = [
+        ErpInvoiceLineData(line_erp_id="1", description="Cloud server - monthly hosting",
+                           amount=1000.0, native_account_code="6010"),
+        ErpInvoiceLineData(line_erp_id="2", description="Cloud server - monthly hosting",
+                           amount=1000.0, native_account_code="6010"),
+    ]
+    monkeypatch.setattr(_SCANS["V1"], "lines", two_lines)
+    runner.run_sync()
+
+    # One line verified, one left as the AI categorized it: the invoice rolls up
+    # to "categorized", because not every line is verified yet.
+    with Session(sqlite_engine) as s:
+        first, _second = sorted(_invoice_lines(s, "INV1"), key=lambda ln: ln.sequence)
+        first.status = "verified"
+        s.add(first)
+        s.commit()
+        invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
+        recompute_invoice_status(s, invoice.id)
+        s.commit()
+        assert invoice.status == "categorized"
+
+    # The ERP withdraws the unverified one. Every remaining line is verified, so
+    # the invoice is now verified — but nothing is pending on it, so the
+    # categorizer never revisits it and cannot be what notices.
+    monkeypatch.setattr(_SCANS["V1"], "lines", two_lines[:1])
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        assert len(_invoice_lines(s, "INV1")) == 1
+        invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
+        assert invoice.status == "verified"
+
+
+def test_an_unchanged_resync_removes_nothing(sqlite_engine):
+    """The prune fires on a line the ERP dropped, never on a steady state."""
+    runner.run_sync()
+    runner.run_sync()
+
+    with Session(sqlite_engine) as s:
+        assert s.exec(select(func.count()).select_from(InvoiceLine)).one() == 2
+        withdrawn = s.exec(
+            select(func.count()).select_from(AuditLog)
+            .where(AuditLog.action == runner.WITHDRAWN_ACTION)
+        ).one()
+        assert withdrawn == 0
 
 
 # -- currency conversion -----------------------------------------------------
