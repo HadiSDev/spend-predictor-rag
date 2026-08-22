@@ -92,8 +92,15 @@ def test_a_photographed_receipt_becomes_an_image_to_look_at(fmt, media_type):
     assert len(content.images) == 1
 
 
-def test_a_pdf_with_no_text_layer_is_rasterized_rather_than_refused():
-    """The scan-in-a-PDF case: valid, parseable, and empty of text."""
+def test_a_pdf_with_no_text_layer_is_rasterized_rather_than_refused(monkeypatch):
+    """The scan-in-a-PDF case: valid, parseable, and empty of text.
+
+    One band, so this asserts the routing rather than the banding — how a page
+    is sliced is `test_page_bands.py`'s subject, not this one's.
+    """
+    from ai_api import config
+
+    monkeypatch.setattr(config, "DOC_VISION_PAGE_BANDS", 1)
     content = document_content(_payload(_pdf_bytes([]), "application/pdf"))
 
     assert content.text is None
@@ -131,6 +138,8 @@ def test_a_long_document_is_capped_at_the_page_limit(monkeypatch):
     from ai_api import config
 
     monkeypatch.setattr(config, "DOC_VISION_MAX_PAGES", 3)
+    monkeypatch.setattr(config, "DOC_VISION_PAGE_BANDS", 1)
+    monkeypatch.setattr(config, "DOC_VISION_MAX_IMAGES", 99)
     content = document_content(_payload(_pdf_bytes([], pages=10), "application/pdf"))
 
     assert len(content.images) == 3

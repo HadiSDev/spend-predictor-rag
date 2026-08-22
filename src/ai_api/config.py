@@ -97,6 +97,21 @@ DOC_VISION_MAX_PAGES = int(os.getenv("DOC_VISION_MAX_PAGES", "8"))
 # size rather than rendered large and shrunk.
 DOC_VISION_MAX_EDGE = int(os.getenv("DOC_VISION_MAX_EDGE", "1600"))
 
+# How many horizontal bands each rendered page is cut into, each one given the
+# full pixel budget above — so a page is effectively read at this many times the
+# resolution. An EKWB credit memo, machine-generated and legible at a glance,
+# returned null amounts every time it was shown whole: its price column is a
+# handful of pixels tall at a 1600px page height. At three bands the band
+# holding the table read every line correctly and the invoice reconciled. Two
+# was tried first and missed the shipping line, so three is the number that
+# worked rather than the number that sounded right.
+DOC_VISION_PAGE_BANDS = int(os.getenv("DOC_VISION_PAGE_BANDS", "3"))
+
+# The ceiling on images sent for one document, since banding multiplies them and
+# each is thousands of tokens (3x on each edge is 9x the pixels). Bounds the
+# cost of a long document; what it discards is logged, never dropped silently.
+DOC_VISION_MAX_IMAGES = int(os.getenv("DOC_VISION_MAX_IMAGES", "12"))
+
 
 def get_llm() -> LLM:
     """Return a CrewAI LLM pointed at the local vLLM OpenAI-compatible endpoint."""

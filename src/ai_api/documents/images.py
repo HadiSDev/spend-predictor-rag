@@ -22,9 +22,12 @@ can be moved without a restart's worth of ceremony.
 from __future__ import annotations
 
 import io
+import logging
 from dataclasses import dataclass
 
 from .. import config
+
+logger = logging.getLogger("ai_api.documents")
 
 
 @dataclass(frozen=True)
@@ -94,23 +97,64 @@ def image_from_bytes(content: bytes) -> DocumentImage:
 
 
 def pdf_page_images(content: bytes) -> list[DocumentImage]:
-    """Render a PDF's pages, capped, each at the configured long edge.
+    """Render a PDF's pages as bands, bounded, each at the configured long edge.
+
+    **Each page is cut into :data:`~ai_api.config.DOC_VISION_PAGE_BANDS`
+    horizontal strips, and every strip gets the full pixel budget** — so the
+    page as a whole is read at that many times the resolution. An EKWB credit
+    memo, machine-generated and legible at a glance, returned null amounts every
+    time it was shown whole: at a 1600px page height its price column is a few
+    pixels tall. Banded, the strip holding the table read every line correctly
+    and the invoice reconciled against its posting.
 
     The scale is computed per page from that page's own point size, so a page
-    lands on the bound rather than near it, and an A3 page does not arrive at
-    twice the resolution of the A4 one beside it.
+    lands on the bound rather than near it and an A3 page does not arrive at
+    twice the resolution of the A4 beside it.
+
+    **Bands do not overlap.** A row straddling a seam is cut and may be misread
+    or lost; overlapping would instead let it be read twice, and a duplicated
+    line silently inflates an invoice's total, where a lost one is caught by
+    reconciliation. Losing a line noisily beats gaining one quietly.
     """
     import pypdfium2 as pdfium
 
     max_edge = config.DOC_VISION_MAX_EDGE
+    bands = max(1, config.DOC_VISION_PAGE_BANDS)
+    max_images = max(1, config.DOC_VISION_MAX_IMAGES)
+
     pdf = pdfium.PdfDocument(io.BytesIO(content))
     try:
-        pages: list[DocumentImage] = []
-        for index in range(min(len(pdf), config.DOC_VISION_MAX_PAGES)):
+        total_pages = len(pdf)
+        wanted = min(total_pages, config.DOC_VISION_MAX_PAGES)
+        images: list[DocumentImage] = []
+
+        for index in range(wanted):
+            if len(images) >= max_images:
+                break
             page = pdf[index]
             longest = max(page.get_size()) or 1
-            rendered = page.render(scale=max_edge / longest).to_pil()
-            pages.append(_encode(rendered, prefer_png=True))
-        return pages
+            # Render the whole page at band-multiplied resolution, then cut it:
+            # rendering each band separately would mean rendering the page N
+            # times for the same pixels.
+            rendered = page.render(scale=(max_edge * bands) / longest).to_pil()
+            width, height = rendered.size
+            step = height / bands
+            for band in range(bands):
+                if len(images) >= max_images:
+                    break
+                top = int(round(band * step))
+                # The last band takes the remainder, so rounding can never leave
+                # a sliver of the page uncovered.
+                bottom = height if band == bands - 1 else int(round((band + 1) * step))
+                images.append(_encode(rendered.crop((0, top, width, bottom)), prefer_png=True))
+
+        covered = -(-len(images) // bands)  # pages at least partly covered
+        if covered < total_pages:
+            logger.warning(
+                "vision: reading %d of %d page(s) — capped at %d image(s) "
+                "(%d band(s) per page); the rest of the document is not read",
+                covered, total_pages, max_images, bands,
+            )
+        return images
     finally:
         pdf.close()
