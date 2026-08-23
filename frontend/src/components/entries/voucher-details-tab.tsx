@@ -13,6 +13,7 @@ import {
   TooltipTrigger,
 } from '#/components/ui'
 import { CountryField } from '#/components/settings/country-field'
+import { CurrencyField } from '#/components/settings/currency-field'
 import { formatMoney, fromIsoDate, toIsoDate, toNumber } from '#/lib/format'
 import { serverErrorMessage } from '#/lib/form-errors'
 import type { InvoiceDetailRead, InvoiceUpdate, VendorRead } from '#/lib/types'
@@ -307,9 +308,13 @@ function EditableInvoiceHeader({
         </Field>
         <Field>
           <FieldLabel>Currency</FieldLabel>
-          <FieldControl
+          {/* A closed set of ISO 4217 codes, the same picker Settings uses —
+              not a text box a typo fits through. The money fields below format
+              against whatever is chosen here, so the two cannot disagree. */}
+          <CurrencyField
+            aria-label="Currency"
             value={header.currency}
-            onChange={(event) => set('currency', event.target.value)}
+            onChange={(code) => set('currency', code)}
           />
         </Field>
         <Field>

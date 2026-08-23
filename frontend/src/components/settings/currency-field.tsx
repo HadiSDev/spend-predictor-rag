@@ -35,22 +35,35 @@ function CurrencyRow({ currency }: { currency: Currency }) {
 }
 
 /**
- * Picks the currency a company reports in.
+ * Picks a currency: a company's reporting currency, or the one an invoice was
+ * denominated in.
  *
- * Searchable and labelled `DKK — Danish Krone` rather than a bare code, because
- * this is a setting a user chooses once and lives with: every figure in the
- * product is presented in it.
+ * Searchable and labelled `DKK — Danish Krone` rather than a bare code. A code
+ * is three letters a reviewer has to already know, and the two questions this
+ * answers — "which currency is this?" and "is DKK the one I mean?" — are both
+ * easier against a name and a flag.
+ *
+ * Replaces a free-text box on the invoice header, where anything at all could
+ * be typed. A currency that is not a real ISO 4217 code converts against
+ * nothing: `FxService` resolves no rate for it, so the invoice silently stores
+ * unconverted and reports as spend in a currency no report can group.
  */
 export function CurrencyField({
   value,
   onChange,
   disabled = false,
   id,
+  // The label is the caller's, because this is no longer only a settings
+  // control: on an invoice it names the money the document was written in, not
+  // the currency the company reports in, and announcing the wrong one is worse
+  // than announcing nothing.
+  'aria-label': ariaLabel = 'Reporting currency',
 }: {
   value: string
   onChange: (code: string) => void
   disabled?: boolean
   id?: string
+  'aria-label'?: string
 }) {
   const selected = findCurrency(value)
   // The input's text is Base UI's own state, so a value set from outside — the
@@ -78,7 +91,7 @@ export function CurrencyField({
           least important field on the form. */}
       <ComboboxInput
         id={id}
-        aria-label="Reporting currency"
+        aria-label={ariaLabel}
         placeholder="Search currencies"
         startAdornment={selected ? <CountryFlag country={selected.country} /> : null}
         // On the wrapper, but form controls inherit weight under Tailwind's

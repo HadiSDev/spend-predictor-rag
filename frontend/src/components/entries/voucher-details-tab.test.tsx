@@ -231,6 +231,36 @@ describe('VoucherDetailsTab', () => {
     expect(onUpdateHeader).not.toHaveBeenCalled()
   })
 
+  it('picks a currency from the ISO list rather than accepting typed text', async () => {
+    // A free-text box let anything through, and a currency that is not a real
+    // ISO 4217 code converts against nothing: `FxService` resolves no rate, so
+    // the invoice stores unconverted and reports as spend in a currency no
+    // report can group.
+    const onUpdateHeader = vi.fn().mockResolvedValue(undefined)
+    render(<VoucherDetailsTab {...props({ onUpdateHeader })} />)
+
+    const picker = screen.getByRole('combobox', { name: 'Currency' })
+    fireEvent.click(picker)
+    fireEvent.change(picker, { target: { value: 'EUR' } })
+    fireEvent.click(await screen.findByRole('option', { name: /^EUR —/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() =>
+      expect(onUpdateHeader).toHaveBeenCalledWith(erpInvoice.id, { currency: 'EUR' }),
+    )
+  })
+
+  it('names the picker for the invoice, not for the company’s reporting currency', () => {
+    // The same control serves both, and announcing the wrong one is worse than
+    // announcing nothing: this field is the money the *document* was written
+    // in, which is frequently not what the company reports in.
+    render(<VoucherDetailsTab {...props()} />)
+
+    expect(screen.getByRole('combobox', { name: 'Currency' })).toBeTruthy()
+    expect(screen.queryByRole('combobox', { name: 'Reporting currency' })).toBeNull()
+  })
+
   it('leaves the number empty when the document stated none', () => {
     // Never backfilled from the ERP's value. Billy's often falls back to the
     // bill id, and presenting that in a box labelled "Invoice number" invites a
