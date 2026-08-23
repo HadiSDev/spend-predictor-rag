@@ -47,8 +47,8 @@
 
 ## 6. Verification
 
-- [ ] 6.1 `uv run pytest`
-- [ ] 6.2 `cd frontend && ./node_modules/.bin/tsc --noEmit`
-- [ ] 6.3 `cd frontend && ./node_modules/.bin/vitest run`
-- [ ] 6.4 `cd frontend && ./node_modules/.bin/eslint src` — no new errors against the 52-problem baseline
-- [ ] 6.5 Delete the `Test` company on the dev database — the 175 invoices pending against a dead mock ERP that this change exists for — and confirm an unscoped `python -m ai_api.documents.runner` no longer picks them up
+- [x] 6.1 `uv run pytest`
+- [x] 6.2 `cd frontend && ./node_modules/.bin/tsc --noEmit`
+- [x] 6.3 `cd frontend && ./node_modules/.bin/vitest run`
+- [x] 6.4 `cd frontend && ./node_modules/.bin/eslint src` — no new errors against the 52-problem baseline
+- [x] 6.5 Delete the `Test` company on the dev database — the 175 invoices pending against a dead mock ERP that this change exists for — and confirm an unscoped `python -m ai_api.documents.runner` no longer picks them up
