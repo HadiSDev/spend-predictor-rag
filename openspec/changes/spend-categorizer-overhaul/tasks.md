@@ -33,12 +33,12 @@
 
 ## 4. Phase 4 — the taxonomy and its gaps
 
-- [ ] 4.1 Add the missing leaves to `web_api/spend_trees/template.py`: `Travel & Entertainment > Ground Transport` (rail, bus, taxi), `Financial > Bank & Payment Fees`, `Financial > Insurance`, `Indirect > Subscriptions & Memberships`. Keep three levels and the closed `Direct`/`Indirect` root. Bump `TEMPLATE_VERSION`.
-- [ ] 4.2 Test that a version bump does not touch an existing organization's copy — no nodes added, removed or renamed, `template_version` unchanged, no line made stale.
-- [ ] 4.3 Add a `SpendCategorySuggestion` model (tree id, proposed name/description, `parent_id`, rationale, evidence line ids, state `pending|accepted|dismissed`) with an Alembic migration.
-- [ ] 4.4 Add `ai_api/suggestions/` — group a company's low-confidence lines by similarity, ask the model what category would have fitted each group, discard any proposal already present in the tree, and write pending suggestions. Runnable as `python -m ai_api.suggestions.runner`.
-- [ ] 4.5 Test the suggester: a group produces one suggestion, a lone odd line produces none, an existing category is never re-proposed, a dismissed suggestion is not re-proposed, and a run leaves the tree byte-for-byte unchanged.
-- [ ] 4.6 Add `GET /spend-trees/{id}/suggestions` (any member) and `POST /spend-tree-suggestions/{id}/accept|dismiss` (management-gated). Accept creates the node through `web_api/spend_trees/service.py`, never by direct write. Test tenant scoping and that an orphaned parent makes a suggestion unacceptable.
+- [x] 4.1 Add the missing leaves to `web_api/spend_trees/template.py`: `Travel & Entertainment > Ground Transport` (rail, bus, taxi), `Financial > Bank & Payment Fees`, `Financial > Insurance`, `Indirect > Subscriptions & Memberships`. Keep three levels and the closed `Direct`/`Indirect` root. Bump `TEMPLATE_VERSION`.
+- [x] 4.2 Test that a version bump does not touch an existing organization's copy — no nodes added, removed or renamed, `template_version` unchanged, no line made stale.
+- [x] 4.3 Add a `SpendCategorySuggestion` model (tree id, proposed name/description, `parent_id`, rationale, evidence line ids, state `pending|accepted|dismissed`) with an Alembic migration.
+- [x] 4.4 Add `ai_api/suggestions/` — group a company's low-confidence lines by similarity, ask the model what category would have fitted each group, discard any proposal already present in the tree, and write pending suggestions. Runnable as `python -m ai_api.suggestions.runner`.
+- [x] 4.5 Test the suggester: a group produces one suggestion, a lone odd line produces none, an existing category is never re-proposed, a dismissed suggestion is not re-proposed, and a run leaves the tree byte-for-byte unchanged.
+- [x] 4.6 Add `GET /spend-trees/{id}/suggestions` (any member) and `POST /spend-tree-suggestions/{id}/accept|dismiss` (management-gated). Accept creates the node through `web_api/spend_trees/service.py`, never by direct write. Test tenant scoping and that an orphaned parent makes a suggestion unacceptable.
 - [ ] 4.7 Surface suggestions in the spend-tree editor at `/settings/spend-trees`: proposal, parent, reason, evidence lines linking to each line. Accept inserts the node in place without a reload; dismiss offers a session-scoped undo; a `viewer` sees evidence and no controls.
 
 ## 5. Capture the reasoning

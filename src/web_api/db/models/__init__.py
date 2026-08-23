@@ -14,6 +14,10 @@ from .invoice_line import InvoiceLine
 from .organization import Organization
 from .recommendation import Recommendation
 from .spend_category import SpendCategory
+from .spend_category_suggestion import (
+    SpendCategorySuggestion,
+    SuggestionState,
+)
 from .spend_tree import SpendTree
 from .sync_state import SyncState
 from .user import User
@@ -38,6 +42,8 @@ __all__ = [
     "Organization",
     "Recommendation",
     "SpendCategory",
+    "SpendCategorySuggestion",
+    "SuggestionState",
     "SpendTree",
     "SpendTreeSource",
     "SyncState",

@@ -22,8 +22,21 @@ from dataclasses import dataclass, field
 
 
 #: Bumped when the node set below changes. Recorded on every copy as
-#: ``SpendTree.template_version``; nothing acts on it yet.
-TEMPLATE_VERSION = "1"
+#: ``SpendTree.template_version``.
+#:
+#: **A bump never reaches into an existing copy.** A tree is copied into an
+#: organization once and is theirs to edit from then on: a node this file adds
+#: might duplicate one they have already made under another name, and a node it
+#: renames might be one they deliberately renamed first. An organization that
+#: wants the newer taxonomy obtains it the way it obtains any tree — by creating
+#: one — not by having theirs rewritten underneath their categorized lines.
+#:
+#: Version 2 added ``Ground Transport``, ``Financial Services`` and ``Insurance``.
+#: Not guessed: the first real customer had already built all three by hand, at
+#: these codes and with these descriptions, because version 1's only travel
+#: leaves were airfare, lodging and meals and a commuter rail ticket had nowhere
+#: to go. The categorizer was blamed for saying so.
+TEMPLATE_VERSION = "2"
 
 TEMPLATE_NAME = "Default spend tree"
 TEMPLATE_MAX_DEPTH = 3
@@ -154,6 +167,46 @@ DEFAULT_TEMPLATE: tuple[TemplateNode, ...] = (
         ("Indirect", "Travel & Entertainment", "Meals"), "6820",
         "Client meals, catering and entertainment",
         {"dinner", "lunch", "catering", "party", "meals", "entertainment", "client"},
+    ),
+    _leaf(
+        ("Indirect", "Travel & Entertainment", "Ground Transport"), "6830",
+        "Rail, bus, taxi, ride-hailing and car hire.",
+        {"train", "togbillet", "rail", "bus", "taxi", "metro", "commute",
+         "ticket", "dsb", "transport"},
+    ),
+
+    TemplateNode(("Indirect", "Financial Services")),
+    _leaf(
+        ("Indirect", "Financial Services", "Banking & Account Fees"), "7300",
+        "Account maintenance, plan and business banking fees.",
+        {"bank", "account", "fee", "gebyr", "banking", "overdraft"},
+    ),
+    _leaf(
+        ("Indirect", "Financial Services", "Payment Processing Fees"), "7310",
+        "Card acquiring, transaction and payment-method charges.",
+        {"card", "acquiring", "transaction", "stripe", "payment", "settlement"},
+    ),
+    _leaf(
+        ("Indirect", "Financial Services", "Levies & Royalties"), "7320",
+        "Copyright levies, licensing and royalty charges not tied to a product.",
+        {"levy", "royalty", "copydan", "koda", "licensing", "afgift"},
+    ),
+
+    TemplateNode(("Indirect", "Insurance")),
+    _leaf(
+        ("Indirect", "Insurance", "Liability Insurance"), "7200",
+        "Third-party and professional liability cover.",
+        {"insurance", "liability", "forsikring", "cover", "indemnity"},
+    ),
+    _leaf(
+        ("Indirect", "Insurance", "Employee & Work Accident Insurance"), "7210",
+        "Work-accident, health and other cover carried on behalf of employees.",
+        {"accident", "health", "employee", "arbejdsskade", "sundhed"},
+    ),
+    _leaf(
+        ("Indirect", "Insurance", "Insurance Levies & Contributions"), "7220",
+        "Statutory surcharges and guarantee-fund contributions attached to insurance.",
+        {"levy", "guarantee", "fund", "statutory", "contribution"},
     ),
 
     TemplateNode(("Indirect", "Logistics")),

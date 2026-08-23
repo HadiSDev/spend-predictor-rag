@@ -1017,3 +1017,62 @@ class SpendTreeDeleteResult(BaseModel):
     """Deleting a node reports what it cost, in lines that now need review."""
 
     stale_lines: int = 0
+
+
+# -- Spend-tree gap suggestions ----------------------------------------------
+
+
+class SuggestionEvidenceRead(BaseModel):
+    """One line that argued for a suggestion.
+
+    Enough to judge the proposal without leaving the page, plus the id so the
+    reader can open the line itself. A proposal a reviewer cannot check is a
+    proposal they cannot responsibly accept.
+    """
+
+    id: str
+    item_name: str | None = None
+    description: str | None = None
+    amount: Decimal | None = None
+    currency: str | None = None
+    vendor_name: str | None = None
+    invoice_id: str | None = None
+    #: Where the categorizer actually put it, which is half the argument.
+    level_1: str | None = None
+    level_2: str | None = None
+    level_3: str | None = None
+    confidence: Decimal | None = None
+
+
+class SpendCategorySuggestionRead(BaseModel):
+    """A category the tree is missing, with where it would go and why."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    spend_tree_id: str
+    company_id: str | None = None
+    parent_id: str | None = None
+    #: Resolved server-side: the client is rendering "would be added under X" and
+    #: a bare id would cost it a lookup per suggestion.
+    parent_path: str | None = None
+    name: str
+    description: str | None = None
+    rationale: str | None = None
+    state: str
+    created_category_id: str | None = None
+    #: False when the parent it named has since been deleted from the tree. The
+    #: suggestion is still readable — it is a record of a real observation — but
+    #: there is nothing left to hang it under.
+    acceptable: bool = True
+    evidence: list[SuggestionEvidenceRead] = []
+    evidence_count: int = 0
+    created_at: datetime | None = None
+
+
+class SuggestionResolveResult(BaseModel):
+    """What accepting or dismissing did."""
+
+    id: str
+    state: str
+    created_category_id: str | None = None

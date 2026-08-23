@@ -40,6 +40,7 @@ from .db.models import (
     Invoice,
     InvoiceLine,
     Recommendation,
+    SpendCategorySuggestion,
     SyncState,
 )
 
@@ -159,6 +160,14 @@ def delete_company(session: Session, company: Company) -> CompanyRecords:
     session.exec(delete(Invoice).where(Invoice.company_id == company.id))
     session.exec(delete(File).where(File.company_id == company.id))
     session.exec(delete(Recommendation).where(Recommendation.company_id == company.id))
+    # Scoped to the company, though the *tree* it proposes into is the
+    # organization's and survives. A suggestion argues from a particular
+    # company's lines, and those lines are gone.
+    session.exec(
+        delete(SpendCategorySuggestion).where(
+            SpendCategorySuggestion.company_id == company.id
+        )
+    )
 
     integration_ids = select(ErpIntegration.id).where(
         ErpIntegration.company_id == company.id

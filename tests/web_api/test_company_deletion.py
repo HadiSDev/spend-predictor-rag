@@ -28,6 +28,7 @@ from web_api.db.models import (
     InvoiceLine,
     Recommendation,
     SpendCategory,
+    SpendCategorySuggestion,
     SpendTree,
     SyncState,
     Vendor,
@@ -151,6 +152,7 @@ def test_every_company_scoped_table_is_emptied(client, voucher_seed, engine):
     assert _count(engine, ErpEntry, company_id=company_id) == 0
     assert _count(engine, File, company_id=company_id) == 0
     assert _count(engine, Recommendation, company_id=company_id) == 0
+    assert _count(engine, SpendCategorySuggestion, company_id=company_id) == 0
     assert _count(engine, ErpIntegration, company_id=company_id) == 0
     with Session(engine) as s:
         assert s.get(Company, company_id) is None

@@ -10,10 +10,21 @@ disclose.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlmodel import Session, select
 
-from web_api.db.models import Company, SpendCategory, SpendTree
+from web_api.db.models import (
+    Company,
+    Invoice,
+    InvoiceLine,
+    SpendCategory,
+    SpendCategorySuggestion,
+    SpendTree,
+    SuggestionState,
+    Vendor,
+)
 from ..deps import TenantScope, get_session, require_management, tenant_scope
 from ..schemas import (
     SpendCategoryCreate,
@@ -25,6 +36,9 @@ from ..schemas import (
     SpendTreeImportResult,
     SpendTreeRead,
     SpendTreeUpdate,
+    SpendCategorySuggestionRead,
+    SuggestionEvidenceRead,
+    SuggestionResolveResult,
 )
 from ..spend_trees import importer, service
 
@@ -336,3 +350,189 @@ def delete_spend_category(
         raise _http(error) from error
     session.commit()
     return SpendTreeDeleteResult(stale_lines=stale)
+
+
+# -- Gap suggestions ---------------------------------------------------------
+#
+# A suggestion is a proposal and never a write. `service.py` stays the only
+# writer of `SpendCategory` — a rename rewrites every descendant's materialized
+# path — so accepting one goes through `add_node` exactly as the node editor
+# does. Nothing here creates a node by any other route.
+
+
+def _path_of(node: SpendCategory | None) -> str | None:
+    if node is None:
+        return None
+    return " > ".join(
+        x for x in (node.level_1, node.level_2, node.level_3, node.level_4) if x
+    )
+
+
+def _suggestion_read(
+    session: Session, row: SpendCategorySuggestion, *, with_evidence: bool = True
+) -> SpendCategorySuggestionRead:
+    parent = session.get(SpendCategory, row.parent_id) if row.parent_id else None
+    ids = list(row.evidence_line_ids or [])
+    evidence: list[SuggestionEvidenceRead] = []
+    if with_evidence and ids:
+        lines = session.exec(
+            select(InvoiceLine).where(InvoiceLine.id.in_(ids))  # type: ignore[union-attr]
+        ).all()
+        invoices = {
+            inv.id: inv for inv in session.exec(
+                select(Invoice).where(
+                    Invoice.id.in_({line.invoice_id for line in lines})  # type: ignore[union-attr]
+                )
+            ).all()
+        } if lines else {}
+        vendors = {
+            v.id: v.name for v in session.exec(
+                select(Vendor).where(
+                    Vendor.id.in_({
+                        inv.vendor_id for inv in invoices.values() if inv.vendor_id
+                    })  # type: ignore[union-attr]
+                )
+            ).all()
+        } if invoices else {}
+        for line in lines:
+            invoice = invoices.get(line.invoice_id)
+            evidence.append(SuggestionEvidenceRead(
+                id=line.id, item_name=line.item_name, description=line.description,
+                amount=line.amount, currency=invoice.currency if invoice else None,
+                vendor_name=vendors.get(invoice.vendor_id) if invoice else None,
+                invoice_id=line.invoice_id,
+                level_1=line.level_1, level_2=line.level_2, level_3=line.level_3,
+                confidence=line.confidence,
+            ))
+
+    return SpendCategorySuggestionRead(
+        id=row.id, spend_tree_id=row.spend_tree_id, company_id=row.company_id,
+        parent_id=row.parent_id, parent_path=_path_of(parent),
+        name=row.name, description=row.description, rationale=row.rationale,
+        state=row.state, created_category_id=row.created_category_id,
+        # A suggestion whose parent has been deleted is still a record of a real
+        # observation, so it is readable — but there is nothing left to hang it
+        # under, so it cannot be accepted.
+        acceptable=row.state == SuggestionState.PENDING and parent is not None,
+        evidence=evidence, evidence_count=len(ids),
+        created_at=row.created_at,
+    )
+
+
+def _get_suggestion(
+    session: Session, scope: TenantScope, suggestion_id: str
+) -> SpendCategorySuggestion:
+    """One suggestion, scoped through the tree it belongs to.
+
+    Tenancy is derived from the tree exactly as `SpendCategory`'s is — the row
+    carries no organization of its own, and reaching it through `_get_tree` means
+    there is one place that decides whose it is.
+    """
+    row = session.get(SpendCategorySuggestion, suggestion_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Suggestion not found"
+        )
+    _get_tree(session, scope, row.spend_tree_id)
+    return row
+
+
+@router.get(
+    "/spend-trees/{tree_id}/suggestions",
+    response_model=list[SpendCategorySuggestionRead],
+)
+def list_spend_tree_suggestions(
+    tree_id: str,
+    state: str | None = Query(default=SuggestionState.PENDING),
+    scope: TenantScope = Depends(tenant_scope),
+    session: Session = Depends(get_session),
+) -> list[SpendCategorySuggestionRead]:
+    """This tree's suggestions, pending by default.
+
+    Readable by any member, like the tree itself: a reviewer judging a proposal
+    needs to see it, and seeing one grants nothing. Acting on it is gated below.
+    """
+    tree = _get_tree(session, scope, tree_id)
+    stmt = select(SpendCategorySuggestion).where(
+        SpendCategorySuggestion.spend_tree_id == tree.id
+    )
+    if state is not None:
+        stmt = stmt.where(SpendCategorySuggestion.state == state)
+    rows = session.exec(
+        stmt.order_by(SpendCategorySuggestion.created_at, SpendCategorySuggestion.id)
+    ).all()
+    return [_suggestion_read(session, row) for row in rows]
+
+
+@router.post(
+    "/spend-tree-suggestions/{suggestion_id}/accept",
+    response_model=SuggestionResolveResult,
+)
+def accept_spend_tree_suggestion(
+    suggestion_id: str,
+    scope: TenantScope = Depends(require_management),
+    session: Session = Depends(get_session),
+) -> SuggestionResolveResult:
+    """Create the proposed node, through the same service any node goes through."""
+    row = _get_suggestion(session, scope, suggestion_id)
+    if row.state != SuggestionState.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This suggestion was already {row.state}.",
+        )
+    tree = _get_tree(session, scope, row.spend_tree_id)
+    parent = session.get(SpendCategory, row.parent_id) if row.parent_id else None
+    if parent is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The category this suggestion would be added under no longer "
+                "exists. Add the category by hand if you still want it."
+            ),
+        )
+    try:
+        node = service.add_node(
+            session, tree, row.name, parent_id=parent.id, description=row.description,
+        )
+    except service.SpendTreeError as error:
+        session.rollback()
+        raise _http(error) from error
+
+    row.state = SuggestionState.ACCEPTED
+    row.created_category_id = node.id
+    row.resolved_by = scope.user_id
+    row.resolved_at = datetime.now(timezone.utc)
+    session.add(row)
+    session.commit()
+    return SuggestionResolveResult(
+        id=row.id, state=row.state, created_category_id=node.id
+    )
+
+
+@router.post(
+    "/spend-tree-suggestions/{suggestion_id}/dismiss",
+    response_model=SuggestionResolveResult,
+)
+def dismiss_spend_tree_suggestion(
+    suggestion_id: str,
+    scope: TenantScope = Depends(require_management),
+    session: Session = Depends(get_session),
+) -> SuggestionResolveResult:
+    """Refuse the proposal, and remember the refusal.
+
+    Remembered rather than deleted: the suggester reads settled proposals so it
+    does not re-argue a question the customer has answered, and a list that
+    re-argues is one people stop opening.
+    """
+    row = _get_suggestion(session, scope, suggestion_id)
+    if row.state == SuggestionState.ACCEPTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This suggestion was already accepted.",
+        )
+    row.state = SuggestionState.DISMISSED
+    row.resolved_by = scope.user_id
+    row.resolved_at = datetime.now(timezone.utc)
+    session.add(row)
+    session.commit()
+    return SuggestionResolveResult(id=row.id, state=row.state)
