@@ -20,10 +20,12 @@ import {
   Skeleton,
 } from '#/components/ui'
 import { buildTree } from '#/lib/spend-trees'
+import { TreeSuggestions } from './tree-suggestions'
 import type { TreeNode } from '#/lib/spend-trees'
 import type {
   SpendCategoryCreate,
   SpendCategoryUpdate,
+  SpendCategorySuggestionRead,
   SpendTreeDetailRead,
 } from '#/lib/types'
 
@@ -36,6 +38,18 @@ export interface SpendTreeEditorProps {
   onUpdateNode: (id: string, body: SpendCategoryUpdate) => Promise<unknown>
   /** Resolves with how many invoice lines lost their category pointer. */
   onDeleteNode: (id: string) => Promise<{ stale_lines: number }>
+  /**
+   * Categories this tree may be missing, proposed from the company's own spend.
+   *
+   * Rendered here rather than in a notifications area because accepting one *is*
+   * a tree edit: the reviewer needs the tree in front of them to judge whether a
+   * proposal duplicates something they already have under another name, and to
+   * see where it would land.
+   */
+  suggestions?: Array<SpendCategorySuggestionRead>
+  onAcceptSuggestion?: (id: string) => Promise<unknown>
+  onDismissSuggestion?: (id: string) => Promise<unknown>
+  onReopenSuggestion?: (id: string) => Promise<unknown>
 }
 
 /**
@@ -55,6 +69,10 @@ export function SpendTreeEditor({
   onAddNode,
   onUpdateNode,
   onDeleteNode,
+  suggestions,
+  onAcceptSuggestion,
+  onDismissSuggestion,
+  onReopenSuggestion,
 }: SpendTreeEditorProps) {
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set())
   const [adding, setAdding] = React.useState<{ parentId: string | null; depth: number } | null>(
@@ -117,6 +135,16 @@ export function SpendTreeEditor({
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+      {suggestions && onAcceptSuggestion && onDismissSuggestion && onReopenSuggestion ? (
+        <TreeSuggestions
+          suggestions={suggestions}
+          canManage={canManage}
+          onAccept={onAcceptSuggestion}
+          onDismiss={onDismissSuggestion}
+          onReopen={onReopenSuggestion}
+        />
+      ) : null}
 
       <Card className="p-2">
         {roots.length === 0 ? (

@@ -6,6 +6,8 @@ import type {
   SpendCategoryRead,
   SpendCategoryUpdate,
   SpendTreeCreate,
+  SpendCategorySuggestionRead,
+  SuggestionResolveResult,
   SpendTreeDeleteResult,
   SpendTreeDetailRead,
   SpendTreeImportResult,
@@ -205,6 +207,89 @@ export function deleteSpendCategoryMutation(
       void queryClient.invalidateQueries({ queryKey: spendTreeKey(treeId) })
       void queryClient.invalidateQueries({ queryKey: spendTreesKey() })
     },
+  }
+}
+
+/** Key for one tree's suggestions, so accepting one refetches just that list. */
+export function spendTreeSuggestionsKey(treeId: string) {
+  return [...spendTreesKey(), treeId, 'suggestions'] as const
+}
+
+/**
+ * The categories this tree is missing (`GET /spend-trees/{id}/suggestions`).
+ *
+ * Readable by any member, like the tree itself — a reviewer judging a proposal
+ * needs to see it, and seeing one grants nothing.
+ */
+export function spendTreeSuggestionsQueryOptions(api: ApiClient, treeId: string | null) {
+  return queryOptions({
+    queryKey: spendTreeSuggestionsKey(treeId ?? 'none'),
+    queryFn: () =>
+      api.get<Array<SpendCategorySuggestionRead>>(
+        `/api/v1/spend-trees/${treeId}/suggestions`,
+      ),
+    enabled: treeId !== null,
+  })
+}
+
+/**
+ * Accept a suggestion (`POST /spend-tree-suggestions/{id}/accept`).
+ *
+ * Invalidates the tree as well as the suggestion list: acceptance creates a real
+ * node, and the reviewer must see it land where it was proposed.
+ */
+export function acceptSuggestionMutation(
+  api: ApiClient,
+  queryClient: QueryClient,
+  treeId: string,
+): UseMutationOptions<SuggestionResolveResult, Error, string> {
+  return {
+    mutationFn: (id) =>
+      api.post<SuggestionResolveResult>(`/api/v1/spend-tree-suggestions/${id}/accept`, {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: spendTreeKey(treeId) })
+      void queryClient.invalidateQueries({ queryKey: spendTreeSuggestionsKey(treeId) })
+    },
+  }
+}
+
+/**
+ * Dismiss a suggestion (`POST /spend-tree-suggestions/{id}/dismiss`).
+ *
+ * The server remembers the dismissal rather than deleting the row, so the
+ * suggester does not re-argue a question the customer has answered. Only the
+ * pending list is invalidated — no node changed.
+ */
+export function dismissSuggestionMutation(
+  api: ApiClient,
+  queryClient: QueryClient,
+  treeId: string,
+): UseMutationOptions<SuggestionResolveResult, Error, string> {
+  return {
+    mutationFn: (id) =>
+      api.post<SuggestionResolveResult>(`/api/v1/spend-tree-suggestions/${id}/dismiss`, {}),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: spendTreeSuggestionsKey(treeId) }),
+  }
+}
+
+/**
+ * Put a dismissed suggestion back (`POST /spend-tree-suggestions/{id}/reopen`).
+ *
+ * What makes the dismiss control's undo real rather than a message saying the
+ * decision was final. Dismiss sits one click from accept, so a misclick must not
+ * permanently lose a proposal the customer wanted.
+ */
+export function reopenSuggestionMutation(
+  api: ApiClient,
+  queryClient: QueryClient,
+  treeId: string,
+): UseMutationOptions<SuggestionResolveResult, Error, string> {
+  return {
+    mutationFn: (id) =>
+      api.post<SuggestionResolveResult>(`/api/v1/spend-tree-suggestions/${id}/reopen`, {}),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: spendTreeSuggestionsKey(treeId) }),
   }
 }
 

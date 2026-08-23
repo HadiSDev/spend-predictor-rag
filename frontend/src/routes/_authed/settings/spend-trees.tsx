@@ -14,6 +14,10 @@ import {
   spendTreeQueryOptions,
   spendTreesQueryOptions,
   updateSpendCategoryMutation,
+  acceptSuggestionMutation,
+  dismissSuggestionMutation,
+  reopenSuggestionMutation,
+  spendTreeSuggestionsQueryOptions,
 } from '#/lib/spend-trees'
 
 /** Which tree is open, in the URL — so a tree is linkable like a voucher is. */
@@ -47,6 +51,12 @@ function SpendTreesSection() {
   const addNode = useMutation(createSpendCategoryMutation(api, queryClient, openTreeId ?? ''))
   const updateNode = useMutation(updateSpendCategoryMutation(api, queryClient, openTreeId ?? ''))
   const deleteNode = useMutation(deleteSpendCategoryMutation(api, queryClient, openTreeId ?? ''))
+  // Readable by any member, like the tree itself — a reviewer judging a proposal
+  // needs to see it, and seeing one grants nothing.
+  const suggestions = useQuery(spendTreeSuggestionsQueryOptions(api, openTreeId ?? null))
+  const accept = useMutation(acceptSuggestionMutation(api, queryClient, openTreeId ?? ''))
+  const dismiss = useMutation(dismissSuggestionMutation(api, queryClient, openTreeId ?? ''))
+  const reopen = useMutation(reopenSuggestionMutation(api, queryClient, openTreeId ?? ''))
 
   if (openTreeId) {
     return (
@@ -58,6 +68,10 @@ function SpendTreesSection() {
         onAddNode={(body) => addNode.mutateAsync(body)}
         onUpdateNode={(id, body) => updateNode.mutateAsync({ id, body })}
         onDeleteNode={(id) => deleteNode.mutateAsync(id)}
+        suggestions={suggestions.data ?? []}
+        onAcceptSuggestion={(id) => accept.mutateAsync(id)}
+        onDismissSuggestion={(id) => dismiss.mutateAsync(id)}
+        onReopenSuggestion={(id) => reopen.mutateAsync(id)}
       />
     )
   }

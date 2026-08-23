@@ -266,3 +266,51 @@ def test_an_unknown_suggestion_is_404(client, seed):
     assert client.post(
         "/api/v1/spend-tree-suggestions/nope/dismiss", headers=auth("tokA")
     ).status_code == 404
+
+
+# -- Reopening ----------------------------------------------------------------
+
+
+def test_a_dismissal_can_be_taken_back(client, tree_with_suggestion):
+    """Dismiss sits one click from accept. Making it irreversible would mean a
+    misclick permanently loses a proposal the customer wanted."""
+    base = f"/api/v1/spend-tree-suggestions/{tree_with_suggestion['suggestion']}"
+    client.post(f"{base}/dismiss", headers=auth("tokA"))
+
+    res = client.post(f"{base}/reopen", headers=auth("tokA"))
+
+    assert res.status_code == 200 and res.json()["state"] == "pending"
+    assert len(_list(client, tree_with_suggestion["tree"]).json()) == 1
+
+
+def test_reopening_clears_who_resolved_it(client, tree_with_suggestion, engine):
+    base = f"/api/v1/spend-tree-suggestions/{tree_with_suggestion['suggestion']}"
+    client.post(f"{base}/dismiss", headers=auth("tokA"))
+    client.post(f"{base}/reopen", headers=auth("tokA"))
+
+    with Session(engine) as s:
+        row = s.get(SpendCategorySuggestion, tree_with_suggestion["suggestion"])
+        assert row.resolved_by is None and row.resolved_at is None
+
+
+def test_an_accepted_suggestion_cannot_be_reopened(client, tree_with_suggestion):
+    """It created a node. Reopening would either orphan that node from its
+    suggestion or delete a real category behind the reviewer's back — and
+    deleting a node is the node editor's job, which says what it does."""
+    base = f"/api/v1/spend-tree-suggestions/{tree_with_suggestion['suggestion']}"
+    client.post(f"{base}/accept", headers=auth("tokA"))
+
+    assert client.post(f"{base}/reopen", headers=auth("tokA")).status_code == 409
+
+
+def test_a_pending_suggestion_cannot_be_reopened(client, tree_with_suggestion):
+    base = f"/api/v1/spend-tree-suggestions/{tree_with_suggestion['suggestion']}"
+
+    assert client.post(f"{base}/reopen", headers=auth("tokA")).status_code == 409
+
+
+def test_a_viewer_may_not_reopen(client, tree_with_suggestion):
+    base = f"/api/v1/spend-tree-suggestions/{tree_with_suggestion['suggestion']}"
+    client.post(f"{base}/dismiss", headers=auth("tokA"))
+
+    assert client.post(f"{base}/reopen", headers=auth("tok_viewerA")).status_code == 403

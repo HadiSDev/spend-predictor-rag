@@ -88,8 +88,8 @@ const STATUSES = ['pending', 'posted', 'synced', 'failed'] as const
  * the option that clears it carries this sentinel.
  */
 const ALL = '__all__'
-//: The one non-default confidence state. A "confident only" option would be a
-//: filter for admiring the categorizer's work rather than for doing any.
+// The one non-default confidence state. A "confident only" option would be a
+// filter for admiring the categorizer's work rather than for doing any.
 const REVIEW = 'needs_review'
 const REVIEW_OPTIONS = [{ value: REVIEW, label: 'Needs review' }]
 

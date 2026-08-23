@@ -510,6 +510,41 @@ def accept_spend_tree_suggestion(
 
 
 @router.post(
+    "/spend-tree-suggestions/{suggestion_id}/reopen",
+    response_model=SuggestionResolveResult,
+)
+def reopen_spend_tree_suggestion(
+    suggestion_id: str,
+    scope: TenantScope = Depends(require_management),
+    session: Session = Depends(get_session),
+) -> SuggestionResolveResult:
+    """Put a dismissed suggestion back in front of the reviewer.
+
+    This exists so the dismiss control can offer a real undo rather than a
+    warning that the decision was final. A dismissal is cheap to make by mistake
+    — it is one click beside an accept — and irreversible removal of a proposal
+    the customer wanted is worse than the small cost of a reopen route.
+
+    Only a dismissal reopens. An accepted suggestion has created a node, and
+    "undoing" it would either leave the node orphaned from its suggestion or
+    delete a real category behind the reviewer's back; deleting the node is the
+    node editor's job and says what it does.
+    """
+    row = _get_suggestion(session, scope, suggestion_id)
+    if row.state != SuggestionState.DISMISSED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Only a dismissed suggestion can be reopened; this one is {row.state}.",
+        )
+    row.state = SuggestionState.PENDING
+    row.resolved_by = None
+    row.resolved_at = None
+    session.add(row)
+    session.commit()
+    return SuggestionResolveResult(id=row.id, state=row.state)
+
+
+@router.post(
     "/spend-tree-suggestions/{suggestion_id}/dismiss",
     response_model=SuggestionResolveResult,
 )

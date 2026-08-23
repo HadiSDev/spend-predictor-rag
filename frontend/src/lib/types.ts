@@ -806,3 +806,51 @@ export interface AuditLogRead {
 export interface VoucherAuditRead extends AuditLogRead {
   entity_label: string
 }
+
+
+// -- Spend-tree gap suggestions ---------------------------------------------
+
+/** One line that argued for a suggestion. */
+export interface SuggestionEvidenceRead {
+  id: string
+  item_name: string | null
+  description: string | null
+  amount: Money | null
+  currency: string | null
+  vendor_name: string | null
+  invoice_id: string | null
+  /** Where the categorizer actually put it — half the argument. */
+  level_1: string | null
+  level_2: string | null
+  level_3: string | null
+  confidence: Money | null
+}
+
+/** A category the tree is missing, with where it would go and why. */
+export interface SpendCategorySuggestionRead {
+  id: string
+  spend_tree_id: string
+  company_id: string | null
+  parent_id: string | null
+  /** Resolved server-side, so rendering "would be added under X" costs no
+   *  lookup per suggestion. */
+  parent_path: string | null
+  name: string
+  description: string | null
+  rationale: string | null
+  /** `pending` | `accepted` | `dismissed`. */
+  state: string
+  created_category_id: string | null
+  /** False once the parent it named has been deleted. Still readable — it
+   *  records a real observation — but there is nothing left to hang it under. */
+  acceptable: boolean
+  evidence: Array<SuggestionEvidenceRead>
+  evidence_count: number
+  created_at: string | null
+}
+
+export interface SuggestionResolveResult {
+  id: string
+  state: string
+  created_category_id: string | null
+}
