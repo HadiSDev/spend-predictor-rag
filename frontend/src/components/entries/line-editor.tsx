@@ -381,7 +381,16 @@ export function LineEditor({
         <Progress value={confidencePct} label="Confidence" showValue />
       )}
 
-      {line.rationale ? (
+      {/* A rationale explains a *decision*, so it is shown only where one was
+          made. An `uncategorized` line is queued and has been decided nothing
+          about; rendering its stored rationale presents a withdrawn verdict as
+          a current one — which is how a requeued line went on arguing that it
+          could not be categorized, in the words of the categorizer it had just
+          been requeued away from.
+
+          Defence in depth: the requeue clears the field, and this makes any
+          other path that leaves one behind harmless rather than misleading. */}
+      {line.rationale && line.status !== 'uncategorized' ? (
         <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
           {line.rationale}
         </p>

@@ -257,12 +257,19 @@ def recategorize_company_lines(
             changes = [
                 {"field": "status", "old": line.status, "new": LineStatus.UNCATEGORIZED.value}
             ]
-            # The message describes an attempt that is no longer this line's
-            # state; left in place it reports a queued line as still failing.
-            if line.error_message is not None:
-                changes.append(
-                    {"field": "error_message", "old": line.error_message, "new": None}
-                )
+            # Both describe an attempt that is no longer this line's state;
+            # left in place they report a queued line as still failing.
+            #
+            # `rationale` matters more than `error_message`, and was missed at
+            # first. The line editor renders it with no reference to status, so a
+            # requeued line went on showing a paragraph arguing why it could not
+            # be categorized — written by a categorizer that has since been
+            # fixed, about a question it is about to be asked again.
+            for field in ("error_message", "rationale"):
+                if getattr(line, field) is not None:
+                    changes.append(
+                        {"field": field, "old": getattr(line, field), "new": None}
+                    )
             record_audit(
                 session,
                 entity_type="invoice_line",
@@ -273,6 +280,7 @@ def recategorize_company_lines(
             )
             line.status = LineStatus.UNCATEGORIZED
             line.error_message = None
+            line.rationale = None
             session.add(line)
 
         # In the same transaction: an invoice must never claim to be categorized

@@ -37,6 +37,7 @@ def failed_lines(engine, seed):
             company_id=ids["comp_a"], invoice_id=ids["inv_a"], description="Togbillet",
             amount=Decimal("11.00"), status="ai_failed", sequence=2, origin="erp",
             error_message="No spend category matched the description.",
+            rationale="The invoice line only provides the supplier name and the amount.",
         )
         standin = InvoiceLine(
             company_id=ids["comp_a"], invoice_id=ids["inv_a"], description="",
@@ -193,6 +194,36 @@ def test_the_stale_failure_message_is_cleared(client, engine, failed_lines):
 
     with Session(engine) as s:
         assert s.get(InvoiceLine, failed_lines["failed"]).error_message is None
+
+
+def test_the_stale_rationale_is_cleared(client, engine, failed_lines):
+    """The rationale explains a decision, and the decision has been withdrawn.
+
+    Left in place it is worse than the error message was: the panel renders it
+    as the line's reasoning with no reference to status, so a queued line shows
+    a paragraph arguing why it could not be categorized — by a categorizer that
+    has since been fixed, about a question it is about to be asked again.
+    """
+    client.post(_url(failed_lines["comp_a"]), headers={"Authorization": "Bearer tokA"})
+
+    with Session(engine) as s:
+        assert s.get(InvoiceLine, failed_lines["failed"]).rationale is None
+
+
+def test_clearing_the_rationale_is_audited(client, engine, failed_lines):
+    """It is the only record of what the model said, so it cannot just vanish."""
+    client.post(_url(failed_lines["comp_a"]), headers={"Authorization": "Bearer tokA"})
+
+    with Session(engine) as s:
+        row = s.exec(
+            select(AuditLog).where(
+                AuditLog.entity_id == failed_lines["failed"],
+                AuditLog.action == RECATEGORIZE_ACTION,
+            )
+        ).first()
+        fields = {c["field"]: c for c in row.changes}
+        assert fields["rationale"]["old"].startswith("The invoice line only provides")
+        assert fields["rationale"]["new"] is None
 
 
 def test_each_reset_is_audited(client, engine, failed_lines):
