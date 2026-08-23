@@ -7,6 +7,7 @@ import type {
   VoucherAuditRead,
   VoucherDetailRead,
   VoucherGroupRead,
+  VoucherTab,
 } from './types'
 
 /** Key prefix for every entry query, so one invalidation covers them all. */
@@ -43,6 +44,18 @@ export function entryQueryOptions(api: ApiClient, id: string | null) {
  *  has none (an unlinked entry forms a voucher group of one — see
  *  `web_api/routers/erp_entries.py`). A voucher id, when present, wins. */
 export type VoucherKey = { voucher?: string; entry?: string }
+
+/**
+ * A request to open the panel: which voucher, and — when the row that was
+ * activated says so — which face of it to open on.
+ *
+ * `tab` lives on the selection rather than on `VoucherKey` because it is not
+ * part of a voucher's identity: it queries nothing. It is declared here, in one
+ * place, because it previously was not: the table asked for `tab: 'lines'`
+ * through a callback typed to accept only a `VoucherKey`, which TypeScript
+ * accepts and the route then silently dropped.
+ */
+export type VoucherSelection = VoucherKey & { tab?: VoucherTab }
 
 /** The path segment for a key, or null when nothing is selected — the caller
  *  turns that into `enabled: false` rather than firing a request. */

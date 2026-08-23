@@ -14,9 +14,9 @@ import {
   TooltipTrigger,
   cn,
 } from '#/components/ui'
-import type { VoucherKey } from '#/lib/entries'
+import type { VoucherSelection } from '#/lib/entries'
 import { formatMoney, toNumber } from '#/lib/format'
-import type { InvoiceLineRead, LineOrigin, VoucherGroupRead, VoucherTab } from '#/lib/types'
+import type { InvoiceLineRead, LineOrigin, VoucherGroupRead } from '#/lib/types'
 import { ConvertedAmount } from './converted-amount'
 import { LineStatusBadge } from './line-status'
 
@@ -257,15 +257,29 @@ function LineHeaderRow() {
   )
 }
 
-/** One invoice line — what was bought, not how it was posted. */
+/**
+ * One invoice line — what was bought, not how it was posted.
+ *
+ * The whole row opens the panel, not just the description. A reader pressing a
+ * row of a table expects the thing the row describes to open, and the
+ * description is a short target in a row eight columns wide — press anywhere
+ * else and nothing happened at all. The button inside stays, because a row is
+ * not reachable from a keyboard and `onClick` on a `<tr>` is a mouse
+ * affordance, never the only way in.
+ */
 function LineRow({ line, onSelect }: { line: InvoiceLineRead; onSelect: () => void }) {
   return (
-    <TableRow className="bg-muted/25">
+    <TableRow className="cursor-pointer bg-muted/25" onClick={onSelect}>
       <TableCell />
       <TableCell className="pl-8">
         <button
           type="button"
-          onClick={onSelect}
+          // The row handles this too, so the click is stopped here rather than
+          // opening the same panel twice.
+          onClick={(event) => {
+            event.stopPropagation()
+            onSelect()
+          }}
           className="text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
         >
           {line.description ?? <span className="text-muted-foreground">—</span>}
@@ -313,7 +327,7 @@ export interface VoucherTableProps {
    *  by the clicked posting's entry id otherwise (a voucherless group has no
    *  other shareable key). A `tab` is passed when the row that was activated
    *  says which face of the panel to open on. */
-  onSelectEntry: (key: VoucherKey & { tab?: VoucherTab }) => void
+  onSelectEntry: (key: VoucherSelection) => void
 }
 
 /**
@@ -379,28 +393,40 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
             onSelectEntry({ voucher: group.voucher_id ?? undefined, entry: postings[0]?.id })
           return (
             <React.Fragment key={key}>
-              <TableRow className={cn(expandable && 'cursor-pointer')}>
+              {/* Pressable whether or not it expands: opening the panel is
+                  what every row does, and the cursor has always promised it.
+                  Before this the promise was empty — only the voucher number
+                  itself was a control, so pressing the row did nothing. */}
+              <TableRow className="cursor-pointer" onClick={openGroup}>
                 <TableCell className="pr-0">
                   {expandable ? (
                     <IconButton
                       variant="ghost"
                       aria-label={`${isOpen ? 'Collapse' : 'Expand'} voucher ${group.voucher_id}`}
                       aria-expanded={isOpen}
-                      onClick={() => toggle(key)}
+                      // Expanding reveals the lines in place; opening the panel
+                      // puts a sheet over them. Without this the chevron would
+                      // do both, and the panel would cover what it just showed.
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        toggle(key)
+                      }}
                     >
                       {isOpen ? <ChevronDown /> : <ChevronRight />}
                     </IconButton>
                   ) : null}
                 </TableCell>
                 <TableCell className="font-medium">
-                  {/* The name is always its own control, separate from the
-                      expand/collapse chevron: expanding reveals the postings
-                      inline, opening the panel is a different action, and a
-                      group of one posting has nothing to expand at all — the
-                      row itself has to be the way into the panel for it. */}
+                  {/* The name stays its own control even though the row is
+                      now pressable: a `<tr>` takes no focus and answers no
+                      Enter key, so without a real button here the panel would
+                      be unreachable without a mouse. */}
                   <button
                     type="button"
-                    onClick={openGroup}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      openGroup()
+                    }}
                     aria-label={`View voucher ${group.voucher_id ?? 'with no id'}`}
                     className={cn(
                       'text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring',

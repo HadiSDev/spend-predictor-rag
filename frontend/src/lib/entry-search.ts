@@ -1,3 +1,4 @@
+import type { VoucherSelection } from './entries'
 import type { EntryFilters, LineOrigin, VoucherTab } from './types'
 
 /** Read one search key, dropping empty values so they never reach the URL. */
@@ -67,6 +68,32 @@ export function applyFilterChange(
   changes: Partial<EntryFilters>,
 ): EntryFilters {
   return { ...filters, ...changes, page: undefined, voucher: undefined, entry: undefined, tab: undefined }
+}
+
+/**
+ * Apply a request to open (or close) the voucher panel.
+ *
+ * The filters are untouched — a selection narrows nothing — but the tab is
+ * **taken from the selection when it states one**. That is the whole point: a
+ * reader who pressed a line row is asking to see lines, and an opened panel
+ * that shows a different face has covered the row they activated with
+ * something else. Lacking a stated tab, the one in view stays, so opening the
+ * next voucher does not throw the reader back to Details.
+ *
+ * Closing (`{}`) clears the tab as well, rather than leaving `tab=lines` in the
+ * URL of a page with no panel open.
+ */
+export function applyVoucherSelection(
+  filters: EntryFilters,
+  selection: VoucherSelection,
+): EntryFilters {
+  const open = selection.voucher !== undefined || selection.entry !== undefined
+  return {
+    ...filters,
+    voucher: selection.voucher,
+    entry: selection.entry,
+    tab: open ? (selection.tab ?? filters.tab) : undefined,
+  }
 }
 
 /**

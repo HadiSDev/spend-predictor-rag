@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { applyFilterChange, listableEntryTypes, validateEntrySearch } from './entry-search'
+import {
+  applyFilterChange,
+  applyVoucherSelection,
+  listableEntryTypes,
+  validateEntrySearch,
+} from './entry-search'
 
 describe('validateEntrySearch', () => {
   it('reads every filter from the URL', () => {
@@ -78,6 +83,35 @@ describe('applyFilterChange', () => {
       { voucher: '4821', entry: 'e1', tab: 'details' },
       { company_id: 'c2' },
     )
+    expect(next.voucher).toBeUndefined()
+    expect(next.entry).toBeUndefined()
+    expect(next.tab).toBeUndefined()
+  })
+})
+
+describe('applyVoucherSelection', () => {
+  it('opens the voucher on the tab the caller asked for', () => {
+    // A reader who pressed a *line* is asking to see lines. Dropping the tab
+    // opened the panel on whichever face it was left on, so the row they
+    // activated was not in view — the panel opened over it and showed
+    // something else.
+    const next = applyVoucherSelection({ tab: 'details' }, { voucher: 'V-1', entry: 'e1', tab: 'lines' })
+    expect(next).toMatchObject({ voucher: 'V-1', entry: 'e1', tab: 'lines' })
+  })
+
+  it('keeps the tab in view when the caller names none', () => {
+    // Opening the next voucher from the voucher row says nothing about which
+    // face to show, so the reader stays on the one they were reading.
+    expect(applyVoucherSelection({ tab: 'activity' }, { voucher: 'V-2' }).tab).toBe('activity')
+  })
+
+  it('keeps the filters the selection says nothing about', () => {
+    const next = applyVoucherSelection({ company_id: 'c1', page: 3 }, { voucher: 'V-1' })
+    expect(next).toMatchObject({ company_id: 'c1', page: 3 })
+  })
+
+  it('clears the tab when the panel closes, so the URL keeps no dead state', () => {
+    const next = applyVoucherSelection({ voucher: 'V-1', tab: 'lines' }, {})
     expect(next.voucher).toBeUndefined()
     expect(next.entry).toBeUndefined()
     expect(next.tab).toBeUndefined()

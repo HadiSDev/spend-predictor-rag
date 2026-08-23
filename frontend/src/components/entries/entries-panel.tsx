@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Button, Card, Pagination, Skeleton } from '#/components/ui'
-import type { VoucherKey } from '#/lib/entries'
+import type { VoucherSelection } from '#/lib/entries'
 import type {
   CompanyRead,
   EntryFilters,
@@ -97,9 +97,10 @@ export interface EntriesPanelProps {
   /** Which face of the panel is showing — URL state, owned by the route. */
   tab: VoucherTab
   onTabChange: (tab: VoucherTab) => void
-  /** Opens the panel for a voucher (or, lacking one, a lone posting). Also
-   *  the way the panel is closed: `onSelectEntry({})` clears both. */
-  onSelectEntry: (key: VoucherKey) => void
+  /** Opens the panel for a voucher (or, lacking one, a lone posting), on the
+   *  tab the activated row asks for. Also the way the panel is closed:
+   *  `onSelectEntry({})` clears all three. */
+  onSelectEntry: (key: VoucherSelection) => void
   onVerifyLine: (lineId: string, corrections: LineCorrections) => Promise<void>
   /** The open voucher's company's spend tree. Resolved by the route, so one
    *  request serves every line in the panel. */

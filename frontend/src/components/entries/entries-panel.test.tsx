@@ -1072,6 +1072,44 @@ describe('EntriesPanel — voucher panel', () => {
     expect(screen.getByLabelText('Voucher detail')).toBeTruthy()
   })
 
+  it('opens the voucher when the row itself is pressed, not only its number', () => {
+    const onSelectEntry = vi.fn()
+    render(<EntriesPanel {...setupProps({ onSelectEntry })} />)
+    // The supplier cell is not a control. Pressing it is pressing the row, which
+    // is what a reader does — the voucher number is a small target in a wide row,
+    // and the row already carries a pointer cursor promising it can be pressed.
+    fireEvent.click(screen.getByText('Contoso ApS'))
+    expect(onSelectEntry).toHaveBeenCalledWith({ voucher: 'V-1042', entry: 'e1' })
+  })
+
+  it('expands without opening the panel, since those are different actions', () => {
+    const onSelectEntry = vi.fn()
+    render(<EntriesPanel {...setupProps({ onSelectEntry })} />)
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-1042/ }))
+    // Revealing the lines in place is not a request to open the panel over them.
+    expect(onSelectEntry).not.toHaveBeenCalled()
+  })
+
+  it('opens a line from anywhere in its row, not only its description', async () => {
+    const onSelectEntry = vi.fn()
+    render(
+      <EntriesPanel
+        {...setupProps({
+          result: { items: [SPLIT], page: 1, page_size: 25, total: 1 },
+          onSelectEntry,
+        })}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-SPLIT/ }))
+    await screen.findByText('Flights to Berlin')
+    // The line's own amount cell — evidence, not a control.
+    fireEvent.click(screen.getByText('DKK 400.00'))
+
+    expect(onSelectEntry).toHaveBeenCalledWith({
+      voucher: 'V-SPLIT', entry: 's1', tab: 'lines',
+    })
+  })
+
   it('asks to open a voucher by its id, and by entry id when it has none', () => {
     const onSelectEntry = vi.fn()
     render(<EntriesPanel {...setupProps({ onSelectEntry })} />)

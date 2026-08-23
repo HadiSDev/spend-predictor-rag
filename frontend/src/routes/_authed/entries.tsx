@@ -21,7 +21,12 @@ import {
 } from '#/lib/invoices'
 import { entriesSummaryOptions } from '#/lib/reports'
 import { spendTreeQueryOptions } from '#/lib/spend-trees'
-import { applyFilterChange, listableEntryTypes, validateEntrySearch } from '#/lib/entry-search'
+import {
+  applyFilterChange,
+  applyVoucherSelection,
+  listableEntryTypes,
+  validateEntrySearch,
+} from '#/lib/entry-search'
 import { vendorsQueryOptions } from '#/lib/vendors'
 
 export const Route = createFileRoute('/_authed/entries')({
@@ -105,7 +110,7 @@ function EntriesPage() {
       auditLoading={voucherAudit.isPending && voucherOpen}
       tab={filters.tab ?? 'details'}
       onTabChange={(tab) => navigate({ search: { ...filters, tab } })}
-      onSelectEntry={(key) => navigate({ search: { ...filters, voucher: key.voucher, entry: key.entry } })}
+      onSelectEntry={(key) => navigate({ search: applyVoucherSelection(filters, key) })}
       onVerifyLine={async (lineId, corrections) => {
         await verifyLine.mutateAsync({ id: lineId, corrections })
       }}
