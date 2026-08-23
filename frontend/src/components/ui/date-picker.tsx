@@ -13,6 +13,16 @@ export interface DatePickerProps {
   /** Month shown when first opened with no value. */
   defaultMonth?: Date
   className?: string
+  /**
+   * What date this picks.
+   *
+   * The trigger's only content is the formatted date, so without this its
+   * accessible name is a date and nothing else — the From and To pickers in the
+   * filter bar were announced identically, and a picker beside a label had no
+   * programmatic tie to it (Base UI's `Field` wires its own `Field.Control`,
+   * not an arbitrary trigger).
+   */
+  'aria-label'?: string
 }
 
 const formatter = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' })
@@ -32,13 +42,19 @@ export function DatePicker({
   disabled,
   defaultMonth,
   className,
+  'aria-label': ariaLabel,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false)
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
-          <button type="button" disabled={disabled} className={cn(fieldTriggerClassName, className)}>
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label={ariaLabel}
+            className={cn(fieldTriggerClassName, className)}
+          >
             {/* Muted only when it is a placeholder, so a set date carries the
                 same ink as a chosen select value beside it. */}
             <span className={cn('truncate', !value && 'text-muted-foreground')}>

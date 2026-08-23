@@ -131,8 +131,10 @@ describe('VoucherDetailsTab', () => {
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
 
     await waitFor(() =>
+      // The editable field is the number *printed on the scan*. The ERP's own
+      // is metadata beside the heading and is not part of this form.
       expect(onUpdateHeader).toHaveBeenCalledWith(erpInvoice.id, {
-        invoice_number: 'INV-CORRECTED',
+        document_invoice_number: 'INV-CORRECTED',
       }),
     )
   })
@@ -219,13 +221,33 @@ describe('VoucherDetailsTab', () => {
 
   it('resets the header without saving when cancelled', () => {
     const onUpdateHeader = vi.fn().mockResolvedValue(undefined)
-    render(<VoucherDetailsTab {...props({ onUpdateHeader })} />)
+    const scanned = invoice({ document_invoice_number: 'INV-2026-0412' })
+    render(<VoucherDetailsTab {...props({ invoice: scanned, onUpdateHeader })} />)
 
     fireEvent.change(screen.getByLabelText(/invoice number/i), { target: { value: 'INV-DRAFT' } })
     fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
 
     expect(screen.getByLabelText<HTMLInputElement>(/invoice number/i).value).toBe('INV-2026-0412')
     expect(onUpdateHeader).not.toHaveBeenCalled()
+  })
+
+  it('leaves the number empty when the document stated none', () => {
+    // Never backfilled from the ERP's value. Billy's often falls back to the
+    // bill id, and presenting that in a box labelled "Invoice number" invites a
+    // reviewer to confirm an internal identifier as the supplier's own.
+    render(<VoucherDetailsTab {...props()} />)
+
+    expect(screen.getByLabelText<HTMLInputElement>(/invoice number/i).value).toBe('')
+  })
+
+  it('shows the ERP’s own number as evidence, not as a field', () => {
+    render(<VoucherDetailsTab {...props()} />)
+
+    // Present, so a reviewer can still trace the posting…
+    expect(screen.getByText(/ERP reference/i)).toBeTruthy()
+    expect(screen.getByText('INV-2026-0412')).toBeTruthy()
+    // …but it is text, not an input anyone can correct here.
+    expect(screen.queryByLabelText(/ERP reference/i)).toBeNull()
   })
 
   it('surfaces a save failure rather than swallowing it', async () => {
@@ -253,8 +275,8 @@ describe('VoucherDetailsTab', () => {
   it('tracks the invoice prop rather than only its value at mount', () => {
     // A drawer that stays mounted while the selected voucher changes must not
     // leave the header showing the previous invoice's values.
-    const invoiceA = invoice({ id: 'inv-a', invoice_number: 'INV-A' })
-    const invoiceB = invoice({ id: 'inv-b', invoice_number: 'INV-B' })
+    const invoiceA = invoice({ id: 'inv-a', document_invoice_number: 'INV-A' })
+    const invoiceB = invoice({ id: 'inv-b', document_invoice_number: 'INV-B' })
 
     const { rerender } = render(<VoucherDetailsTab {...props({ invoice: invoiceA })} />)
     expect(screen.getByLabelText<HTMLInputElement>(/invoice number/i).value).toBe('INV-A')

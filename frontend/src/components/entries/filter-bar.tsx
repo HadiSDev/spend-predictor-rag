@@ -162,6 +162,7 @@ export function FilterBar({
       <label className="flex flex-col gap-1.5">
         <span className="text-xs font-medium text-muted-foreground">From</span>
         <DatePicker
+          aria-label="From date"
           value={fromIsoDate(filters.from)}
           placeholder="Any date"
           onChange={(date) => onChange({ from: toIsoDate(date) })}
@@ -172,6 +173,7 @@ export function FilterBar({
       <label className="flex flex-col gap-1.5">
         <span className="text-xs font-medium text-muted-foreground">To</span>
         <DatePicker
+          aria-label="To date"
           value={fromIsoDate(filters.to)}
           placeholder="Any date"
           onChange={(date) => onChange({ to: toIsoDate(date) })}

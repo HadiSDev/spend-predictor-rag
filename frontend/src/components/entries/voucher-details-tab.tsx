@@ -3,6 +3,8 @@ import { Check, FileText, Landmark, PencilLine } from 'lucide-react'
 import {
   Badge,
   Button,
+  CurrencyInput,
+  DatePicker,
   Field,
   FieldControl,
   FieldLabel,
@@ -11,7 +13,7 @@ import {
   TooltipTrigger,
 } from '#/components/ui'
 import { CountryField } from '#/components/settings/country-field'
-import { formatMoney } from '#/lib/format'
+import { formatMoney, fromIsoDate, toIsoDate, toNumber } from '#/lib/format'
 import { serverErrorMessage } from '#/lib/form-errors'
 import type { InvoiceDetailRead, InvoiceUpdate, VendorRead } from '#/lib/types'
 import { DocumentProcessing } from './document-processing'
@@ -66,6 +68,30 @@ function ProvenanceBadge({ source }: { source: string }) {
  * surface, never a disabled input, which still reads as tappable and claims a
  * permission that will never be granted.
  */
+/**
+ * The ERP's own invoice number, as metadata rather than as a field.
+ *
+ * It is evidence, not the supplier's number: Billy's `suppliersInvoiceNo` is
+ * user-entered and often null and `voucherNo` is blank at least as often, so
+ * the connector falls back to the *bill id*. Presenting that in a box labelled
+ * "Invoice number" invited a reviewer to reconcile against an internal
+ * identifier. The number printed on the document is the editable one; this sits
+ * beside the heading, labelled for what it is, and is never edited here —
+ * correcting it would put our record out of step with the ERP's while
+ * presenting no evidence that it had been.
+ */
+function PostedNumber({ invoice }: { invoice: InvoiceDetailRead }) {
+  if (!invoice.invoice_number) return null
+  return (
+    <p className="text-xs text-muted-foreground">
+      ERP reference{' '}
+      <span className="font-medium tabular-nums text-foreground/80">
+        {invoice.invoice_number}
+      </span>
+    </p>
+  )
+}
+
 function ReadOnlyField({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1 rounded-md bg-muted/60 px-3 py-2">
@@ -112,11 +138,17 @@ function OverrideMark({ catalogValue }: { catalogValue: string | null }) {
 }
 
 interface HeaderValues {
-  invoice_number: string
+  /** The number printed on the scan — the one a human reconciles against, and
+   *  the one this form edits. The ERP's as-posted `invoice_number` is shown as
+   *  metadata beside it and is not part of this form. */
+  document_invoice_number: string
   invoice_date: string
   currency: string
-  total: string
-  tax: string
+  /** Parsed, not the text in the box. `Number('1,5')` is NaN, which serializes
+   *  to a JSON null the API reads as "clear this field" — so a European decimal
+   *  silently erased the total. */
+  total: number | null
+  tax: number | null
   vendor_id: string
   supplier_name: string
   supplier_country_code: string
@@ -124,7 +156,7 @@ interface HeaderValues {
 }
 
 const TEXT_FIELDS = [
-  'invoice_number',
+  'document_invoice_number',
   'invoice_date',
   'currency',
   'vendor_id',
@@ -137,12 +169,20 @@ const NUMBER_FIELDS = ['total', 'tax'] as const
 
 function headerValuesFrom(invoice: InvoiceDetailRead): HeaderValues {
   const text = (value: string | null) => value ?? ''
+  const money = (value: InvoiceDetailRead['total']) => {
+    if (value === null || value === undefined) return null
+    const parsed = toNumber(value)
+    return Number.isNaN(parsed) ? null : parsed
+  }
   return {
-    invoice_number: text(invoice.invoice_number),
+    // Never seeded from `invoice_number`: an empty printed number means the
+    // document stated none, and backfilling the ERP's value here would present
+    // a bill id as the supplier's own number and invite a reviewer to confirm it.
+    document_invoice_number: text(invoice.document_invoice_number),
     invoice_date: text(invoice.invoice_date),
     currency: text(invoice.currency),
-    total: invoice.total === null ? '' : String(invoice.total),
-    tax: invoice.tax === null ? '' : String(invoice.tax),
+    total: money(invoice.total),
+    tax: money(invoice.tax),
     vendor_id: text(invoice.vendor_id),
     // The *resolved* supplier, which is the override when there is one and the
     // catalog's value otherwise. Seeding the box with the resolved value means
@@ -162,9 +202,8 @@ function toInvoiceUpdate(current: HeaderValues, original: HeaderValues): Invoice
     if (current[field] !== original[field]) changes[field] = current[field] || null
   }
   for (const field of NUMBER_FIELDS) {
-    if (current[field] !== original[field]) {
-      changes[field] = current[field] === '' ? null : Number(current[field])
-    }
+    // Already a number or null — nothing to parse, so nothing to misparse.
+    if (current[field] !== original[field]) changes[field] = current[field]
   }
   return changes
 }
@@ -216,7 +255,7 @@ function EditableInvoiceHeader({
     return () => onDirtyChange?.(false)
   }, [dirty, onDirtyChange])
 
-  function set<K extends keyof HeaderValues>(field: K, value: string) {
+  function set<K extends keyof HeaderValues>(field: K, value: HeaderValues[K]) {
     setHeader((current) => ({ ...current, [field]: value }))
   }
 
@@ -244,17 +283,26 @@ function EditableInvoiceHeader({
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field>
+          {/* The number printed on the document. The ERP's own is metadata
+              above — frequently a bill id rather than an invoice number at all,
+              which is why this is the one a reviewer corrects. */}
           <FieldLabel>Invoice number</FieldLabel>
           <FieldControl
-            value={header.invoice_number}
-            onChange={(event) => set('invoice_number', event.target.value)}
+            value={header.document_invoice_number}
+            placeholder="As printed on the document"
+            onChange={(event) => set('document_invoice_number', event.target.value)}
           />
         </Field>
         <Field>
           <FieldLabel>Invoice date</FieldLabel>
-          <FieldControl
-            value={header.invoice_date}
-            onChange={(event) => set('invoice_date', event.target.value)}
+          {/* A calendar, not free text. `toIsoDate` builds the string from the
+              local date parts: `toISOString()` converts through UTC first, so a
+              date picked as the 1st in Copenhagen would submit the 31st — and
+              only for viewers behind UTC. */}
+          <DatePicker
+            aria-label="Invoice date"
+            value={fromIsoDate(header.invoice_date)}
+            onChange={(date) => set('invoice_date', toIsoDate(date) ?? '')}
           />
         </Field>
         <Field>
@@ -266,14 +314,21 @@ function EditableInvoiceHeader({
         </Field>
         <Field>
           <FieldLabel>Total</FieldLabel>
-          <FieldControl
+          <CurrencyInput
+            aria-label="Total"
+            currency={header.currency || null}
             value={header.total}
-            onChange={(event) => set('total', event.target.value)}
+            onChange={(value) => set('total', value)}
           />
         </Field>
         <Field>
           <FieldLabel>Tax</FieldLabel>
-          <FieldControl value={header.tax} onChange={(event) => set('tax', event.target.value)} />
+          <CurrencyInput
+            aria-label="Tax"
+            currency={header.currency || null}
+            value={header.tax}
+            onChange={(value) => set('tax', value)}
+          />
         </Field>
       </div>
 
@@ -404,7 +459,10 @@ export function VoucherDetailsTab({
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-foreground">Invoice header</h3>
+          <div className="flex flex-col gap-0.5">
+            <h3 className="text-sm font-semibold text-foreground">Invoice header</h3>
+            <PostedNumber invoice={invoice} />
+          </div>
           <ProvenanceBadge source={invoice.source} />
         </div>
 
@@ -419,7 +477,7 @@ export function VoucherDetailsTab({
           />
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <ReadOnlyField label="Invoice number" value={invoice.invoice_number} />
+            <ReadOnlyField label="Invoice number" value={invoice.document_invoice_number} />
             <ReadOnlyField label="Invoice date" value={invoice.invoice_date} />
             <ReadOnlyField
               label="Total"

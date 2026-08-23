@@ -389,7 +389,9 @@ describe('VoucherDrawer — tabs', () => {
     fireEvent.change(screen.getByLabelText(/invoice number/i), { target: { value: 'INV-9' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
 
-    expect(onUpdateHeader).toHaveBeenCalledWith('inv1', { invoice_number: 'INV-9' })
+    expect(onUpdateHeader).toHaveBeenCalledWith('inv1', {
+      document_invoice_number: 'INV-9',
+    })
   })
 })
 

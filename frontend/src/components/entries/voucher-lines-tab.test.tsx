@@ -339,6 +339,118 @@ describe('VoucherLinesTab — correcting a line', () => {
   })
 })
 
+describe('VoucherLinesTab — numbers are numbers', () => {
+  /**
+   * The failures these pin were all one bug: the numeric fields held the *text*
+   * in their inputs and were converted on save with `Number(value)`.
+   * `Number('1,5')` is `NaN`, which serializes to JSON `null`, which the API
+   * reads as "clear this field" — so a reviewer typing a European decimal
+   * erased the figure and was told nothing at all.
+   */
+
+  it('shows a stored decimal at its display scale, not as the column holds it', () => {
+    render(
+      <VoucherLinesTab
+        {...writes()}
+        onVerifyLine={vi.fn()}
+        invoice={invoice({ lines: [line({ amount: '1234.50000' })] })}
+        spendTreeNodes={TREE_NODES}
+      />,
+    )
+
+    // Grouped, two decimals, and carrying the invoice's currency — not the raw
+    // `1234.50000` the Numeric(14,2) column round-trips as a string.
+    const shown = screen.getByLabelText<HTMLInputElement>(/^amount$/i).value
+    expect(shown).toContain('1,234.50')
+    expect(shown).not.toContain('1234.50000')
+  })
+
+  it('never submits null for a figure it could not read', async () => {
+    const onUpdateLine = vi.fn().mockResolvedValue(undefined)
+    render(
+      <VoucherLinesTab
+        {...writes()}
+        onVerifyLine={vi.fn()}
+        onUpdateLine={onUpdateLine}
+        invoice={erpInvoice}
+        spendTreeNodes={TREE_NODES}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText(/^amount$/i), { target: { value: '1,5' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save line$/i }))
+
+    await waitFor(() => expect(onUpdateLine).toHaveBeenCalled())
+    const [, changes] = onUpdateLine.mock.lastCall ?? []
+    // Read as 1.5 or refused outright — but never a null that wipes the figure.
+    expect(changes?.amount).not.toBeNull()
+    expect(Number.isNaN(changes?.amount)).toBe(false)
+  })
+
+  it('does not report a line as edited just because the formatter tidied it', () => {
+    // `1234.50000` renders as `1,234.50` on mount. Comparing the *strings* in
+    // the inputs would call that an edit, so Save would light up on a line
+    // nobody touched — and, once paging exists, prompt about unsaved work that
+    // does not exist.
+    render(
+      <VoucherLinesTab
+        {...writes()}
+        onVerifyLine={vi.fn()}
+        invoice={invoice({ lines: [line({ amount: '1234.50000', quantity: '0.2500' })] })}
+        spendTreeNodes={TREE_NODES}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /^save line$/i })).toHaveProperty('disabled', true)
+  })
+
+  it('leaves an untouched quantity exactly as it was stored', async () => {
+    // `quantity` is Numeric(12,4). A control clamped to 2 decimals would turn a
+    // stored 0.2500 into 0.25 on save — a data change nobody asked for, caused
+    // by opening a line and pressing Save.
+    const onUpdateLine = vi.fn().mockResolvedValue(undefined)
+    render(
+      <VoucherLinesTab
+        {...writes()}
+        onVerifyLine={vi.fn()}
+        onUpdateLine={onUpdateLine}
+        invoice={invoice({ lines: [line({ quantity: '0.2500' })] })}
+        spendTreeNodes={TREE_NODES}
+      />,
+    )
+
+    expect(screen.getByLabelText<HTMLInputElement>(/^quantity$/i).value).toBe('0.25')
+
+    // Change something else; the quantity must not ride along.
+    fireEvent.change(screen.getByLabelText(/^item name$/i), { target: { value: 'Chairs' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save line$/i }))
+
+    await waitFor(() => expect(onUpdateLine).toHaveBeenCalled())
+    const [, changes] = onUpdateLine.mock.lastCall ?? []
+    expect(changes).not.toHaveProperty('quantity')
+  })
+
+  it('corrects the item name and the description independently', async () => {
+    const onUpdateLine = vi.fn().mockResolvedValue(undefined)
+    render(
+      <VoucherLinesTab
+        {...writes()}
+        onVerifyLine={vi.fn()}
+        onUpdateLine={onUpdateLine}
+        invoice={erpInvoice}
+        spendTreeNodes={TREE_NODES}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText(/^item name$/i), { target: { value: 'Office chair' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save line$/i }))
+
+    await waitFor(() =>
+      expect(onUpdateLine).toHaveBeenCalledWith('l2', { item_name: 'Office chair' }),
+    )
+  })
+})
+
 describe('VoucherLinesTab — adding and deleting', () => {
   it('adds an empty line for the reviewer to fill in', async () => {
     const onCreateLine = vi.fn().mockResolvedValue(undefined)

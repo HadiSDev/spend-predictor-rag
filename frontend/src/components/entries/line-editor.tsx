@@ -1,6 +1,14 @@
 import * as React from 'react'
 import { Trash2 } from 'lucide-react'
-import { Button, Field, FieldControl, FieldLabel, Progress } from '#/components/ui'
+import {
+  Button,
+  CurrencyInput,
+  Field,
+  FieldControl,
+  FieldLabel,
+  NumberInput,
+  Progress,
+} from '#/components/ui'
 import { TreeSelector } from '#/components/spend-tree/tree-selector'
 import { LineStatusBadge } from './line-status'
 import { formatMoney, toNumber } from '#/lib/format'
@@ -47,38 +55,60 @@ function storedPath(line: InvoiceLineRead): Array<string> {
   )
 }
 
-/** What a human may say a line was, beside the category. */
+/**
+ * What a human may say a line was, beside the category.
+ *
+ * **The numeric fields hold numbers, not the text in their inputs.** They used
+ * to hold strings, converted on save with `Number(value)` — and `Number('1,5')`
+ * is `NaN`, which serializes to JSON `null`, which the API reads as "clear this
+ * field". A reviewer typing a European decimal erased the figure and was told
+ * nothing. The typed controls parse as the user types, so an unreadable figure
+ * never becomes a value at all.
+ *
+ * Holding parsed numbers is also what keeps "dirty" honest: the formatter
+ * rewrites a stored `1234.50000` as `1,234.50` on mount, and a string-based
+ * comparison would call that an edit and prompt about unsaved work nobody did.
+ */
 interface LineValues {
+  item_name: string
   description: string
-  quantity: string
+  quantity: number | null
   unit: string
-  unit_price: string
-  amount: string
+  unit_price: number | null
+  amount: number | null
 }
 
-const LINE_TEXT_FIELDS = ['description', 'unit'] as const
+const LINE_TEXT_FIELDS = ['item_name', 'description', 'unit'] as const
 const LINE_NUMBER_FIELDS = ['quantity', 'unit_price', 'amount'] as const
 
+/** A stored Decimal-as-string as a number, or null when it is unset or unreadable. */
+function money(value: InvoiceLineRead['amount']): number | null {
+  if (value === null || value === undefined) return null
+  const parsed = toNumber(value)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
 function lineValuesFrom(line: InvoiceLineRead): LineValues {
-  const num = (value: unknown) => (value === null || value === undefined ? '' : String(value))
   return {
+    item_name: line.item_name ?? '',
     description: line.description ?? '',
-    quantity: num(line.quantity),
+    quantity: money(line.quantity),
     unit: line.unit ?? '',
-    unit_price: num(line.unit_price),
-    amount: num(line.amount),
+    unit_price: money(line.unit_price),
+    amount: money(line.amount),
   }
 }
 
 function toLineUpdate(current: LineValues, original: LineValues): InvoiceLineUpdate {
   const changes: InvoiceLineUpdate = {}
   for (const field of LINE_TEXT_FIELDS) {
+    // An emptied text field is an explicit null, which is a correction: a
+    // reviewer splitting a stand-in may legitimately have nothing to name.
     if (current[field] !== original[field]) changes[field] = current[field] || null
   }
   for (const field of LINE_NUMBER_FIELDS) {
-    if (current[field] !== original[field]) {
-      changes[field] = current[field] === '' ? null : Number(current[field])
-    }
+    // Already a number or null — nothing to parse, so nothing to misparse.
+    if (current[field] !== original[field]) changes[field] = current[field]
   }
   return changes
 }
@@ -124,7 +154,7 @@ export function LineEditor({
     (f) => values[f] !== savedValues[f],
   )
 
-  function setValue<K extends keyof LineValues>(field: K, value: string) {
+  function setValue<K extends keyof LineValues>(field: K, value: LineValues[K]) {
     setValues((current) => ({ ...current, [field]: value }))
   }
 
@@ -233,18 +263,39 @@ export function LineEditor({
 
       {canManage ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/* The name first, because it is what the line *is*. Every line is
+              expected to carry one; the prose below it is what a supplier
+              printed sometimes. */}
+          <Field className="sm:col-span-2">
+            <FieldLabel>Item name</FieldLabel>
+            <FieldControl
+              value={values.item_name}
+              placeholder="What was bought"
+              onChange={(event) => setValue('item_name', event.target.value)}
+            />
+          </Field>
           <Field className="sm:col-span-2">
             <FieldLabel>Description</FieldLabel>
             <FieldControl
               value={values.description}
+              placeholder="Any further detail the document printed"
               onChange={(event) => setValue('description', event.target.value)}
             />
           </Field>
           <Field>
             <FieldLabel>Quantity</FieldLabel>
-            <FieldControl
-              value={values.quantity}
-              onChange={(event) => setValue('quantity', event.target.value)}
+            {/* Four decimals, matching the `Numeric(12,4)` it is stored in, and
+                not fixed — `12` should read as `12`. Clamping this to 2 would
+                round a stored 0.1250 on save: a data change nobody asked for,
+                caused by opening a line and pressing Save. */}
+            <NumberInput
+              aria-label="Quantity"
+              value={values.quantity ?? ''}
+              onValueChange={(v) => setValue('quantity', v.floatValue ?? null)}
+              thousandSeparator=","
+              decimalScale={4}
+              inputMode="decimal"
+              className="text-right tabular-nums"
             />
           </Field>
           <Field>
@@ -260,16 +311,25 @@ export function LineEditor({
           </Field>
           <Field>
             <FieldLabel>Unit price</FieldLabel>
-            <FieldControl
+            {/* Money, but stored at four decimals — a per-unit price genuinely
+                carries more precision than a total does. Shown at 2 by the
+                currency control, accepting up to 4. */}
+            <CurrencyInput
+              aria-label="Unit price"
+              currency={currency}
               value={values.unit_price}
-              onChange={(event) => setValue('unit_price', event.target.value)}
+              onChange={(value) => setValue('unit_price', value)}
+              decimalScale={4}
+              fixedDecimalScale={false}
             />
           </Field>
           <Field>
             <FieldLabel>Amount</FieldLabel>
-            <FieldControl
+            <CurrencyInput
+              aria-label="Amount"
+              currency={currency}
               value={values.amount}
-              onChange={(event) => setValue('amount', event.target.value)}
+              onChange={(value) => setValue('amount', value)}
             />
           </Field>
         </div>

@@ -65,11 +65,11 @@
 ## 7. Frontend: typed controls replace the text boxes
 
 - [x] 7.1 Lift `toIsoDate` / `fromIsoDate` out of `frontend/src/components/entries/filter-bar.tsx` (L96-107, currently private) into `frontend/src/lib/format.ts`, with tests
-- [ ] 7.2 In `line-editor.tsx`, move `unit_price` and `amount` to `CurrencyInput` and `quantity` to `NumberInput` (up to 4 decimals, trailing zeros trimmed)
-- [ ] 7.3 In `voucher-details-tab.tsx`, move `total` and `tax` to `CurrencyInput` and `invoice_date` to `DatePicker` (submitting `YYYY-MM-DD`)
-- [ ] 7.4 Replace the `Number(current[field])` conversion in **both** editors with the controls' parsed numeric values, so unparseable input can never be submitted as `null`
-- [ ] 7.5 Make the dirty check compare **parsed values**, not input strings — a formatter normalizing `1234.50000` to `1,234.50` on mount must not report the card as dirty (see design D4 risk)
-- [ ] 7.6 Test: a line stored as `1234.50000` displays `1,234.50`; typing `1,5` never submits `null`; opening and saving an unedited `0.2500` quantity does not change the stored value
+- [x] 7.2 In `line-editor.tsx`, move `unit_price` and `amount` to `CurrencyInput` and `quantity` to `NumberInput` (up to 4 decimals, trailing zeros trimmed)
+- [x] 7.3 In `voucher-details-tab.tsx`, move `total` and `tax` to `CurrencyInput` and `invoice_date` to `DatePicker` (submitting `YYYY-MM-DD`)
+- [x] 7.4 Replace the `Number(current[field])` conversion in **both** editors with the controls' parsed numeric values, so unparseable input can never be submitted as `null`
+- [x] 7.5 Make the dirty check compare **parsed values**, not input strings — a formatter normalizing `1234.50000` to `1,234.50` on mount must not report the card as dirty (see design D4 risk)
+- [x] 7.6 Test: a line stored as `1234.50000` displays `1,234.50`; typing `1,5` never submits `null`; opening and saving an unedited `0.2500` quantity does not change the stored value
 
 ## 8. Frontend: the paged Lines tab
 
@@ -86,10 +86,10 @@
 ## 9. Frontend: item name and the invoice numbers
 
 - [ ] 9.1 Label lines by `item_name ?? description ?? placeholder` in `voucher-table.tsx`'s `LineRow` and on the paged card
-- [ ] 9.2 Add an `Item name` field to the line card, above `Description`, and keep `Description` as its own field
-- [ ] 9.3 Bind the Details tab's editable "Invoice number" to `document_invoice_number`
-- [ ] 9.4 Show the ERP's `invoice_number` in the panel's leading metadata block as read-only text, labelled so it is not mistaken for the supplier's number
-- [ ] 9.5 Leave the field empty when `document_invoice_number` is null — never backfill it from the posted value
+- [x] 9.2 Add an `Item name` field to the line card, above `Description`, and keep `Description` as its own field
+- [x] 9.3 Bind the Details tab's editable "Invoice number" to `document_invoice_number`
+- [x] 9.4 Show the ERP's `invoice_number` in the panel's leading metadata block as read-only text, labelled so it is not mistaken for the supplier's number
+- [x] 9.5 Leave the field empty when `document_invoice_number` is null — never backfill it from the posted value
 - [ ] 9.6 Tests: the name is the label with description as fallback; the editable field corrects the document number; the posted number renders as metadata
 
 ## 10. Verification
