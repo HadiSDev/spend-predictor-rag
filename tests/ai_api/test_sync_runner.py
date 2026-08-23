@@ -345,3 +345,132 @@ def test_cli_rejects_an_unknown_integration_id(engine, make_tenant):
     make_tenant("Acme")
     with pytest.raises(SystemExit):
         runner.main(["--integration-id", "nope"])
+
+
+
+# --- What the categorizer is actually told ----------------------------------
+#
+# These go through `run_sync` on purpose. Every other categorizer test builds a
+# `LineContext` by hand, which is precisely how the `item_name` migration moved
+# a line's text out from under the prompt without a single test turning red: the
+# line kept its words, the model stopped being given them, and the only place it
+# showed was a rationale saying "no description of the goods or services
+# provided". A mapping nothing exercises is a mapping nothing protects.
+#
+# Every assertion is made against the *facts* half of the prompt, never the
+# whole thing. The candidate list quotes each node's description, so asserting
+# on the full prompt passes on text the categorizer read off the taxonomy — the
+# first version of this test did exactly that and passed against the bug.
+
+
+@pytest.fixture
+def prompts(monkeypatch):
+    """Capture every prompt the categorizer would send, and answer candidate 1.
+
+    Patches the module-level default completion rather than passing a `complete`
+    seam, because the seam is exactly what the runner does *not* use — the point
+    is to observe the real call path.
+    """
+    from ai_api.sync import llm_categorizer
+
+    seen: list[str] = []
+
+    def _capture(prompt: str) -> str:
+        seen.append(prompt)
+        return '{"choice": 1, "confidence": 0.9, "rationale": "stub"}'
+
+    monkeypatch.setattr(llm_categorizer, "_default_complete", _capture)
+    return seen
+
+
+def _facts(prompts: list[str]) -> str:
+    """The part of each prompt that describes the line, never the candidates."""
+    assert prompts, "no line was categorized, so this test proves nothing"
+    return "\n".join(p.split("Categories:", 1)[0] for p in prompts)
+
+
+def _with_default_tree(engine, company_id: str) -> None:
+    """Assign the organization's default tree, as `POST /companies` would."""
+    from web_api.spend_trees import service
+
+    with Session(engine) as s:
+        company = s.get(Company, company_id)
+        tree = service.ensure_default_tree(s, company.organization_id)
+        company.spend_tree_id = tree.id
+        s.add(company)
+        s.commit()
+
+
+def _synced_with(engine, make_tenant, fake_connector, line, **invoice) -> None:
+    """Sync one tenant whose single invoice carries ``line``."""
+    from datetime import date as _date
+
+    from web_api.connectors.base import ErpInvoiceData
+
+    tenant = make_tenant("Acme")
+    _with_default_tree(engine, tenant["company_id"])
+    fake_connector.scan = ErpInvoiceData(
+        erp_id="INV-1", vendor_erp_id="V-1", vendor_name="Contoso ApS",
+        invoice_number="2026-001", invoice_date=_date(2026, 3, 2), currency="DKK",
+        total=1000.0, tax=200.0, voucher_id="V1", lines=[line], **invoice,
+    )
+    runner.run_sync()
+
+
+def test_the_line_item_name_reaches_the_prompt(engine, make_tenant, fake_connector, prompts):
+    """The connector states one text, the runner stores it as `item_name`, and
+    the model must be shown it. The whole chain, or none of it is pinned."""
+    from web_api.connectors.base import ErpInvoiceLineData
+
+    _synced_with(engine, make_tenant, fake_connector, ErpInvoiceLineData(
+        line_erp_id="L-1", description="DSB 1' Commute20", amount=800.0,
+        native_account_code="6010",
+    ))
+
+    assert "DSB 1' Commute20" in _facts(prompts), (
+        "the line's item name never reached the model:\n" + "\n---\n".join(prompts)
+    )
+
+
+def test_a_description_beside_a_name_reaches_the_prompt(
+    engine, make_tenant, fake_connector, prompts
+):
+    """Both fields, both meanings. A coalesce would drop whichever came second."""
+    from web_api.connectors.base import ErpInvoiceLineData
+
+    _synced_with(engine, make_tenant, fake_connector, ErpInvoiceLineData(
+        line_erp_id="L-1", item_name="Commuter pass",
+        description="Roskilde to Odense, 2 months", amount=800.0,
+        native_account_code="6010",
+    ))
+
+    facts = _facts(prompts)
+    assert "Commuter pass" in facts
+    assert "Roskilde to Odense, 2 months" in facts
+
+
+def test_the_accounts_own_name_reaches_the_prompt(
+    engine, make_tenant, fake_connector, prompts
+):
+    """A bare account code is not a statement of what was bought.
+    "Cloud Hosting" is; on a posting-derived line it is often the only one."""
+    from web_api.connectors.base import ErpInvoiceLineData
+
+    _synced_with(engine, make_tenant, fake_connector, ErpInvoiceLineData(
+        line_erp_id="L-1", description="Uspecificeret", amount=800.0,
+        native_account_code="6010",
+    ))
+
+    facts = _facts(prompts)
+    assert "6010" in facts and "Cloud Hosting" in facts
+
+
+def test_the_supplier_reaches_the_prompt(engine, make_tenant, fake_connector, prompts):
+    from web_api.connectors.base import ErpInvoiceLineData
+
+    _synced_with(engine, make_tenant, fake_connector, ErpInvoiceLineData(
+        line_erp_id="L-1", description="Uspecificeret", amount=800.0,
+        native_account_code="6010",
+    ))
+
+    assert "Contoso ApS" in _facts(prompts)

@@ -1022,6 +1022,10 @@ def _categorize_pending(
                 vendor = session.get(Vendor, inv.vendor_id)
                 vendor_names[inv.vendor_id] = vendor.name if vendor else ""
             context = LineContext(
+                # Both, separately. `item_name` is the field that is nearly
+                # always set — reading only `description` here is what left the
+                # model with a supplier and an amount and nothing else.
+                item_name=ln.item_name,
                 description=ln.description,
                 native_account_code=ln.native_account_code,
                 native_account_name=account_names.get(ln.native_account_code or ""),

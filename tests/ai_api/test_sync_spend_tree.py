@@ -11,6 +11,9 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from web_api.db.models import (
     Company,
+    ErpAccount,
+    ErpEntry,
+    ErpIntegration,
     Invoice,
     InvoiceLine,
     Organization,
@@ -94,7 +97,7 @@ def test_a_custom_node_is_a_candidate_like_any_other(session):
 
     candidates = build_candidates_from_tree(_nodes(session, tree.id))
     match = categorize_line(
-        LineContext(description="Carbide inserts for the lathe"), candidates,
+        LineContext(item_name="Carbide inserts for the lathe"), candidates,
         complete=_choosing("Lathe Tooling"),
     )
 
@@ -122,7 +125,7 @@ def test_a_match_carries_the_node_id(session):
     candidates = build_candidates_from_tree(_nodes(session, tree.id))
 
     match = categorize_line(
-        LineContext(description="Cloud server monthly hosting"), candidates,
+        LineContext(item_name="Cloud server monthly hosting"), candidates,
         complete=_choosing("Cloud"),
     )
 
@@ -148,7 +151,7 @@ def test_a_depth_four_match_records_its_leaf(session):
 
     candidates = build_candidates_from_tree(_nodes(session, tree.id))
     match = categorize_line(
-        LineContext(description="Virtual machine instances"), candidates,
+        LineContext(item_name="Virtual machine instances"), candidates,
         complete=_choosing("Compute"),
     )
 
@@ -159,11 +162,32 @@ def test_a_depth_four_match_records_its_leaf(session):
 
 
 def _company(s: Session, company_id: str, tree_id: str | None):
+    """A company with one invoice, one line, and the ERP scaffolding that makes
+    the line reachable from `_categorize_pending`.
+
+    The integration, account and posting are here rather than in the one test
+    that needs them because the runner scopes its work through them: an invoice
+    belongs to an integration only by way of an entry that references it. A test
+    that skips that scaffolding has to reach past the runner to reach the line,
+    and reaching past the runner is what let the prompt lose the line's text.
+    """
     s.add(Company(id=company_id, organization_id="org", name=company_id, spend_tree_id=tree_id))
     s.add(Invoice(id=f"inv-{company_id}", company_id=company_id, status="uncategorized"))
     s.add(InvoiceLine(
         id=f"ln-{company_id}", company_id=company_id, invoice_id=f"inv-{company_id}",
-        description="Cloud server monthly hosting", status="uncategorized",
+        item_name="Cloud server monthly hosting", status="uncategorized",
+        native_account_code="6010",
+    ))
+    s.add(ErpIntegration(id=f"erp-{company_id}", company_id=company_id, erp_type="fake"))
+    s.add(ErpAccount(
+        id=f"acct-{company_id}", company_id=company_id,
+        erp_integration_id=f"erp-{company_id}",
+        erp_account_code="6010", erp_account_name="Cloud Hosting",
+    ))
+    s.add(ErpEntry(
+        id=f"ent-{company_id}", company_id=company_id,
+        erp_account_id=f"acct-{company_id}", erp_entry_id=f"E-{company_id}",
+        source_invoice_id=f"inv-{company_id}", entry_type="purchase_invoice",
     ))
     s.commit()
 
@@ -182,7 +206,7 @@ def test_two_companies_on_different_trees_get_different_candidates(session):
     for company_id, expected in (("co-default", "Technology"), ("co-custom", "IT")):
         candidates = _tree_candidates(session, company_id)
         match = categorize_line(
-        LineContext(description="Cloud server monthly hosting"), candidates,
+        LineContext(item_name="Cloud server monthly hosting"), candidates,
         complete=_choosing("Cloud"),
     )
         assert match.level_2 == expected, (
@@ -205,22 +229,33 @@ def test_a_company_with_an_empty_tree_has_no_candidates(session):
     assert _tree_candidates(session, "co") is None
 
 
-def test_categorization_writes_the_node_onto_the_line(session):
+def test_categorization_writes_the_node_onto_the_line(session, monkeypatch):
+    """Driven through `_categorize_pending`, not around it.
+
+    This test used to build its own `LineContext` from the line — mirroring the
+    runner's mapping rather than exercising it — and so it agreed with the
+    runner when the runner stopped reading the field the text had moved to.
+    A test that restates the code under test cannot disagree with it.
+    """
+    from ai_api.sync import llm_categorizer
+
     tree = service.ensure_default_tree(session, "org")
     session.commit()
     _company(session, "co", tree.id)
 
-    candidates = _tree_candidates(session, "co")
-    # No integration in this fixture, so drive the invoice scope directly.
-    line = session.get(InvoiceLine, "ln-co")
-    # A stubbed model picking the first candidate: this test is about the node
-    # resolving inside the company's own tree, not about the model's judgment.
-    match = categorize_line(
-        LineContext(description=line.description),
-        candidates,
-        complete=lambda prompt: '{"choice": 1, "confidence": 0.9, "rationale": "stub"}',
-    )
-    assert match.matched
+    seen: list[str] = []
 
-    node = session.get(SpendCategory, match.spend_category_id)
+    def _capture(prompt: str) -> str:
+        seen.append(prompt)
+        return '{"choice": 1, "confidence": 0.9, "rationale": "stub"}'
+
+    monkeypatch.setattr(llm_categorizer, "_default_complete", _capture)
+
+    _categorize_pending(session, "erp-co", "co", _tree_candidates(session, "co"))
+
+    line = session.get(InvoiceLine, "ln-co")
+    assert line.status == "ai_categorized"
+    node = session.get(SpendCategory, line.spend_category_id)
     assert node.spend_tree_id == tree.id
+    # The line's own words reached the model, from the field they are stored in.
+    assert "Cloud server monthly hosting" in seen[0].split("Categories:", 1)[0]

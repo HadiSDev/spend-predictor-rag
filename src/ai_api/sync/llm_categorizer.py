@@ -60,8 +60,17 @@ class LineContext:
     Every field is optional because every field is genuinely absent somewhere: a
     posting-derived line has no description, a journal line has no supplier, and
     an unconverted line has no currency of its own.
+
+    ``item_name`` and ``description`` are **two fields, not one with a fallback**.
+    The name is what was bought and is the field that is nearly always present;
+    the description is whatever further detail the source printed, and is usually
+    null. Coalescing them would silently drop the description on every line that
+    carries both — and reading only ``description``, which is what this class did
+    until the ``item_name`` migration moved the text, drops the line's only words
+    on almost every line there is.
     """
 
+    item_name: str | None = None
     description: str | None = None
     native_account_code: str | None = None
     native_account_name: str | None = None
@@ -80,6 +89,26 @@ class LineCategoryChoice(BaseModel):
     rationale: str = Field(description="One sentence explaining the choice.")
 
 
+#: The judgements a bookkeeper applies that a literal reading of the line does
+#: not. Each one exists because the surface text points at the wrong answer:
+#: an environmental levy on a freight invoice reads as logistics, a pallet from a
+#: machine tool supplier reads as machinery, a laptop inside a consulting
+#: engagement reads as hardware. Lifted in substance from the reference
+#: implementation in `~/repos/groundley-ai`, whose prompt carries the same rules
+#: after the same discoveries.
+_ACCOUNTING_RULES = (
+    "Apply these rules; they override what the line's wording suggests on its own:\n"
+    "- A fee, tax, toll, tariff, duty or environmental levy belongs to fees and "
+    "taxes REGARDLESS of which supplier issued it. Freight and shipping are NOT "
+    "fees — categorize those as logistics.\n"
+    "- Packaging — boxes, pallets, wrapping, crates — belongs to packaging or "
+    "supplies regardless of the supplier's main trade.\n"
+    "- A product supplied as part of a professional service (consulting, legal, "
+    "marketing, design, testing) follows the SERVICE, not the product.\n"
+    "- A line that states only a discount or rebate is categorized from the "
+    "supplier, since it adjusts whatever that supplier sold."
+)
+
 _INSTRUCTIONS = (
     "You are a management accountant categorizing one line of a supplier "
     "invoice into a company's own spend taxonomy.\n"
@@ -88,6 +117,8 @@ _INSTRUCTIONS = (
     "its number. Descriptions may be in any language, may be a brand or domain "
     "name, or may be missing entirely — in that case use the ledger account, the "
     "supplier and the amount to decide.\n"
+    "\n"
+    f"{_ACCOUNTING_RULES}\n"
     "\n"
     "If no category genuinely fits, answer 0. Do not force a fit: a wrong "
     "category is worse than none, and 0 is a correct answer when the taxonomy "
@@ -102,8 +133,15 @@ def _fact_lines(ctx: LineContext) -> list[str]:
     reads to a model as evidence of absence and invites it to explain them.
     """
     facts: list[str] = []
-    if (ctx.description or "").strip():
-        facts.append(f"Description: {ctx.description}")
+    name = (ctx.item_name or "").strip()
+    detail = (ctx.description or "").strip()
+    if name:
+        facts.append(f"Item: {name}")
+    # Only when it says something the name does not. A source that copied the
+    # same text into both fields should not have it read back twice as though
+    # two independent statements agreed.
+    if detail and detail != name:
+        facts.append(f"Detail: {detail}")
     if ctx.supplier:
         facts.append(f"Supplier: {ctx.supplier}")
     if ctx.native_account_code or ctx.native_account_name:
@@ -129,7 +167,11 @@ def build_prompt(ctx: LineContext, candidates: list[Category]) -> str:
         f"Invoice line:\n{facts}\n\n"
         f"Categories:\n{numbered}\n\n"
         "0. None of these fit\n\n"
-        + json_format_hint(LineCategoryChoice)
+        # Reasoning is allowed here and nowhere else in the codebase: choosing
+        # one of forty categories is a judgement, and a model that may weigh two
+        # candidates aloud chooses better than one told to answer immediately.
+        # `_extract_json` scans for the outermost braces, so the prose is free.
+        + json_format_hint(LineCategoryChoice, allow_reasoning=True)
     )
 
 

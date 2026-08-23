@@ -52,12 +52,33 @@ def _skeleton(model: type[BaseModel]) -> dict:
 
 
 @lru_cache(maxsize=None)
-def json_format_hint(model: type[BaseModel]) -> str:
+def json_format_hint(model: type[BaseModel], allow_reasoning: bool = False) -> str:
     """Instruction to append to a prompt so the model returns parseable JSON.
 
-    Cached: the hint is a pure function of the (static) model class.
+    ``allow_reasoning`` lets the model think out loud *before* the object. It
+    exists because the default wording forbids exactly that ("no commentary
+    before or after"), and a task where the answer is a judgement — which of
+    these forty categories is this line — measurably improves when the model may
+    weigh the options first. :func:`_extract_json` already scans for the outermost
+    braces, so prose before the object costs nothing to parse; the two settings
+    differ only in what the model is *told*, and the ban stays the default because
+    for an extraction task the reasoning is pure latency.
+
+    Nothing after the object is ever permitted under either setting: a model that
+    keeps writing past its answer tends to write a second object, and
+    :func:`_extract_json` spans from the first ``{`` to the last ``}``.
+
+    Cached: the hint is a pure function of its arguments.
     """
     example = json.dumps(_skeleton(model))
+    if allow_reasoning:
+        return (
+            "Think it through first: name the two or three candidates that could "
+            "fit and say briefly why you prefer one. Then, as the LAST thing in "
+            "your reply, give a single JSON object with EXACTLY this shape and "
+            "these keys (replace the placeholder values; do not add, nest, or "
+            "rename keys; no markdown fence; write nothing after it):\n" + example
+        )
     return (
         "Return ONLY a single JSON object with EXACTLY this shape and these keys "
         "(replace the placeholder values; do not add, nest, or rename keys; no "
