@@ -47,6 +47,17 @@ WEB_CONTEXT_CACHE_DIR = os.getenv(
 )
 PRODUCT_SEARCH_MAX_RESULTS = int(os.getenv("PRODUCT_SEARCH_MAX_RESULTS", "3"))
 
+#: Whether the vendor-enrichment stage may reach the public web.
+#:
+#: **Off by default**, the same rule ``FX_ENABLED`` follows and for the same
+#: reason: the test suite and any offline run must make no outbound request
+#: without somebody having asked for one. It gates a stage that writes to the
+#: *global* supplier catalog, so the cost of leaving it on by accident is not
+#: only traffic — it is machine-written prose every tenant reads.
+VENDOR_ENRICHMENT_ENABLED = os.getenv("VENDOR_ENRICHMENT_ENABLED", "false").lower() in (
+    "1", "true", "yes", "on",
+)
+
 CHART_OF_ACCOUNTS_PATH = os.getenv(
     "CHART_OF_ACCOUNTS_PATH", str(PROJECT_ROOT / "data" / "chart_of_accounts.csv")
 )

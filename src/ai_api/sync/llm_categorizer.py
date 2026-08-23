@@ -15,10 +15,15 @@ Three rules follow from that failure:
   category. An index we did not offer resolves to nothing — it is never snapped
   to the closest candidate, which is how a misread list becomes a confident
   wrong answer.
-* **The model may decline.** ``0`` means no candidate fits. A model forced to
-  pick from a tree with no home for the line is precisely what produced the
-  Telecom answer above, and an uncategorized line is an honest backlog where a
-  wrongly-categorized one is a lie the reports cannot see through.
+* **The model must answer, and records its doubt as a confidence.** Declining
+  was offered once, as ``0``, on the reasoning that a wrong category is worse
+  than none. It protected the wrong thing. A decline landed the line in
+  ``ai_failed`` — a status the sync never revisits — so the *cause*, a taxonomy
+  with no home for that spend, was never recorded and never repaired, and the
+  same line failed again every month. Doubt now rides on the answer where a
+  reviewer can filter for it, and the tree-gap suggester fixes the tree. ``0`` is
+  no longer offered and no longer has a branch: a model that answers it has named
+  a candidate that does not exist, which is the rule below.
 * **An outage is not a failed line.** A model that cannot be reached, or that
   answers unparseable text, raises :class:`CategorizerUnavailable` so the caller
   can leave the line ``uncategorized`` and retry next run. Marking it
@@ -75,6 +80,14 @@ class LineContext:
     native_account_code: str | None = None
     native_account_name: str | None = None
     supplier: str | None = None
+    #: What the supplier sells, from the global vendor catalog. The single most
+    #: decisive field on a thin line: `1 Voksen` from `DSB` is unanswerable, and
+    #: `1 Voksen` from "DSB — Danish State Railways" is a train ticket.
+    supplier_description: str | None = None
+    #: Who bought it. A train ticket means something different to a haulier than
+    #: to a design studio, and a laptop from a consultancy is often the service.
+    buyer: str | None = None
+    buyer_description: str | None = None
     amount: Decimal | None = None
     currency: str | None = None
 
@@ -120,9 +133,10 @@ _INSTRUCTIONS = (
     "\n"
     f"{_ACCOUNTING_RULES}\n"
     "\n"
-    "If no category genuinely fits, answer 0. Do not force a fit: a wrong "
-    "category is worse than none, and 0 is a correct answer when the taxonomy "
-    "has no home for this line."
+    "You must return a category, even if it is only an estimate. Express your "
+    "doubt in the confidence, not by refusing: 0.9 means the line plainly "
+    "belongs there, 0.3 means it is the closest of a poor set. A low-confidence "
+    "answer is read by a human; a refusal is read by nobody."
 )
 
 
@@ -143,7 +157,18 @@ def _fact_lines(ctx: LineContext) -> list[str]:
     if detail and detail != name:
         facts.append(f"Detail: {detail}")
     if ctx.supplier:
-        facts.append(f"Supplier: {ctx.supplier}")
+        supplier = f"Supplier: {ctx.supplier}"
+        # On the same line, not a line of its own: the description qualifies the
+        # name, and a model reading two separate facts is freer to weigh them
+        # against each other than to read the second as describing the first.
+        if (ctx.supplier_description or "").strip():
+            supplier += f" — {ctx.supplier_description.strip()}"
+        facts.append(supplier)
+    if ctx.buyer:
+        buyer = f"Bought by: {ctx.buyer}"
+        if (ctx.buyer_description or "").strip():
+            buyer += f" — {ctx.buyer_description.strip()}"
+        facts.append(buyer)
     if ctx.native_account_code or ctx.native_account_name:
         posted = " ".join(
             part for part in (ctx.native_account_code, ctx.native_account_name) if part
@@ -166,7 +191,6 @@ def build_prompt(ctx: LineContext, candidates: list[Category]) -> str:
         f"{_INSTRUCTIONS}\n\n"
         f"Invoice line:\n{facts}\n\n"
         f"Categories:\n{numbered}\n\n"
-        "0. None of these fit\n\n"
         # Reasoning is allowed here and nowhere else in the codebase: choosing
         # one of forty categories is a judgement, and a model that may weigh two
         # candidates aloud chooses better than one told to answer immediately.
@@ -231,12 +255,14 @@ def categorize_line(
             f"the categorizer returned no usable answer: {exc}"
         ) from exc
 
-    if choice.choice == 0:
-        return _no_match(choice.rationale, ctx, candidates)
-
     if not 1 <= choice.choice <= len(candidates):
         # Never snapped to the nearest candidate: a model that misread the list
         # would otherwise produce a confident wrong category.
+        #
+        # `0` lands here too, and deliberately has no branch of its own. It is no
+        # longer offered, so a model that answers it has named a candidate that
+        # does not exist — which is this case exactly, and giving it a second
+        # meaning would quietly reinstate declining through the back door.
         logger.warning(
             "categorizer chose %s, outside the %d candidates offered",
             choice.choice, len(candidates),

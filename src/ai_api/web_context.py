@@ -128,3 +128,58 @@ def get_product_context(
             _write_cache(cache_dir, f"product-{query}", cached)
         items_with_snippets.append((item.description, cached))
     return summarize_fn(items_with_snippets)
+
+
+def _summarize_supplier(name: str, snippets: str) -> str:
+    """One or two sentences on what a supplier sells.
+
+    Deliberately narrow. The `vendors` table is a **global** catalog, so this
+    text is read by every tenant that has ever bought from this supplier: it may
+    describe the supplier's trade and nothing else — no buyer, no relationship,
+    no amounts.
+    """
+    if not snippets.strip() or snippets == "no info found":
+        return ""
+    prompt = (
+        f"In one or two sentences, state what the company '{name}' sells or does "
+        "— its industry and its main products or services. Write nothing about "
+        "any customer of theirs. If the snippets do not identify the company, "
+        "reply with exactly: UNKNOWN\n\n"
+        f"{snippets[:4000]}"
+    )
+    try:
+        note = config.get_llm().call(messages=[{"role": "user", "content": prompt}]).strip()
+    except Exception:  # noqa: BLE001 - degrade to no context
+        return ""
+    return "" if note.upper().startswith("UNKNOWN") else note
+
+
+def get_supplier_context(
+    name: str,
+    country_code: str | None = None,
+    *,
+    search_fn: Callable[[str], list[dict]] = _ddg_search,
+    summarize_fn: Callable[[str, str], str] = _summarize_supplier,
+    cache_dir: str | None = None,
+) -> str:
+    """What this supplier sells, from a web search of its name (cached).
+
+    A search rather than a scrape, which is what separates this from
+    :func:`get_buyer_context`: we know the buyer's website because it is
+    configured, and we know nothing about a supplier but the name an ERP printed.
+
+    Returns ``""`` when nothing usable was found — never a placeholder sentence.
+    A stored "no information available for X" would be indistinguishable from a
+    real description to every later reader, including the categorizer's prompt.
+    """
+    if not (name or "").strip():
+        return ""
+    cache_dir = config.WEB_CONTEXT_CACHE_DIR if cache_dir is None else cache_dir
+    query = " ".join(part for part in (name, country_code, "company what they sell") if part)
+    key = f"supplier-{query}"
+    cached = _read_cache(cache_dir, key)
+    if cached is None:
+        results = search_fn(query)
+        cached = " | ".join(r.get("body", "") for r in results) or "no info found"
+        _write_cache(cache_dir, key, cached)
+    return summarize_fn(name, cached)

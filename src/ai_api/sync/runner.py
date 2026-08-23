@@ -119,6 +119,13 @@ _WITHDRAWN_FIELDS = (
     *LINE_AUDIT_FIELDS,
 )
 
+#: `Vendor.description_source` values the sync must respect. `web` is the
+#: enrichment stage's. Named here rather than imported from
+#: `ai_api.enrichment.vendors`, because a sync must not depend on a stage that
+#: may never have been enabled.
+_HUMAN_DESCRIPTION = "human"
+_ERP_DESCRIPTION = "erp"
+
 
 def _det_id(*parts: str) -> str:
     return str(uuid.uuid5(_NS, ":".join(parts)))
@@ -292,7 +299,18 @@ def _persist_vendors(
         row.name = v.name
         row.country_code = v.country_code
         row.vat_number = v.vat_number
-        row.description = v.description
+        # Assigned only when the ERP actually states one, and never over a
+        # description a human settled.
+        #
+        # A plain assignment here wiped the field on every run, which mattered
+        # the moment anything else wrote it: no connector states a vendor
+        # description — Billy's contact book has no such field — so `v.description`
+        # is None in practice, and the enrichment stage's work would have survived
+        # exactly until the next sync. The catalog is global, so that is one
+        # supplier's description lost for every tenant at once.
+        if v.description and row.description_source != _HUMAN_DESCRIPTION:
+            row.description = v.description
+            row.description_source = _ERP_DESCRIPTION
         mapping[v.erp_id] = vendor_id
     session.commit()
     return mapping
@@ -1003,7 +1021,20 @@ def _categorize_pending(
             .where(ErpAccount.erp_integration_id == integration_id)
         ).all()
     }
-    vendor_names: dict[str, str] = {}
+    #: Vendor id -> (name, description). Looked up once per supplier, not once
+    #: per line: a voucher with twenty lines names one supplier twenty times.
+    vendors: dict[str, tuple[str, str | None]] = {}
+
+    # Who is buying. Constant for the whole call, so resolved once here rather
+    # than per line. A train ticket means something different to a haulier than
+    # to a design studio.
+    #
+    # Only the name, because that is all a `Company` holds — there is no
+    # description column, and inventing one is a schema change with a settings
+    # field behind it, not something to smuggle in here. The name alone still
+    # earns its place: "VectorLab ApS" tells a model more than nothing.
+    company = session.get(Company, company_id)
+    buyer_name = company.name if company else None
 
     stats = {"categorized": 0, "failed": 0, "invoices_completed": 0, "invoices_failed": 0}
     for inv in invoices:
@@ -1018,9 +1049,12 @@ def _categorize_pending(
 
         any_failed = False
         for ln in pending:
-            if inv.vendor_id and inv.vendor_id not in vendor_names:
+            if inv.vendor_id and inv.vendor_id not in vendors:
                 vendor = session.get(Vendor, inv.vendor_id)
-                vendor_names[inv.vendor_id] = vendor.name if vendor else ""
+                vendors[inv.vendor_id] = (
+                    (vendor.name, vendor.description) if vendor else ("", None)
+                )
+            vendor_name, vendor_description = vendors.get(inv.vendor_id or "", ("", None))
             context = LineContext(
                 # Both, separately. `item_name` is the field that is nearly
                 # always set — reading only `description` here is what left the
@@ -1029,7 +1063,11 @@ def _categorize_pending(
                 description=ln.description,
                 native_account_code=ln.native_account_code,
                 native_account_name=account_names.get(ln.native_account_code or ""),
-                supplier=vendor_names.get(inv.vendor_id or "") or inv.supplier_name,
+                supplier=vendor_name or inv.supplier_name,
+                # Null until the enrichment stage has run, which is the ordinary
+                # state and costs nothing: an absent fact is simply not stated.
+                supplier_description=vendor_description,
+                buyer=buyer_name,
                 amount=ln.amount,
                 currency=inv.currency,
             )

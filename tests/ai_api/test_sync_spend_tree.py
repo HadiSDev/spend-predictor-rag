@@ -259,3 +259,73 @@ def test_categorization_writes_the_node_onto_the_line(session, monkeypatch):
     assert node.spend_tree_id == tree.id
     # The line's own words reached the model, from the field they are stored in.
     assert "Cloud server monthly hosting" in seen[0].split("Categories:", 1)[0]
+
+
+# -- Doubt is a number, not a status -----------------------------------------
+
+
+def _run_with(session, monkeypatch, reply: str):
+    """Categorize the fixture company's one line with a scripted model reply."""
+    from ai_api.sync import llm_categorizer
+
+    monkeypatch.setattr(llm_categorizer, "_default_complete", lambda prompt: reply)
+    _categorize_pending(session, "erp-co", "co", _tree_candidates(session, "co"))
+    return session.get(InvoiceLine, "ln-co")
+
+
+def test_a_hard_line_is_categorized_with_low_confidence_not_failed(session, monkeypatch):
+    """The model answering "this is the closest of a poor set" is an answer.
+
+    Recorded as `ai_failed` it would read to a reviewer as a broken categorizer,
+    point at no remedy, and never be retried — the sync only processes
+    `uncategorized` lines. Recorded as a low confidence it lands in the review
+    queue, where the remedy is a person looking at it.
+    """
+    tree = service.ensure_default_tree(session, "org")
+    session.commit()
+    _company(session, "co", tree.id)
+
+    line = _run_with(
+        session, monkeypatch,
+        '{"choice": 1, "confidence": 0.25, "rationale": "Closest of a poor set."}',
+    )
+
+    assert line.status == "ai_categorized"
+    assert float(line.confidence) == 0.25
+    assert line.error_message is None
+    assert line.spend_category_id is not None
+
+
+def test_every_categorized_line_carries_a_confidence(session, monkeypatch):
+    """Load-bearing now, not informational: it is what the review filter selects
+    on and what the tree-gap suggester reads. A null would be indistinguishable
+    from certainty."""
+    tree = service.ensure_default_tree(session, "org")
+    session.commit()
+    _company(session, "co", tree.id)
+
+    line = _run_with(
+        session, monkeypatch,
+        '{"choice": 1, "confidence": 0.9, "rationale": "Plainly this."}',
+    )
+
+    assert line.confidence is not None
+    assert 0.0 <= float(line.confidence) <= 1.0
+
+
+def test_an_unoffered_index_is_still_a_failure(session, monkeypatch):
+    """`ai_failed` keeps a meaning, and it is a fault: the model named something
+    we never showed it. Snapping to the nearest candidate is what turns a misread
+    list into a confident wrong category."""
+    tree = service.ensure_default_tree(session, "org")
+    session.commit()
+    _company(session, "co", tree.id)
+
+    line = _run_with(
+        session, monkeypatch,
+        '{"choice": 999, "confidence": 0.9, "rationale": "Confident."}',
+    )
+
+    assert line.status == "ai_failed"
+    assert line.spend_category_id is None
+    assert line.level_1 is None

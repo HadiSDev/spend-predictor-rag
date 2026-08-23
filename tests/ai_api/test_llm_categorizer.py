@@ -85,12 +85,27 @@ def test_a_second_choice_is_not_confused_with_the_first():
     assert match.level_3 == "Airfare"
 
 
-def test_the_model_may_decline():
-    """Declining is a real answer, not a failure to extract one.
+def test_the_model_must_answer_and_is_told_so():
+    """Declining is withdrawn. Doubt is a low confidence, not a refusal.
 
-    A model forced to pick from a tree that has no home for a line is how
-    `Company Free plan fee` became Telecom.
+    The rule this replaces — "answer 0 if nothing fits" — was protecting against
+    a tree with no home for the line, and it protected by leaving the line in
+    `ai_failed`, a status the sync never revisits. The taxonomy gap that caused
+    it went unrecorded and unrepaired, so the same line failed again every month.
+    Forcing an answer moves the doubt somewhere a person can act on it, and the
+    tree-gap suggester repairs the cause.
     """
+    prompt = build_prompt(LineContext(item_name="Revolut Business Fee"), CANDIDATES)
+
+    assert "0. None of these fit" not in prompt
+    assert "must" in prompt.lower()
+    assert "estimate" in prompt.lower()
+
+
+def test_a_zero_answer_is_an_index_we_never_offered():
+    """With `0` withdrawn from the list, a model that still answers it has named
+    a candidate that does not exist — which is the out-of-range case, handled by
+    the rule that already refuses to snap. No separate branch needed."""
     complete = replying(
         '{"choice": 0, "confidence": 0.0, "rationale": "No candidate covers bank fees."}'
     )
@@ -101,8 +116,7 @@ def test_the_model_may_decline():
 
     assert not match.matched
     assert match.spend_category_id is None
-    assert match.level_1 is None
-    assert "bank fees" in match.rationale
+    assert "0" in match.rationale
 
 
 def test_a_choice_outside_the_candidate_list_is_refused_not_snapped():
@@ -250,6 +264,18 @@ def _prompt_for(**context) -> str:
     return build_prompt(LineContext(**context), CANDIDATES)
 
 
+def _facts_of(**context) -> str:
+    """Only the block describing the line.
+
+    The instructions and the candidate list both quote plenty of text — the
+    accounting rules use em-dashes, the taxonomy quotes its own node
+    descriptions — so an assertion against the whole prompt tests the wrong
+    thing, in both directions.
+    """
+    prompt = _prompt_for(**context)
+    return prompt.split("Invoice line:\n", 1)[1].split("\n\nCategories:", 1)[0]
+
+
 def test_a_fee_outranks_the_supplier_that_issued_it():
     prompt = _prompt_for(item_name="Miljøtillæg", supplier="DSV Road A/S")
 
@@ -318,3 +344,40 @@ def test_a_fenced_object_after_reasoning_still_parses():
     match = categorize_line(LineContext(item_name="Claude"), CANDIDATES, complete=complete)
 
     assert match.matched and match.account_code == "6020"
+
+
+# --- Who sold it, and who bought it ----------------------------------------
+
+
+def test_a_described_supplier_qualifies_its_own_name():
+    """The single most decisive fact on a thin line.
+
+    `1 Voksen` from `DSB` is unanswerable; `1 Voksen` from "DSB — Danish State
+    Railways" is a train ticket. Measured on real data: the same line came back
+    Utilities on one run and Ground Transport on the next, and the run that got
+    it right had reasoned its way to what DSB is from memory.
+    """
+    prompt = _prompt_for(
+        item_name="1 Voksen",
+        supplier="DSB",
+        supplier_description="Danish State Railways, passenger rail operator.",
+    )
+
+    assert "Supplier: DSB — Danish State Railways, passenger rail operator." in prompt
+
+
+def test_an_undescribed_supplier_states_only_its_name():
+    """Null is the ordinary state until enrichment runs, and costs nothing: an
+    absent fact is simply not stated."""
+    facts = _facts_of(item_name="1 Voksen", supplier="DSB")
+
+    assert "Supplier: DSB" in facts
+    assert "—" not in facts, "no dangling qualifier where there is nothing to qualify"
+
+
+def test_the_buyer_is_named():
+    """A train ticket means something different to a haulier than to a design
+    studio, and a laptop billed by a consultancy is often the service."""
+    prompt = _prompt_for(item_name="MacBook Pro", buyer="VectorLab ApS")
+
+    assert "Bought by: VectorLab ApS" in prompt

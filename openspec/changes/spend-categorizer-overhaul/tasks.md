@@ -10,13 +10,13 @@
 
 ## 2. Phase 2 — a forced answer, a described supplier, a review queue
 
-- [ ] 2.1 Write failing tests: the model always returns a category; an out-of-range index still yields `ai_failed` and is never snapped; an outage still leaves the line `uncategorized`.
-- [ ] 2.2 Rewrite `_INSTRUCTIONS` to require a category ("you must return a category, even if it is an estimate; express doubt as a low confidence"), drop the `0` option from `build_prompt`, and remove the `choice == 0` branch from `categorize_line`. Tests from 2.1 pass.
-- [ ] 2.3 Confirm `confidence` is set on every `ai_categorized` line and that `ai_failed` is now written only for an unoffered index or an absent candidate set; add a test asserting a "hard" line becomes `ai_categorized` with low confidence rather than `ai_failed`.
-- [ ] 2.4 Add `description_source` to `Vendor` (nullable: `web` / `human`) with an Alembic migration, and a test that a human-set description is never overwritten by enrichment.
-- [ ] 2.5 Add `ai_api/enrichment/` — a stage that finds vendors with no description, calls `web_context.get_buyer_context`-style summarization once per vendor, and writes `description` + `description_source='web'`. Guard behind `VENDOR_ENRICHMENT_ENABLED` (default false); add it to `.env.example`.
-- [ ] 2.6 Add a runnable entry point (`python -m ai_api.enrichment.runner`, with `--company-id` / `--limit`) and tests that cover: off by default makes no request; a failed lookup writes nothing and raises nothing; an already-described vendor is skipped.
-- [ ] 2.7 Carry the supplier description and the buying company's name/description into `LineContext` and the prompt; test that both appear.
+- [x] 2.1 Write failing tests: the model always returns a category; an out-of-range index still yields `ai_failed` and is never snapped; an outage still leaves the line `uncategorized`.
+- [x] 2.2 Rewrite `_INSTRUCTIONS` to require a category ("you must return a category, even if it is an estimate; express doubt as a low confidence"), drop the `0` option from `build_prompt`, and remove the `choice == 0` branch from `categorize_line`. Tests from 2.1 pass.
+- [x] 2.3 Confirm `confidence` is set on every `ai_categorized` line and that `ai_failed` is now written only for an unoffered index or an absent candidate set; add a test asserting a "hard" line becomes `ai_categorized` with low confidence rather than `ai_failed`.
+- [x] 2.4 Add `description_source` to `Vendor` (nullable: `web` / `human`) with an Alembic migration, and a test that a human-set description is never overwritten by enrichment.
+- [x] 2.5 Add `ai_api/enrichment/` — a stage that finds vendors with no description, calls `web_context.get_buyer_context`-style summarization once per vendor, and writes `description` + `description_source='web'`. Guard behind `VENDOR_ENRICHMENT_ENABLED` (default false); add it to `.env.example`.
+- [x] 2.6 Add a runnable entry point (`python -m ai_api.enrichment.runner`, with `--company-id` / `--limit`) and tests that cover: off by default makes no request; a failed lookup writes nothing and raises nothing; an already-described vendor is skipped.
+- [x] 2.7 Carry the supplier description and the buying company's name/description into `LineContext` and the prompt; test that both appear.
 - [ ] 2.8 Add `CATEGORIZATION_REVIEW_THRESHOLD` config (provisional 0.6) and a `needs_review` computed property on the line payload in `web_api/schemas.py`; test it follows the threshold and is never stored.
 - [ ] 2.9 Add the `needs_review` filter to `GET /invoice-lines`, excluding `verified`, `uncategorized` and `ai_failed`; test it composes with `company_id` and the date range and paginates.
 - [ ] 2.10 Update the frontend line badge so a low-confidence `ai_categorized` line reads as needing review rather than as a failure, and `ai_failed` reads as a genuine fault. Add the filter to the Entries filter bar.

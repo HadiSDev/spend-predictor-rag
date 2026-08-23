@@ -474,3 +474,61 @@ def test_the_supplier_reaches_the_prompt(engine, make_tenant, fake_connector, pr
     ))
 
     assert "Contoso ApS" in _facts(prompts)
+
+
+def test_a_stored_supplier_description_reaches_the_prompt(
+    engine, make_tenant, fake_connector, prompts
+):
+    """Through the runner, from the global vendor row the enrichment stage writes.
+
+    Two runs against one tenant: the first creates the supplier, the description
+    is stored between them, and the second must carry it. That ordering is the
+    real one — a supplier exists before anybody researches it.
+    """
+    from datetime import date as _date
+
+    from web_api.connectors.base import ErpInvoiceData, ErpInvoiceLineData
+    from web_api.db.models import Vendor
+
+    tenant = make_tenant("Acme")
+    _with_default_tree(engine, tenant["company_id"])
+    fake_connector.scan = ErpInvoiceData(
+        erp_id="INV-1", vendor_erp_id="V-1", vendor_name="Contoso ApS",
+        invoice_number="2026-001", invoice_date=_date(2026, 3, 2), currency="DKK",
+        total=1000.0, tax=200.0, voucher_id="V1",
+        lines=[ErpInvoiceLineData(
+            line_erp_id="L-1", description="1 Voksen", amount=58.0,
+            native_account_code="6010",
+        )],
+    )
+    runner.run_sync()
+    prompts.clear()
+
+    with Session(engine) as s:
+        vendor = s.exec(select(Vendor)).first()
+        vendor.description = "Danish State Railways, passenger rail operator."
+        s.add(vendor)
+        s.commit()
+        # Return the line to the backlog, as `recategorize` does, so the second
+        # run has something to categorize.
+        line = s.exec(select(InvoiceLine)).first()
+        line.status = "uncategorized"
+        s.add(line)
+        s.commit()
+
+    runner.run_sync()
+
+    assert "Danish State Railways" in _facts(prompts)
+
+
+def test_the_buying_company_reaches_the_prompt(
+    engine, make_tenant, fake_connector, prompts
+):
+    from web_api.connectors.base import ErpInvoiceLineData
+
+    _synced_with(engine, make_tenant, fake_connector, ErpInvoiceLineData(
+        line_erp_id="L-1", description="MacBook Pro", amount=800.0,
+        native_account_code="6010",
+    ))
+
+    assert "Bought by: Acme" in _facts(prompts)
