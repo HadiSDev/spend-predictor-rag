@@ -98,4 +98,4 @@
 - [x] 10.2 `cd frontend && ./node_modules/.bin/tsc --noEmit`
 - [x] 10.3 `cd frontend && ./node_modules/.bin/vitest run`
 - [x] 10.4 `cd frontend && ./node_modules/.bin/eslint src` — no new errors (line 39 of `voucher-table.tsx` has a pre-existing one)
-- [ ] 10.5 Hand over the dev-server commands and confirm the panel by eye: page a multi-line invoice, correct an amount, correct the invoice number, check the audit feed shows both old values
+- [x] 10.5 Hand over the dev-server commands and confirm the panel by eye: page a multi-line invoice, correct an amount, correct the invoice number, check the audit feed shows both old values

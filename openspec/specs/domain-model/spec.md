@@ -1016,6 +1016,14 @@ invoice number as read from the attached document — **beside** the as-posted
   noise to resolve silently.
 - Extraction SHALL leave it null rather than guess when the document states no
   number.
+- **`document_invoice_number` SHALL be correctable by a human**, and its original
+  value SHALL be recoverable from the audit log. It is a value a model read off a
+  scan, and a misread digit is exactly the kind of error a reviewer is there to
+  fix.
+- `invoice_number` SHALL remain the as-posted evidence. Its correctability
+  through the API is unchanged by this requirement; what changes is that it is no
+  longer the field a reviewer is *presented* with, since the number worth
+  reconciling against is the printed one.
 
 #### Scenario: The printed number is stored beside the posted one
 
@@ -1033,6 +1041,19 @@ invoice number as read from the attached document — **beside** the as-posted
 
 - **WHEN** the extraction yields no invoice number
 - **THEN** `document_invoice_number` is null
+
+#### Scenario: A misread printed number is corrected
+
+- **WHEN** a reviewer corrects `document_invoice_number` from "2026-04I2" to
+  "2026-0412"
+- **THEN** the stored value is the correction and the audit log holds the
+  original
+
+#### Scenario: The posted number stays as the ERP stated it
+
+- **WHEN** a reviewer corrects the printed number on an invoice whose
+  `invoice_number` fell back to the bill id
+- **THEN** `invoice_number` still holds the bill id, unchanged
 
 ### Requirement: Invoice records its document-processing state
 
@@ -1062,5 +1083,59 @@ lines.
 - **WHEN** the migration runs over invoices that already carry a `file_id`
 - **THEN** those invoices read `pending` and the rest read `not_applicable`
 
+### Requirement: InvoiceLine names what was bought, beside describing it
 
+`InvoiceLine` SHALL carry a nullable `item_name` — the name of the product or
+service on the line — **beside** its existing `description`.
 
+The two are different statements and were being made by one field:
+
+- `item_name` is what was bought. It is short, expected on every line, and it is
+  the value a redundancy or savings comparison is actually about: "Figma
+  Organization seat" is comparable across suppliers in a way that a sentence of
+  prose is not.
+- `description` is supplementary prose the supplier printed. It is frequently
+  absent, and nothing downstream may assume it is present.
+
+Constraints:
+
+- `item_name` SHALL be nullable in the schema. A posting-derived stand-in line
+  is built from a ledger memo that is itself frequently null, and a NOT NULL
+  column would force the sync to invent a name.
+- A reader SHALL be shown `item_name` as the line's primary label, falling back
+  to `description` only when `item_name` is null.
+- Both SHALL be correctable by a human, and both SHALL be recoverable from the
+  audit log after correction.
+- Existing rows SHALL be migrated: the stored `description` becomes `item_name`
+  and `description` becomes null, because the single field was in practice
+  holding the name.
+
+#### Scenario: A line carries both
+
+- **WHEN** a document states the item "Figma Organization seat" and the
+  description "Annual plan, 12 seats, billed yearly"
+- **THEN** the line's `item_name` is "Figma Organization seat" and its
+  `description` is "Annual plan, 12 seats, billed yearly"
+
+#### Scenario: A description-less line is still named
+
+- **WHEN** a document states an item name and no further prose
+- **THEN** `item_name` is set and `description` is null
+
+#### Scenario: A stand-in line with no memo names nothing
+
+- **WHEN** a stand-in line is written from a posting whose description is null
+- **THEN** `item_name` is null rather than a fabricated value
+
+#### Scenario: Migration moves the existing text into the name
+
+- **WHEN** a line stored before this change holds the description "Cloudflare
+  Pro subscription"
+- **THEN** after migration its `item_name` is "Cloudflare Pro subscription" and
+  its `description` is null
+
+#### Scenario: Migration carries a human's settled field with the value
+
+- **WHEN** a line whose `verified_fields` contains `description` is migrated
+- **THEN** its `verified_fields` contains `item_name` and no longer contains
+  `description`, so a sync still cannot overwrite the value a human settled
