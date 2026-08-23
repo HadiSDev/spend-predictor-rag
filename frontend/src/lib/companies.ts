@@ -4,6 +4,7 @@ import type { ApiClient } from './api-client'
 import type {
   CompanyCreate,
   CompanyCreateResult,
+  CompanyDeleteResult,
   CompanyRead,
   CompanyUpdate,
   CompanyUpdateResult,
@@ -64,8 +65,10 @@ export function updateCompanyMutation(
 }
 
 /**
- * Deactivate or reactivate a company. Companies are soft-deactivated and never
- * hard-deleted, so there is no delete mutation to offer.
+ * Deactivate or reactivate a company.
+ *
+ * The reversible option, and the one to reach for whenever the ledger still
+ * means something. `deleteCompanyMutation` below is the other, narrower one.
  */
 export function setCompanyActiveMutation(
   api: ApiClient,
@@ -75,6 +78,27 @@ export function setCompanyActiveMutation(
     mutationFn: ({ id, active }) =>
       api.post<CompanyRead>(`/api/v1/companies/${id}/${active ? 'activate' : 'deactivate'}`),
     onSuccess: () => invalidateCompanies(queryClient),
+  }
+}
+
+/**
+ * Destroy a company and everything it owns (`DELETE /companies/{id}`).
+ *
+ * System admin only, and there is no undo. Without `confirm` the server refuses
+ * with `409` and a body carrying what would be destroyed — the caller is
+ * expected to show those figures and ask again, which is why the refusal has to
+ * reach the dialog rather than be flattened into a message.
+ */
+export function deleteCompanyMutation(
+  api: ApiClient,
+  queryClient: QueryClient,
+): UseMutationOptions<CompanyDeleteResult, Error, { id: string; confirm?: boolean }> {
+  return {
+    mutationFn: ({ id, confirm }) =>
+      api.del<CompanyDeleteResult>(`/api/v1/companies/${id}`, { confirm }),
+    // Everything scoped to that company has just stopped existing — entries,
+    // invoices, lines and every report over them.
+    onSuccess: () => queryClient.invalidateQueries(),
   }
 }
 

@@ -27,7 +27,12 @@ class Company(SQLModel, table=True):
     spend_tree_id: Optional[str] = Field(
         sa_type=String, foreign_key="spend_trees.id", nullable=True, default=None
     )
-    # Soft-deactivation: companies own financial data and are never hard-deleted.
+    # Soft-deactivation: companies own financial data, so retiring one keeps it.
+    # A platform system admin may still destroy a company outright — see
+    # `web_api/company_deletion.py` — but that is for a company that should not
+    # exist, and `is_active` never represents it: a deleted company is absent,
+    # not present-and-false. A flag meaning "retired" in one place and
+    # "destroyed" in another would make every listing depend on which wrote it.
     is_active: bool = Field(sa_type=Boolean, nullable=False, default=True)
     deactivated_at: Optional[datetime] = Field(sa_type=DateTime(timezone=True), nullable=True, default=None)
     created_at: datetime = Field(sa_column=_ts())

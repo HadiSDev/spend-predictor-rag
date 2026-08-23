@@ -9,11 +9,13 @@ from sqlmodel import Session, select
 from web_api.db.models import Company, InvoiceLine, LineStatus, SpendTree
 from ..audit import record_audit
 from ..db.models.audit_log import SYSTEM_ACTOR
+from ..company_deletion import company_records, delete_company
 from ..deps import (
     TenantScope,
     get_managed_company,
     get_session,
     require_management,
+    require_system_admin,
     resolve_target_organization,
     tenant_scope,
 )
@@ -23,6 +25,8 @@ from ..integrations import integration_read, provision_integration
 from ..schemas import (
     CompanyCreate,
     CompanyCreateResult,
+    CompanyDeleteBlocked,
+    CompanyDeleteResult,
     CompanyRead,
     CompanyUpdate,
     CompanyUpdateResult,
@@ -311,3 +315,56 @@ def activate_company(
     session.commit()
     session.refresh(company)
     return _company_read(session, company)
+
+
+@router.delete("/companies/{company_id}", response_model=CompanyDeleteResult)
+def delete_company_endpoint(
+    company_id: str,
+    confirm: bool = Query(default=False),
+    scope: TenantScope = Depends(require_system_admin),
+    session: Session = Depends(get_session),
+) -> CompanyDeleteResult:
+    """Destroy a company and everything scoped to it. There is no undo.
+
+    For a company that should not exist — a typo, a trial that never synced, a
+    test tenant, or one a customer asked to have removed. **Not** for retiring
+    one whose ledger still means something: `POST /companies/{id}/deactivate`
+    does that, keeps every record, and can be reversed.
+
+    Refused with `409` and the counts until `confirm=true`, unless the company
+    holds nothing — there is no point gating a preview of zero, and a dialog
+    over nothing teaches the operator to click through the one that matters.
+
+    System admin only. An org admin may deactivate; destroying a ledger is not
+    something a support conversation can put right.
+    """
+    company = get_managed_company(session, scope, company_id)
+    records = company_records(session, company.id)
+
+    if not records.is_empty and not confirm:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=CompanyDeleteBlocked(
+                detail=(
+                    "Deleting this company destroys its entire ledger, and it "
+                    "cannot be undone. Deactivate it instead to retire it while "
+                    "keeping the records. Send confirm=true to proceed."
+                ),
+                **records.__dict__,
+            ).model_dump(mode="json"),
+        )
+
+    # Name and id are read before the delete: afterwards the object is gone from
+    # the session and the response would have nothing to identify what went.
+    deleted = CompanyDeleteResult(
+        id=company.id, name=company.name, **records.__dict__
+    )
+    try:
+        delete_company(session, company)
+        session.commit()
+    except Exception:
+        # Atomic by construction — a failure part-way leaves the company exactly
+        # as it was, rather than half a tenant with dangling children.
+        session.rollback()
+        raise
+    return deleted

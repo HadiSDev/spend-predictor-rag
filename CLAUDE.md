@@ -184,7 +184,19 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   (`WEB_API_CREDENTIAL_ENC_KEY`, Fernet) and never returned; no credential row is
   written when none are supplied, so a connector whose fields all have defaults
   needs no encryption key. Integrations are soft-disconnected. Companies are
-  soft-deactivated, never hard-deleted.
+  soft-deactivated, never hard-deleted **except** by
+  `DELETE /api/v1/companies/{id}`, which is system-admin-only, refuses with a
+  `409` of counts until `confirm=true`, and destroys the company with everything
+  scoped to it in one transaction. That path exists for a company that should
+  not exist — a typo, a trial that never synced, a test tenant — and not for
+  retiring one whose ledger still means something. It keeps `Vendor` (a global
+  catalog, shared) and `SpendTree` (org-owned, possibly shared by other
+  companies), and it deletes the audit rows of the invoices and lines it
+  destroys, since those carry no company id and would otherwise be
+  unattributable forever. The purge is written out table by table in
+  `web_api/company_deletion.py` rather than delegated to `ON DELETE CASCADE`:
+  there is no cascade anywhere in the schema, and adding six would make every
+  future company delete silent.
 
 ## Categorization lifecycle & audit
 
@@ -686,7 +698,9 @@ The reason is that `GET /companies` defaults to active, so a client's company
 picker offers only those: rows from a deactivated company appearing under "all"
 could not be filtered out by any request the client is able to make.
 **Asking for a company by id still works**, active or not — history is retained
-(companies are soft-deactivated, never deleted) and an explicit request for it is
+(companies are soft-deactivated, and hard-deleted only by a system admin
+through `DELETE /companies/{id}`, after which they are simply absent) and an
+explicit request for it is
 deliberate, exactly as `?include_inactive` reaches them in the company list.
 
 ## ERP connectors

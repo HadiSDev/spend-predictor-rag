@@ -9,6 +9,7 @@ import {
   createCompanyMutation,
   recategorizeCompanyMutation,
   recomputeCompanyFxMutation,
+  deleteCompanyMutation,
   setCompanyActiveMutation,
   updateCompanyMutation,
 } from '#/lib/companies'
@@ -46,6 +47,7 @@ function CompaniesSection() {
   const replaceIntegration = useMutation(replaceIntegrationMutation(api, queryClient))
   const connectIntegration = useMutation(connectIntegrationMutation(api, queryClient))
   const setActive = useMutation(setCompanyActiveMutation(api, queryClient))
+  const removeCompany = useMutation(deleteCompanyMutation(api, queryClient))
   const recomputeFx = useMutation(recomputeCompanyFxMutation(api, queryClient))
   const recategorize = useMutation(recategorizeCompanyMutation(api, queryClient))
 
@@ -67,6 +69,9 @@ function CompaniesSection() {
       includeInactive={includeInactive}
       onIncludeInactiveChange={setIncludeInactive}
       canManage={canManage}
+      // The platform flag, not an org role: an org admin may deactivate
+      // their own company, but destroying its ledger is a platform action.
+      canDelete={principal.isSystemAdmin}
       erpTypes={erpTypes.data ?? []}
       erpTypesLoading={erpTypes.isPending && canManage}
       integrations={integrations.data ?? []}
@@ -149,6 +154,9 @@ function CompaniesSection() {
         })
       }
       onSetActive={(id, active) => setActive.mutateAsync({ id, active })}
+      // Rejects with the 409 body when the server wants confirming; the
+      // panel reads the counts off it rather than re-tallying them.
+      onDelete={(id, confirm) => removeCompany.mutateAsync({ id, confirm })}
       onRecomputeFx={(id) => recomputeFx.mutateAsync({ id })}
       onRecategorize={(id) => recategorize.mutateAsync({ id })}
       onManageAccounts={(companyId) =>

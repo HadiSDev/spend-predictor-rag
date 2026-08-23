@@ -84,6 +84,42 @@ class IntegrationReplaceBlocked(BaseModel):
     latest: date | None = None
 
 
+class CompanyRecordCounts(BaseModel):
+    """What a company holds, or held.
+
+    The same shape answers both halves of a deletion: the refusal, where it is
+    what *would* be destroyed, and the success, where it is what was. One model
+    rather than two, so the figures a caller sees before and after are read the
+    same way and cannot drift apart.
+    """
+
+    invoices: int
+    lines: int
+    entries: int
+    integrations: int
+    earliest: date | None = None
+    latest: date | None = None
+
+
+class CompanyDeleteBlocked(CompanyRecordCounts):
+    """Why deleting a company needs confirming: what it would destroy.
+
+    Unlike `IntegrationReplaceBlocked`, where the rows *stay* and the hazard is
+    double-counting, everything counted here stops existing. There is no undo,
+    which is why the figures are stated before the fact rather than reported
+    after it.
+    """
+
+    detail: str
+
+
+class CompanyDeleteResult(CompanyRecordCounts):
+    """What a completed deletion destroyed."""
+
+    id: str
+    name: str
+
+
 class CompanyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -162,9 +162,13 @@ def resolve_company_ids(scope: TenantScope, company_id: str | None) -> list[str]
     deactivating it is for.
 
     Asking for one **by id still works**, active or not: companies are
-    soft-deactivated and never hard-deleted, so their history is retained and an
-    explicit request for it is deliberate. Same shape as `GET /companies`, whose
-    `include_inactive` reaches them on request.
+    soft-deactivated, so their history is retained and an explicit request for
+    it is deliberate. Same shape as `GET /companies`, whose `include_inactive`
+    reaches them on request.
+
+    A *deleted* company is a different thing entirely: its id is gone from
+    `company_ids`, so this raises `404` and there is nothing to reach. That is
+    the point of the distinction — deactivation hides, deletion removes.
     """
     if company_id is None:
         return scope.active_company_ids
@@ -195,6 +199,22 @@ def require_org_admin(scope: TenantScope = Depends(tenant_scope)) -> TenantScope
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Organization admin required",
+    )
+
+
+def require_system_admin(scope: TenantScope = Depends(tenant_scope)) -> TenantScope:
+    """The narrowest gate: a platform operator, not a customer's own admin.
+
+    For the one action nothing can undo. Deactivating a company is reversible
+    and belongs to whoever manages the organization; destroying its ledger
+    cannot be put right by a support conversation, so it belongs to the person
+    holding the platform flag rather than to anyone a customer can appoint.
+    """
+    if scope.is_system_admin:
+        return scope
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="System administrator required",
     )
 
 

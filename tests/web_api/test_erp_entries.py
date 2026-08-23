@@ -873,7 +873,13 @@ def test_voucher_groups_agree_with_the_flat_list(client, deactivated_company):
 
 
 def test_asking_for_the_deactivated_company_by_id_still_works(client, deactivated_company):
-    """Companies are soft-deactivated and never deleted, so their history is
+    """Deactivated companies keep their history, so it stays reachable by id.
+
+    Distinct from deletion, which removes the company outright and makes this
+    same request a 404 — see `test_company_deletion.py`. What this pins is that
+    *deactivation* is not that.
+
+    Their history is
     retained and an explicit request for it is deliberate."""
     body = client.get(
         "/api/v1/erp-entries",

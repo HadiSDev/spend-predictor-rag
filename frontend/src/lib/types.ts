@@ -250,6 +250,27 @@ export interface SpendTreeDeleteResult {
 }
 
 /** What `POST /companies/{id}/recompute-fx` reports back. Counts are rows. */
+/** What a company holds, or held — the figures a deletion is judged by. */
+export interface CompanyRecordCounts {
+  invoices: number
+  lines: number
+  entries: number
+  integrations: number
+  earliest: string | null
+  latest: string | null
+}
+
+/** The `409` body when a deletion needs confirming: what it *would* destroy. */
+export interface CompanyDeleteBlocked extends CompanyRecordCounts {
+  detail: string
+}
+
+/** What a completed deletion destroyed. */
+export interface CompanyDeleteResult extends CompanyRecordCounts {
+  id: string
+  name: string
+}
+
 export interface FxRecomputeResult {
   company_id: string
   base_currency: string

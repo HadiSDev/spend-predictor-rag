@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Sparkles,
   RotateCcw,
+  Trash2,
 } from 'lucide-react'
 import {
   AlertDialog,
@@ -59,6 +60,7 @@ import type {
   ErpTypeRead,
   FxRecomputeResult,
   RecategorizeResult,
+  CompanyDeleteBlocked,
   ReplaceBlocked,
   SpendTreeRead,
 } from '#/lib/types'
@@ -120,6 +122,13 @@ export interface CompaniesPanelProps {
   includeInactive: boolean
   onIncludeInactiveChange: (next: boolean) => void
   canManage: boolean
+  /**
+   * Whether the reader may destroy a company outright — the platform flag, not
+   * an org role. Deleting is not offered to anyone else *at all* rather than
+   * offered disabled: a disabled control claims a permission that will never
+   * be granted.
+   */
+  canDelete?: boolean
   /** The connectable ERP systems, from `GET /erp-types`. */
   erpTypes?: Array<ErpTypeRead>
   erpTypesLoading?: boolean
@@ -165,6 +174,11 @@ export interface CompaniesPanelProps {
     },
   ) => Promise<unknown>
   onSetActive: (id: string, active: boolean) => Promise<unknown>
+  /**
+   * Destroy a company and everything it owns. Rejects with the `409` body when
+   * the server wants confirming, which `deleteBlockedFrom` reads the counts off.
+   */
+  onDelete: (id: string, confirm: boolean) => Promise<unknown>
   /**
    * Rewrite a company's stored figures into its current reporting currency.
    * Offered after a currency change and from the row menu; omitting it hides
@@ -328,6 +342,20 @@ export function replaceBlockedFrom(err: unknown): ReplaceBlocked | null {
   const detail = body as Partial<ReplaceBlocked>
   return typeof detail.entries === 'number' && typeof detail.invoices === 'number'
     ? (detail as ReplaceBlocked)
+    : null
+}
+
+/** The 409 body of a blocked deletion, or null for any other failure.
+ *
+ * Same reasoning as `replaceBlockedFrom`: the figures come off the parsed body,
+ * never out of the message, so a copy edit cannot silently empty the dialog.
+ */
+export function deleteBlockedFrom(err: unknown): CompanyDeleteBlocked | null {
+  const body = (err as { body?: { detail?: unknown } } | null)?.body?.detail
+  if (!body || typeof body !== 'object') return null
+  const detail = body as Partial<CompanyDeleteBlocked>
+  return typeof detail.invoices === 'number' && typeof detail.entries === 'number'
+    ? (detail as CompanyDeleteBlocked)
     : null
 }
 
@@ -1031,8 +1059,14 @@ function CompanyDialog({
 }
 
 /**
- * Companies. They are soft-deactivated and never hard-deleted, so no delete
- * action is offered anywhere.
+ * Companies. Deactivation is the ordinary way to retire one: it is reversible
+ * and keeps every record, and it is what an org manager gets.
+ *
+ * A platform system admin additionally gets `Delete permanently`, for a company
+ * that should not exist — a typo, a trial that never synced, a test tenant, or
+ * one a customer asked to have removed. It destroys the ledger and cannot be
+ * undone, which is why it is the only action here that asks for the company's
+ * name rather than a click.
  */
 export function CompaniesPanel({
   companies,
@@ -1040,6 +1074,7 @@ export function CompaniesPanel({
   includeInactive,
   onIncludeInactiveChange,
   canManage,
+  canDelete = false,
   erpTypes = [],
   erpTypesLoading = false,
   integrations = [],
@@ -1051,6 +1086,7 @@ export function CompaniesPanel({
   onReplaceIntegration,
   onConnectIntegration,
   onSetActive,
+  onDelete,
   onRecomputeFx,
   onRecategorize,
   onManageAccounts,
@@ -1058,6 +1094,14 @@ export function CompaniesPanel({
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<CompanyRead | null>(null)
   const [confirming, setConfirming] = React.useState<string | null>(null)
+  // The company being destroyed, what the server says it holds, and the name
+  // typed back. `counts` is null until the server has refused once — the dialog
+  // asks *before* it knows, then re-renders with the figures.
+  const [deleting, setDeleting] = React.useState<{
+    company: CompanyRead
+    counts: CompanyDeleteBlocked | null
+    typed: string
+  } | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [recomputing, setRecomputing] = React.useState<RecomputeState | null>(
@@ -1264,6 +1308,34 @@ export function CompaniesPanel({
     }
   }
 
+  /**
+   * Destroy the company, or learn what it holds and ask again.
+   *
+   * The first attempt goes unconfirmed on purpose: the server owns the counts,
+   * and asking it is what keeps the dialog's figures true rather than a second
+   * client-side tally that could drift from the one doing the deleting.
+   */
+  async function runDelete(confirm: boolean) {
+    const target = deleting
+    if (!target) return
+    setBusy(true)
+    setError(null)
+    try {
+      await onDelete(target.company.id, confirm)
+      setDeleting(null)
+    } catch (failure) {
+      const counts = deleteBlockedFrom(failure)
+      if (counts) {
+        // Not an error — the server telling us what to warn about.
+        setDeleting({ ...target, counts })
+      } else {
+        setError(serverErrorMessage(failure))
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const action = canManage ? (
     <Button
       size="sm"
@@ -1435,6 +1507,21 @@ export function CompaniesPanel({
                                 Reactivate
                               </DropdownMenuItem>
                             )}
+                            {/* Absent for anyone without the platform flag,
+                                never disabled: a greyed-out control claims a
+                                permission that will never be granted. */}
+                            {canDelete ? (
+                              <DropdownMenuItem
+                                className="text-destructive [&_svg]:text-destructive"
+                                onClick={() => {
+                                  setError(null)
+                                  setDeleting({ company, counts: null, typed: '' })
+                                }}
+                              >
+                                <Trash2 />
+                                Delete permanently
+                              </DropdownMenuItem>
+                            ) : null}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -1500,6 +1587,90 @@ export function CompaniesPanel({
               }
             >
               {busy ? 'Deactivating…' : 'Deactivate'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/*
+        The only action in the product with no undo, so the only one that asks
+        for more than a click. A checkbox is a reflex; typing the name is a
+        second look at *which* company — which is the mistake that actually
+        happens, since the rest of the dialog looks the same for all of them.
+      */}
+      <AlertDialog
+        open={deleting !== null}
+        onOpenChange={(next: boolean) => {
+          if (!next && !busy) {
+            setDeleting(null)
+            setError(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleting?.company.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleting?.counts ? (
+                <>
+                  This destroys {deleting.counts.invoices} invoice
+                  {deleting.counts.invoices === 1 ? '' : 's'},{' '}
+                  {deleting.counts.lines} line
+                  {deleting.counts.lines === 1 ? '' : 's'} and{' '}
+                  {deleting.counts.entries} posting
+                  {deleting.counts.entries === 1 ? '' : 's'}
+                  {deleting.counts.earliest && deleting.counts.latest ? (
+                    <>
+                      {' '}
+                      covering {deleting.counts.earliest} to{' '}
+                      {deleting.counts.latest}
+                    </>
+                  ) : null}
+                  . This cannot be undone.
+                </>
+              ) : (
+                <>
+                  This destroys the company and everything it owns — invoices,
+                  lines and ledger postings. This cannot be undone.
+                </>
+              )}{' '}
+              Deactivate it instead to retire it while keeping the records.
+              Suppliers are shared across the platform and are kept either way.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm" htmlFor="confirm-company-name">
+              Type <span className="font-medium text-foreground">{deleting?.company.name}</span>{' '}
+              to confirm
+            </label>
+            <Input
+              id="confirm-company-name"
+              aria-label="Confirm the company name"
+              autoComplete="off"
+              value={deleting?.typed ?? ''}
+              onChange={(event) =>
+                setDeleting((current) =>
+                  current ? { ...current, typed: event.target.value } : current,
+                )
+              }
+            />
+          </div>
+
+          {/* Behind the backdrop the panel's own error is invisible, so a
+              refusal has to be readable from inside the dialog. */}
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+          <AlertDialogFooter>
+            <Button variant="ghost" onClick={() => setDeleting(null)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busy || deleting?.typed.trim() !== deleting?.company.name}
+              onClick={() => void runDelete(true)}
+            >
+              {busy ? 'Deleting…' : 'Delete permanently'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

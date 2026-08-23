@@ -100,6 +100,7 @@ function renderPanel(overrides: Partial<CompaniesPanelProps> = {}) {
     onUpdateIntegration: vi.fn().mockResolvedValue(undefined),
     onConnectIntegration: vi.fn().mockResolvedValue(undefined),
     onSetActive: vi.fn().mockResolvedValue(undefined),
+    onDelete: vi.fn().mockResolvedValue(undefined),
     onRecomputeFx: vi.fn().mockResolvedValue({
       company_id: 'c1',
       base_currency: 'EUR',
@@ -144,6 +145,146 @@ async function clickRowAction(companyName: string, action: string) {
   )
   fireEvent.click(await screen.findByRole('menuitem', { name: action }))
 }
+
+/** A rejection shaped like the API client's, carrying the parsed 409 body. */
+function blockedWith(counts: Record<string, unknown>) {
+  return Object.assign(new Error('Conflict'), {
+    body: {
+      detail: {
+        detail: 'Deleting this company destroys its entire ledger…',
+        invoices: 0, lines: 0, entries: 0, integrations: 1,
+        earliest: null, latest: null,
+        ...counts,
+      },
+    },
+  })
+}
+
+describe('CompaniesPanel — deleting a company', () => {
+  async function openDeleteDialog(overrides = {}) {
+    const props = renderPanel({ canDelete: true, ...overrides })
+    await clickRowAction('Acme A/S', 'Delete permanently')
+    return { props, dialog: await screen.findByRole('alertdialog') }
+  }
+
+  it('offers the action to a system admin', async () => {
+    renderPanel({ canDelete: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Acme A/S' }))
+
+    expect(
+      await screen.findByRole('menuitem', { name: 'Delete permanently' }),
+    ).toBeTruthy()
+  })
+
+  it('does not render it for anyone else, disabled or otherwise', async () => {
+    // Absent, not greyed out: a disabled control claims a permission that will
+    // never be granted, and invites a support request that has no answer.
+    renderPanel({ canDelete: false })
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Acme A/S' }))
+
+    await screen.findByRole('menuitem', { name: 'Deactivate' })
+    expect(screen.queryByRole('menuitem', { name: 'Delete permanently' })).toBeNull()
+  })
+
+  it('states the consequence and names the reversible alternative', async () => {
+    const { dialog } = await openDeleteDialog()
+
+    expect(dialog.textContent).toContain('Delete Acme A/S?')
+    expect(dialog.textContent).toContain('cannot be undone')
+    expect(dialog.textContent).toMatch(/deactivate/i)
+  })
+
+  it('says suppliers are kept, since that is the surprising half', async () => {
+    const { dialog } = await openDeleteDialog()
+
+    expect(dialog.textContent).toMatch(/suppliers/i)
+  })
+
+  it('keeps the confirm button disabled until the name is typed', async () => {
+    const { dialog } = await openDeleteDialog()
+    const confirm = within(dialog).getByRole('button', { name: 'Delete permanently' })
+
+    expect(confirm).toHaveProperty('disabled', true)
+
+    fireEvent.change(within(dialog).getByLabelText('Confirm the company name'), {
+      target: { value: 'Acme A/S' },
+    })
+
+    expect(confirm).toHaveProperty('disabled', false)
+  })
+
+  it('is not armed by a near miss', async () => {
+    const { dialog } = await openDeleteDialog()
+
+    fireEvent.change(within(dialog).getByLabelText('Confirm the company name'), {
+      target: { value: 'Acme' },
+    })
+
+    expect(
+      within(dialog).getByRole('button', { name: 'Delete permanently' }),
+    ).toHaveProperty('disabled', true)
+  })
+
+  it('deletes with confirmation once the name matches', async () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined)
+    const { dialog } = await openDeleteDialog({ onDelete })
+
+    fireEvent.change(within(dialog).getByLabelText('Confirm the company name'), {
+      target: { value: 'Acme A/S' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete permanently' }))
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith('c1', true))
+  })
+
+  it('shows what the server says would be lost, and stays open', async () => {
+    // The server owns the counts. Re-tallying them client-side would give the
+    // operator a second set of figures that could disagree with the ones the
+    // deletion is actually judged against.
+    const onDelete = vi
+      .fn()
+      .mockRejectedValue(
+        blockedWith({ invoices: 203, lines: 398, entries: 963,
+                      earliest: '2025-07-01', latest: '2026-08-20' }),
+      )
+    const { dialog } = await openDeleteDialog({ onDelete })
+
+    fireEvent.change(within(dialog).getByLabelText('Confirm the company name'), {
+      target: { value: 'Acme A/S' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete permanently' }))
+
+    await waitFor(() => expect(dialog.textContent).toContain('203'))
+    expect(dialog.textContent).toContain('398')
+    expect(dialog.textContent).toContain('963')
+    expect(dialog.textContent).toContain('2026-08-20')
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+  })
+
+  it('shows an ordinary failure inside the dialog', async () => {
+    // Behind the backdrop the panel's own error message is invisible.
+    const onDelete = vi.fn().mockRejectedValue(new Error('boom'))
+    const { dialog } = await openDeleteDialog({ onDelete })
+
+    fireEvent.change(within(dialog).getByLabelText('Confirm the company name'), {
+      target: { value: 'Acme A/S' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete permanently' }))
+
+    await waitFor(() => expect(dialog.textContent).toMatch(/boom/i))
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+  })
+
+  it('closes without deleting when cancelled', async () => {
+    const onDelete = vi.fn()
+    const { dialog } = await openDeleteDialog({ onDelete })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+})
 
 describe('changedFields', () => {
   it('returns only what actually changed', () => {
