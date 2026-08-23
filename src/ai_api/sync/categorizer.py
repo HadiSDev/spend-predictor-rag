@@ -133,3 +133,79 @@ def _gt_fields(native_account_code: str | None, candidates: list[Category]):
     if match is None:
         return None, None, None, code
     return match.level(0), match.level(1), match.level(2), code
+
+
+def _worth_narrowing(tree_size: int, top_k: int) -> bool:
+    """Is narrowing worth an embedding call?
+
+    Borrowed from the reference implementation's ``tree_size < 2 * top_k``
+    bypass: narrowing a 26-leaf tree to 15 spends a round trip to remove eleven
+    candidates and risks removing the right one, which is a bad trade in both
+    directions.
+    """
+    return tree_size >= 2 * top_k
+
+
+def _siblings_of(candidate: Category, all_candidates: list[Category]) -> list[Category]:
+    """Every candidate sharing this one's parent path.
+
+    Sibling expansion is what makes retrieval usable rather than merely cheap.
+    Embedding a commuter rail ticket finds *Airfare* — it is the only travel leaf
+    in a sparse tree — and the answer is *Ground Transport* next to it. Offering
+    the hit alone would hand the model a shortlist that excludes the right
+    answer and then blame it for the result.
+    """
+    parent = candidate.path[:-1]
+    return [c for c in all_candidates if c.path[:-1] == parent]
+
+
+def build_candidates_from_retrieval(
+    query: str,
+    all_candidates: list[Category],
+    retrieve,
+    *,
+    top_k: int = 5,
+) -> list[Category]:
+    """Narrow ``all_candidates`` to the neighbourhood of the closest nodes.
+
+    ``retrieve`` is the seam: any callable taking ``(query, top_k)`` and
+    returning node payloads with a ``spend_category_id``. Tests pass a stub, so
+    the suite needs no Qdrant.
+
+    **Never returns fewer candidates than the model can answer from.** Retrieval
+    that finds nothing — an unindexed tree, an unreachable vector store, a query
+    with no text — yields the full leaf set, not an empty one. An empty candidate
+    list is indistinguishable from "this company has no tree", which means "do
+    not categorize", and a vector store being down is not a statement about the
+    customer's taxonomy.
+    """
+    if not all_candidates:
+        return []
+    if not (query or "").strip():
+        return list(all_candidates)
+    if not _worth_narrowing(len(all_candidates), top_k):
+        return list(all_candidates)
+
+    try:
+        hits = retrieve(query, top_k)
+    except Exception:  # noqa: BLE001 - a retrieval outage is not a taxonomy fact
+        return list(all_candidates)
+
+    by_id = {c.node_id: c for c in all_candidates if c.node_id}
+    found = [
+        by_id[payload["spend_category_id"]]
+        for payload in (hits or [])
+        if payload.get("spend_category_id") in by_id
+    ]
+    if not found:
+        return list(all_candidates)
+
+    # Order is the tree's, not the retriever's. The prompt numbers candidates and
+    # the model answers with a number, so a ranking-ordered list would silently
+    # bias the answer toward 1 — and would make the same line's prompt differ
+    # between runs, which the cache keys off.
+    narrowed = {c.node_id: c for c in found}
+    for hit in found:
+        for sibling in _siblings_of(hit, all_candidates):
+            narrowed[sibling.node_id] = sibling
+    return [c for c in all_candidates if c.node_id in narrowed]

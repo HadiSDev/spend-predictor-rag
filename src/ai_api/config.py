@@ -58,6 +58,21 @@ VENDOR_ENRICHMENT_ENABLED = os.getenv("VENDOR_ENRICHMENT_ENABLED", "false").lowe
     "1", "true", "yes", "on",
 )
 
+#: Whether the categorizer narrows a large tree by embedding retrieval.
+#:
+#: **Off by default**, the same rule ``FX_ENABLED`` and ``VENDOR_ENRICHMENT_ENABLED``
+#: follow. Indexing a tree downloads a sentence-transformer model and talks to
+#: Qdrant, neither of which a test run or an offline sync should ever do without
+#: being asked — and the first version of this did exactly that, quietly, on every
+#: sync in the suite.
+#:
+#: Off, every line is offered its company's whole leaf set. That is the same
+#: degradation an unreachable Qdrant produces, so the flag adds no code path that
+#: was not already exercised.
+CATEGORY_RETRIEVAL_ENABLED = os.getenv(
+    "CATEGORY_RETRIEVAL_ENABLED", "false"
+).lower() in ("1", "true", "yes", "on")
+
 CHART_OF_ACCOUNTS_PATH = os.getenv(
     "CHART_OF_ACCOUNTS_PATH", str(PROJECT_ROOT / "data" / "chart_of_accounts.csv")
 )

@@ -23,13 +23,13 @@
 
 ## 3. Phase 3 — retrieval and cache
 
-- [ ] 3.1 Add `build_candidates_from_retrieval(tree_id, query, full_candidates, top_k)` in `ai_api/sync/categorizer.py`: retrieve, expand each hit to its siblings, return the union. Pure over an injected retrieval function, so tests need no Qdrant.
-- [ ] 3.2 Test the guards: a tree smaller than `2 × top_k` is not narrowed; an empty retrieval result yields the full leaf set, never an empty list; every returned candidate belongs to the requested tree.
-- [ ] 3.3 Call `build_tree_index` for the assigned tree at sync start and wire retrieval into `_categorize_pending`; log per run the tree size, average candidates per line, and the reduction percentage, so a bad `top_k` is visible.
-- [ ] 3.4 Add a `CategorizationCache` model (key columns: normalized item text, `vendor_id`, `native_account_code`, `tree_hash`; value: `spend_category_id`, confidence, rationale) with an Alembic migration and a unique constraint on the key.
-- [ ] 3.5 Add `tree_hash(candidates)` — order-independent, content-only over the candidate set actually offered — and test that adding, renaming or removing a node changes it while reordering does not.
-- [ ] 3.6 Wire the cache into `categorize_line` behind the model call; test that a repeated line costs one model call, that a tree edit invalidates it, and that two companies with different trees never share an entry.
-- [ ] 3.7 Confirm a cached result is indistinguishable on the line from a fresh one (same fields, same audit row) and that the sync still works with Qdrant stopped.
+- [x] 3.1 Add `build_candidates_from_retrieval(tree_id, query, full_candidates, top_k)` in `ai_api/sync/categorizer.py`: retrieve, expand each hit to its siblings, return the union. Pure over an injected retrieval function, so tests need no Qdrant.
+- [x] 3.2 Test the guards: a tree smaller than `2 × top_k` is not narrowed; an empty retrieval result yields the full leaf set, never an empty list; every returned candidate belongs to the requested tree.
+- [x] 3.3 Call `build_tree_index` for the assigned tree at sync start and wire retrieval into `_categorize_pending`; log per run the tree size, average candidates per line, and the reduction percentage, so a bad `top_k` is visible.
+- [x] 3.4 Add a `CategorizationCache` model (key columns: normalized item text, `vendor_id`, `native_account_code`, `tree_hash`; value: `spend_category_id`, confidence, rationale) with an Alembic migration and a unique constraint on the key.
+- [x] 3.5 Add `tree_hash(candidates)` — order-independent, content-only over the candidate set actually offered — and test that adding, renaming or removing a node changes it while reordering does not.
+- [x] 3.6 Wire the cache into `categorize_line` behind the model call; test that a repeated line costs one model call, that a tree edit invalidates it, and that two companies with different trees never share an entry.
+- [x] 3.7 Confirm a cached result is indistinguishable on the line from a fresh one (same fields, same audit row) and that the sync still works with Qdrant stopped.
 
 ## 4. Phase 4 — the taxonomy and its gaps
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -33,6 +34,7 @@ from typing import Optional
 from sqlalchemy import or_
 from sqlmodel import Session, SQLModel, select
 
+from .. import config as ai_config
 from ..aggregation import engine as aggregation
 from web_api.connectors import get_connector
 from web_api.connectors.base import (
@@ -59,7 +61,7 @@ from web_api.db.models import (
     Vendor,
 )
 from web_api.db.models.enums import EXPENSE_ACCOUNT_TYPE
-from ..persistence import LineGroundTruth
+from ..persistence import CategorizationCache, LineGroundTruth
 from ..procurement_agent import recommender
 from ..redundancy import detector as redundancy
 from web_api.audit import (
@@ -74,7 +76,12 @@ from web_api.fx import CONVERTED, UNCHANGED, UNCONVERTED, FxService
 from web_api.integrations import connector_config as _connector_config
 from web_api.rollup import recompute_invoice_status
 from web_api.verified import clear_verified, is_verified
-from .categorizer import build_candidates_from_tree
+from .cache import question_key, question_sample, tree_hash
+from .categorizer import (
+    CategoryMatch,
+    build_candidates_from_retrieval,
+    build_candidates_from_tree,
+)
 from .llm_categorizer import CategorizerUnavailable, LineContext, categorize_line
 
 logger = logging.getLogger("ai_api.sync")
@@ -125,6 +132,40 @@ _WITHDRAWN_FIELDS = (
 #: may never have been enabled.
 _HUMAN_DESCRIPTION = "human"
 _ERP_DESCRIPTION = "erp"
+
+#: How many nodes retrieval fetches before sibling expansion. Small on purpose:
+#: the expansion is what widens the shortlist, and a large `top_k` on a broad
+#: tree pulls in whole branches that have nothing to do with the line.
+CATEGORY_RETRIEVAL_TOP_K = int(os.getenv("CATEGORY_RETRIEVAL_TOP_K", "5"))
+
+#: Per-process memo of candidate-set digests, keyed by object identity. Safe
+#: because a set is built fresh per line and never mutated, and the worst case of
+#: an id being reused is a recomputation, never a wrong hash — the value is only
+#: ever read back for the same live object.
+_HASH_MEMO: dict[int, str] = {}
+
+
+def _retrieve_for(company):
+    """A retrieval callable bound to this company's tree, or one that finds nothing.
+
+    Returning a no-op rather than `None` keeps the caller free of a branch: a
+    company with no tree never reaches here, and an unbuilt index is already
+    handled by `build_candidates_from_retrieval` degrading to the whole tree.
+
+    Imported lazily because `rag.indexer` pulls in Qdrant and sentence
+    transformers, and a sync that never narrows should not pay for either.
+    """
+    if company is None or company.spend_tree_id is None:
+        return lambda query, top_k: []
+    if not ai_config.CATEGORY_RETRIEVAL_ENABLED:
+        return lambda query, top_k: []
+
+    def retrieve(query: str, top_k: int):
+        from ..rag.indexer import retrieve_categories
+
+        return retrieve_categories(query, company.spend_tree_id, top_k=top_k)
+
+    return retrieve
 
 
 def _det_id(*parts: str) -> str:
@@ -928,6 +969,76 @@ def _tree_candidates(session: Session, company_id: str) -> list | None:
     return build_candidates_from_tree(nodes)
 
 
+def _hash_for(offered) -> str:
+    """The candidate set's digest, memoised per distinct set within a run.
+
+    A run categorizes many lines against the same set, and hashing a few hundred
+    node paths per line is real work for an answer that cannot have changed.
+    """
+    cached = _HASH_MEMO.get(id(offered))
+    if cached is None:
+        cached = tree_hash(offered)
+        _HASH_MEMO[id(offered)] = cached
+    return cached
+
+
+def _match_from_cache(row: CategorizationCache, offered: list) -> CategoryMatch:
+    """Rebuild an answer from a cached row, against the set it was given for.
+
+    Resolved through ``offered`` rather than trusted from the row: the pointer is
+    stored with no foreign key — one would make deleting a spend category fail on
+    a *cache* row, a customer's tree edit refused by an optimization — so a node
+    that has since gone resolves to nothing here and the line is simply left
+    uncategorized for the next run to answer afresh.
+    """
+    node = next((c for c in offered if c.node_id == row.spend_category_id), None)
+    if node is None:
+        raise CategorizerUnavailable(
+            "a cached answer names a category that is no longer offered"
+        )
+    return CategoryMatch(
+        matched=True,
+        spend_category_id=node.node_id,
+        account_code=node.code,
+        account_name=node.name,
+        level_1=node.level(0), level_2=node.level(1),
+        level_3=node.level(2), level_4=node.level(3),
+        confidence=row.confidence or 0.0,
+        rationale=row.rationale or "",
+        gt_level_1=None, gt_level_2=None, gt_level_3=None, gt_account_code=None,
+    )
+
+
+def _index_tree(session: Session, company_id: str) -> None:
+    """Embed the company's tree so retrieval has something to narrow against.
+
+    Best-effort and never fatal. Qdrant being down, absent, or out of disk is not
+    a reason to stop a ledger sync: without an index every line is simply offered
+    the whole leaf set, which is what happened before retrieval existed and is
+    exactly what `build_candidates_from_retrieval` degrades to.
+
+    `build_tree_index` is itself idempotent by node count, so this is a no-op on
+    every run after the first — and re-embeds after a node is added or removed,
+    which is when the index would otherwise go stale.
+    """
+    if not ai_config.CATEGORY_RETRIEVAL_ENABLED:
+        return
+    company = session.get(Company, company_id)
+    if company is None or company.spend_tree_id is None:
+        return
+    try:
+        from ..rag.indexer import build_tree_index
+
+        nodes = session.exec(
+            select(SpendCategory).where(
+                SpendCategory.spend_tree_id == company.spend_tree_id
+            )
+        ).all()
+        build_tree_index(list(nodes), company.spend_tree_id)
+    except Exception as exc:  # noqa: BLE001 - an index is an optimization
+        logger.warning("    could not index the spend tree (%s); offering it whole", exc)
+
+
 def _withdraw_voided_vouchers(
     session: Session, integration_id: str, voucher_ids: set[str]
 ) -> int:
@@ -1035,6 +1146,10 @@ def _categorize_pending(
     # earns its place: "VectorLab ApS" tells a model more than nothing.
     company = session.get(Company, company_id)
     buyer_name = company.name if company else None
+    # Narrowing is invisible when it works and invisible when it goes wrong, so
+    # what it removed is reported per run rather than inferred from a bad answer.
+    narrowed_total = 0
+    lines_seen = 0
 
     stats = {"categorized": 0, "failed": 0, "invoices_completed": 0, "invoices_failed": 0}
     for inv in invoices:
@@ -1055,6 +1170,31 @@ def _categorize_pending(
                     (vendor.name, vendor.description) if vendor else ("", None)
                 )
             vendor_name, vendor_description = vendors.get(inv.vendor_id or "", ("", None))
+            # Narrow the tree to the neighbourhood of a plausible answer. A
+            # no-op below `2 * top_k` leaves, and it degrades to the whole tree
+            # whenever retrieval finds nothing or cannot be reached — never to a
+            # shorter list the model then has to answer from.
+            offered = build_candidates_from_retrieval(
+                " ".join(part for part in (ln.item_name, ln.description) if part),
+                candidates,
+                _retrieve_for(company),
+                top_k=CATEGORY_RETRIEVAL_TOP_K,
+            )
+            narrowed_total += len(candidates) - len(offered)
+            lines_seen += 1
+
+            supplier_name = vendor_name or (inv.supplier_name if inv else None)
+            key = question_key(
+                ln.item_name, ln.description, supplier_name, ln.native_account_code,
+                vendor_description,
+            )
+            offered_hash = _hash_for(offered)
+            cached = session.exec(
+                select(CategorizationCache).where(
+                    CategorizationCache.question_key == key,
+                    CategorizationCache.tree_hash == offered_hash,
+                )
+            ).first()
             context = LineContext(
                 # Both, separately. `item_name` is the field that is nearly
                 # always set — reading only `description` here is what left the
@@ -1072,7 +1212,11 @@ def _categorize_pending(
                 currency=inv.currency,
             )
             try:
-                match = categorize_line(context, candidates)
+                match = (
+                    _match_from_cache(cached, offered)
+                    if cached is not None
+                    else categorize_line(context, offered)
+                )
             except CategorizerUnavailable as exc:
                 # Not this line's failure. Left `uncategorized`, it is picked up
                 # by the next run; marked `ai_failed` it would need an explicit
@@ -1116,6 +1260,18 @@ def _categorize_pending(
                 ln.status = LineStatus.AI_CATEGORIZED
                 ln.error_message = None
                 stats["categorized"] += 1
+                if cached is None:
+                    stats["cache_misses"] = stats.get("cache_misses", 0) + 1
+                    session.add(CategorizationCache(
+                        question_key=key, tree_hash=offered_hash,
+                        spend_category_id=match.spend_category_id,
+                        confidence=match.confidence, rationale=match.rationale,
+                        question_sample=question_sample(
+                            ln.item_name, supplier_name, ln.native_account_code
+                        ),
+                    ))
+                else:
+                    stats["cache_hits"] = stats.get("cache_hits", 0) + 1
             else:
                 ln.rationale = match.rationale
                 ln.status = LineStatus.AI_FAILED
@@ -1140,6 +1296,23 @@ def _categorize_pending(
             stats["invoices_failed"] += 1
         else:
             stats["invoices_completed"] += 1
+
+    # What narrowing actually removed, per run. Logged rather than inferred: a
+    # shortlist that excluded the right answer produces a wrong category with a
+    # confident rationale, and nothing in the result distinguishes that from the
+    # model simply being wrong. A reduction near 0% means retrieval is not
+    # engaging; one near 100% means `top_k` is starving the prompt.
+    if lines_seen:
+        tree_size = len(candidates)
+        average = narrowed_total / lines_seen
+        logger.info(
+            "    candidates: tree=%d avg_offered=%.1f avg_reduction=%.0f%% lines=%d",
+            tree_size,
+            tree_size - average,
+            100.0 * average / tree_size if tree_size else 0.0,
+            lines_seen,
+        )
+
     session.commit()
     return stats
 
@@ -1305,6 +1478,7 @@ def _sync_one(
         # 3. Categorize
         logger.info("  [3/6] Categorizing pending invoice lines…")
         candidates = _tree_candidates(session, company_id)
+        _index_tree(session, company_id)
         categorization_skipped = None
         if candidates is None:
             # No taxonomy the customer chose ⇒ no categorization. The ledger
