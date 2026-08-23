@@ -63,7 +63,12 @@ export const ComboboxInput = React.forwardRef<HTMLInputElement, ComboboxInputPro
   ({ className, startAdornment, hideIcon = false, ...props }, ref) => (
     <span className={cn('relative block', className)}>
       {startAdornment ? (
-        <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2">
+        // `flex` rather than a bare span: an adornment like `CountryFlag` is
+        // `inline-grid`, so it sits on a text baseline and this wrapper's height
+        // becomes the whole line box — descender space included. Centring *that*
+        // left the flag a couple of pixels high. Flex blockifies the child, so
+        // the wrapper is exactly the mark's height and the centring is true.
+        <span className="pointer-events-none absolute top-1/2 left-3 flex -translate-y-1/2 items-center">
           {startAdornment}
         </span>
       ) : null}
