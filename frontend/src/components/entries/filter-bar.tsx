@@ -88,6 +88,10 @@ const STATUSES = ['pending', 'posted', 'synced', 'failed'] as const
  * the option that clears it carries this sentinel.
  */
 const ALL = '__all__'
+//: The one non-default confidence state. A "confident only" option would be a
+//: filter for admiring the categorizer's work rather than for doing any.
+const REVIEW = 'needs_review'
+const REVIEW_OPTIONS = [{ value: REVIEW, label: 'Needs review' }]
 
 /** Statuses as a reader sees them, not as the column stores them. */
 const STATUS_OPTIONS = STATUSES.map((value) => ({ value, label: humanizeKey(value) }))
@@ -122,7 +126,10 @@ export function FilterBar({
 
   // `page` is not a filter; it should not light up the clear control.
   const active = (
-    ['company_id', 'entry_type', 'status', 'vendor_id', 'origin', 'from', 'to'] as const
+    [
+      'company_id', 'entry_type', 'status', 'vendor_id', 'origin',
+      'needs_review', 'from', 'to',
+    ] as const
   ).some(
     (key) => filters[key] !== undefined,
   )
@@ -249,6 +256,27 @@ export function FilterBar({
                 {option.label}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+      </label>
+
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">Confidence</span>
+        {/* The backlog the categorizer creates now that it always answers rather
+            than declining. Doubt arrives as a low confidence instead of as a
+            failure, which is only an improvement if it is selectable. */}
+        <Select
+          value={filters.needs_review === true ? REVIEW : ''}
+          onValueChange={(next: string | null) =>
+            onChange({ needs_review: next === REVIEW ? true : undefined })
+          }
+        >
+          <SelectTrigger className={CONTROL}>
+            <SelectValue placeholder="Any confidence" items={REVIEW_OPTIONS} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>Any confidence</SelectItem>
+            <SelectItem value={REVIEW}>Needs review</SelectItem>
           </SelectContent>
         </Select>
       </label>

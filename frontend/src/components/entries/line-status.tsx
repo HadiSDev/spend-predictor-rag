@@ -22,6 +22,13 @@ export const LINE_STATUS_LABEL: Record<string, string> = {
  * `uncategorized` is a backlog and `verified` is the goal, so tinting either as
  * an error would flag most of the ledger — the same reasoning that keeps the
  * provenance mark off ordinary lines.
+ *
+ * It stayed `destructive` when the model stopped being allowed to decline, and
+ * that is the point of the change: `ai_failed` now only ever means the model
+ * answered with a category we never offered, which really is a fault. It used to
+ * also mean "the model looked and nothing fitted", which is not one, and dressing
+ * that in red told a reviewer the software was broken when the taxonomy was
+ * merely incomplete.
  */
 export function lineStatusVariant(
   status: string,
@@ -59,8 +66,14 @@ export function LineStatusBadge({ line }: LineStatusBadgeProps) {
         // here, the taxonomy moved.
         <Badge variant="warning">
           <AlertTriangle className="mr-1 size-3" aria-hidden />
-          Needs review
+          Unresolved category
         </Badge>
+      ) : null}
+      {line.needs_review ? (
+        // Named for its cause, not for the work it implies. "Needs review" would
+        // be true of a stale line too, and a reviewer seeing the same words on
+        // two different problems learns nothing from either.
+        <Badge variant="warning">Low confidence</Badge>
       ) : null}
     </span>
   )

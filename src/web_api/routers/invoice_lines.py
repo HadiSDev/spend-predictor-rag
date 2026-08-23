@@ -18,6 +18,7 @@ from web_api.db.models import (
     LineStatus,
     SpendCategory,
 )
+from .. import config
 from ..audit import (
     LINE_AUDIT_FIELDS,
     LINE_BASE_FX_FIELDS,
@@ -91,6 +92,7 @@ def list_invoice_lines(
     voucher_id: str | None = Query(default=None),
     origin: str | None = Query(default=None),
     stale: bool | None = Query(default=None),
+    needs_review: bool | None = Query(default=None),
     date_from: date | None = Query(default=None, alias="from"),
     date_to: date | None = Query(default=None, alias="to"),
     page: int = Query(default=1, ge=1),
@@ -126,6 +128,23 @@ def list_invoice_lines(
         decided = or_(InvoiceLine.level_1.is_not(None), InvoiceLine.level_2.is_not(None))
         unresolved = InvoiceLine.spend_category_id.is_(None)
         conditions.append(and_(decided, unresolved) if stale else ~and_(decided, unresolved))
+    if needs_review is not None:
+        # The same predicate `InvoiceLineRead.needs_review` derives. Since the
+        # model must now return a category rather than declining, this is where
+        # the doubt goes: a low confidence is the signal that a human should
+        # look, and without a filter it is a number on a row nobody sorts by.
+        #
+        # `verified` is excluded whatever its confidence — a person has already
+        # looked, which is the whole question. `uncategorized` and `ai_failed`
+        # are excluded because they are separate backlogs with their own filter.
+        doubtful = and_(
+            InvoiceLine.status == "ai_categorized",
+            or_(
+                InvoiceLine.confidence.is_(None),
+                InvoiceLine.confidence < config.CATEGORIZATION_REVIEW_THRESHOLD,
+            ),
+        )
+        conditions.append(doubtful if needs_review else ~doubtful)
 
     # Resolved as subqueries on `invoice_id` rather than as joins: a join would
     # multiply a line by its invoice's postings and a voucher filter would then

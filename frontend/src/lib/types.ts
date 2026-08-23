@@ -505,6 +505,15 @@ export interface EntryFilters {
   vendor_id?: string
   /** Line provenance — finds the spend still standing on its postings. */
   origin?: LineOrigin
+  /**
+   * Only vouchers holding at least one line the AI was not confident about.
+   *
+   * Resolved server-side through the *invoice*, not through a posting's own line
+   * link: most postings carry none — input VAT, the payable and every journal
+   * entry belong to a voucher rather than to a line — so a line-linked filter
+   * would hide a doubtful line from the very voucher that displays it.
+   */
+  needs_review?: boolean
   from?: string
   to?: string
   page?: number
@@ -612,6 +621,17 @@ export interface InvoiceLineRead {
    * moved.
    */
   category_stale: boolean
+  /**
+   * The AI categorized this line but was not confident enough for nobody to
+   * look. Server-computed against a platform threshold, never stored, so
+   * raising the threshold moves history without rewriting a row.
+   *
+   * Distinct from `category_stale`, which is also review work but for the
+   * opposite reason: there, a decision was made and the taxonomy moved out from
+   * under it; here, the decision itself is shaky. And distinct from `ai_failed`,
+   * which is a fault — the model named a category that was never offered.
+   */
+  needs_review: boolean
   /** Which of this line's fields a human has settled. A sync refreshes
    *  everything else from the ERP and leaves these alone. */
   verified_fields: Array<string>

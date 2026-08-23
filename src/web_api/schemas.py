@@ -7,6 +7,8 @@ from typing import Annotated, Generic, Literal, TypeVar
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
+from . import config
+
 T = TypeVar("T")
 
 
@@ -316,6 +318,17 @@ class InvoiceLineRead(BaseModel):
     # prevent. Derived in `_derive_category_stale` below rather than by each
     # router, so the four places that build this payload cannot disagree.
     category_stale: bool = False
+    # True when the AI categorized this line but was not confident enough for
+    # nobody to look. Computed on read against the current threshold, for the
+    # same reason `category_stale` is: the threshold is a tunable judgement, and
+    # a stored flag would be a snapshot of a setting rather than a fact about the
+    # line — silently wrong for every historical row the moment it moved.
+    #
+    # Only `ai_categorized` qualifies. A `verified` line has already had the
+    # human attention this asks for, whatever its confidence was; `uncategorized`
+    # and `ai_failed` are their own backlogs, already filterable by `status`, and
+    # folding them in would make one flag mean three kinds of work.
+    needs_review: bool = False
 
     @model_validator(mode="after")
     def _derive_category_stale(self) -> "InvoiceLineRead":
@@ -333,6 +346,18 @@ class InvoiceLineRead(BaseModel):
         decided = self.level_1 is not None or self.level_2 is not None
         object.__setattr__(
             self, "category_stale", decided and self.spend_category_id is None
+        )
+        # A missing confidence counts as needing review rather than as certainty.
+        # Every AI result carries one now, so a null means the line predates that
+        # or something went wrong — either way not a reason to skip it.
+        object.__setattr__(
+            self,
+            "needs_review",
+            self.status == "ai_categorized"
+            and (
+                self.confidence is None
+                or float(self.confidence) < config.CATEGORIZATION_REVIEW_THRESHOLD
+            ),
         )
         return self
 

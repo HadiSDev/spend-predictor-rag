@@ -33,6 +33,7 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     rationale: null,
     spend_category_id: null,
     category_stale: false,
+    needs_review: false,
     verified_fields: [],
     ...overrides,
   }
@@ -113,12 +114,41 @@ describe('LineStatusBadge', () => {
     )
 
     expect(screen.getByText(/Verified/i)).toBeTruthy()
-    expect(screen.getByText(/Needs review/i)).toBeTruthy()
+    expect(screen.getByText(/Unresolved category/i)).toBeTruthy()
   })
 
   it('does not mark a line that still resolves', () => {
     render(<LineStatusBadge line={line({ status: 'verified', category_stale: false })} />)
 
-    expect(screen.queryByText(/Needs review/i)).toBeNull()
+    expect(screen.queryByText(/Unresolved category/i)).toBeNull()
+  })
+})
+
+describe('low confidence', () => {
+  it('marks a line the AI was unsure about', () => {
+    render(<LineStatusBadge line={line({ status: 'ai_categorized', needs_review: true })} />)
+
+    expect(screen.getByText('Low confidence')).toBeTruthy()
+  })
+
+  it('says nothing about a confident line', () => {
+    render(<LineStatusBadge line={line({ status: 'ai_categorized', needs_review: false })} />)
+
+    expect(screen.queryByText('Low confidence')).toBeNull()
+  })
+
+  it('names its own cause rather than the work it implies', () => {
+    // Both a stale category and a shaky one are review work. Labelling them
+    // identically would tell a reviewer nothing about which they were looking
+    // at, and the remedies are different: one needs a tree fix, one needs a
+    // judgement.
+    render(
+      <LineStatusBadge
+        line={line({ status: 'ai_categorized', needs_review: true, category_stale: true })}
+      />,
+    )
+
+    expect(screen.getByText('Low confidence')).toBeTruthy()
+    expect(screen.getByText('Unresolved category')).toBeTruthy()
   })
 })

@@ -17,9 +17,9 @@
 - [x] 2.5 Add `ai_api/enrichment/` — a stage that finds vendors with no description, calls `web_context.get_buyer_context`-style summarization once per vendor, and writes `description` + `description_source='web'`. Guard behind `VENDOR_ENRICHMENT_ENABLED` (default false); add it to `.env.example`.
 - [x] 2.6 Add a runnable entry point (`python -m ai_api.enrichment.runner`, with `--company-id` / `--limit`) and tests that cover: off by default makes no request; a failed lookup writes nothing and raises nothing; an already-described vendor is skipped.
 - [x] 2.7 Carry the supplier description and the buying company's name/description into `LineContext` and the prompt; test that both appear.
-- [ ] 2.8 Add `CATEGORIZATION_REVIEW_THRESHOLD` config (provisional 0.6) and a `needs_review` computed property on the line payload in `web_api/schemas.py`; test it follows the threshold and is never stored.
-- [ ] 2.9 Add the `needs_review` filter to `GET /invoice-lines`, excluding `verified`, `uncategorized` and `ai_failed`; test it composes with `company_id` and the date range and paginates.
-- [ ] 2.10 Update the frontend line badge so a low-confidence `ai_categorized` line reads as needing review rather than as a failure, and `ai_failed` reads as a genuine fault. Add the filter to the Entries filter bar.
+- [x] 2.8 Add `CATEGORIZATION_REVIEW_THRESHOLD` config (provisional 0.6) and a `needs_review` computed property on the line payload in `web_api/schemas.py`; test it follows the threshold and is never stored.
+- [x] 2.9 Add the `needs_review` filter to `GET /invoice-lines`, excluding `verified`, `uncategorized` and `ai_failed`; test it composes with `company_id` and the date range and paginates.
+- [x] 2.10 Update the frontend line badge so a low-confidence `ai_categorized` line reads as needing review rather than as a failure, and `ai_failed` reads as a genuine fault. Add the filter to the Entries filter bar.
 
 ## 3. Phase 3 — retrieval and cache
 

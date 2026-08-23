@@ -85,3 +85,17 @@ CLERK_API_BASE_URL = os.getenv("CLERK_API_BASE_URL", "https://api.clerk.com/v1")
 WEB_API_CLERK_OUTBOUND_DISABLED = os.getenv(
     "WEB_API_CLERK_OUTBOUND_DISABLED", "true"
 ).lower() in ("1", "true", "yes")
+
+# Below this confidence, an AI categorization is treated as needing a human's
+# eye. Configuration and not a column, the same discipline `category_stale`
+# follows: it is a judgement about how much doubt is tolerable, it will be tuned
+# once there is a confidence distribution worth tuning against, and every
+# historical line has to move when it is. A stored flag would be a snapshot of
+# the setting rather than a fact about the line.
+#
+# 0.6 is provisional. It is deliberately not derived from live data yet: every
+# confidence currently on record was produced by a categorizer that could not see
+# the lines it was scoring.
+CATEGORIZATION_REVIEW_THRESHOLD = float(
+    os.getenv("CATEGORIZATION_REVIEW_THRESHOLD", "0.6")
+)

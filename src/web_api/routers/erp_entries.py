@@ -12,11 +12,12 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import String, func, literal, nulls_last
+from sqlalchemy import String, func, literal, nulls_last, or_
 from sqlmodel import Session, select
 
 from web_api.db.models import AuditLog, ErpAccount, ErpEntry, File, Invoice, InvoiceLine, Vendor
 from web_api.db.models.enums import EXPENSE_ACCOUNT_TYPE
+from .. import config
 from ..deps import TenantScope, get_session, resolve_company_ids, tenant_scope
 from ..schemas import (
     AuditLogRead,
@@ -153,6 +154,7 @@ def _entry_conditions(
     date_from: date | None = None,
     date_to: date | None = None,
     vendor_id: str | None = None,
+    needs_review: bool | None = None,
 ) -> list:
     """The WHERE clause shared by every entry listing. Filters compose (AND).
 
@@ -203,6 +205,31 @@ def _entry_conditions(
             ErpEntry.source_invoice_id.in_(
                 select(Invoice.id).where(Invoice.vendor_id == vendor_id)
             )
+        )
+    if needs_review is not None:
+        # Resolved through the *invoice*, not through `source_invoice_line_id`.
+        #
+        # The page shows a voucher and expands it into the whole invoice's lines,
+        # so "this voucher has something to review" is a statement about the
+        # invoice. Going by the posting's own line would hide a doubtful line
+        # from the very voucher that displays it, since most postings carry no
+        # line link at all — input VAT, the payable and every journal entry
+        # belong to a voucher rather than to a line.
+        doubtful_invoices = select(InvoiceLine.invoice_id).where(
+            InvoiceLine.status == "ai_categorized",
+            or_(
+                InvoiceLine.confidence.is_(None),
+                InvoiceLine.confidence < config.CATEGORIZATION_REVIEW_THRESHOLD,
+            ),
+        )
+        holds_one = ErpEntry.source_invoice_id.in_(doubtful_invoices)
+        # An unlinked posting is *not* review work when asking for it, and is
+        # ordinary work when asking for the complement — `NOT IN` over a NULL
+        # column yields NULL and would drop those rows from both answers.
+        conditions.append(
+            holds_one
+            if needs_review
+            else or_(~holds_one, ErpEntry.source_invoice_id.is_(None))
         )
     return conditions
 
@@ -277,6 +304,7 @@ def list_voucher_groups(
     date_from: date | None = Query(default=None, alias="from"),
     date_to: date | None = Query(default=None, alias="to"),
     vendor_id: str | None = Query(default=None),
+    needs_review: bool | None = Query(default=None),
     currency_mode: CurrencyMode = Query(default="base"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
@@ -301,6 +329,7 @@ def list_voucher_groups(
         date_from=date_from,
         date_to=date_to,
         vendor_id=vendor_id,
+        needs_review=needs_review,
     )
 
     # Query 1 — the page of groups. Only the ordering aggregate is selected;

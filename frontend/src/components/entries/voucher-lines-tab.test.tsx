@@ -51,6 +51,7 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     spend_category_id: 'cat-chairs',
     level_4: null,
     category_stale: false,
+    needs_review: false,
     verified_fields: [],
     ...overrides,
   }
@@ -231,7 +232,7 @@ describe('VoucherLinesTab', () => {
     expect(screen.getByText(/matched on "chair"/i)).toBeTruthy()
   })
 
-  it('marks a line whose category no longer resolves as needing review', () => {
+  it('marks a line whose category no longer resolves', () => {
     render(
       <VoucherLinesTab
         {...writes()}
@@ -244,7 +245,7 @@ describe('VoucherLinesTab', () => {
         spendTreeNodes={TREE_NODES}
       />,
     )
-    expect(screen.getByText(/needs review/i)).toBeTruthy()
+    expect(screen.getByText(/unresolved category/i)).toBeTruthy()
     // Distinct from a failure: nothing failed, the taxonomy moved.
     expect(screen.queryByText(/categorization failed/i)).toBeNull()
     // The previous decision stays visible — it is the reviewer's only clue.

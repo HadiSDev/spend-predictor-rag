@@ -38,6 +38,7 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     spend_category_id: 'cat-chairs',
     level_4: null,
     category_stale: false,
+    needs_review: false,
     verified_fields: [],
     ...overrides,
   }
