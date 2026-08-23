@@ -10,9 +10,9 @@
  * which is a different question from where a company is registered. The link
  * between the two is `currencyForCountry`, which lives there.
  *
- * Only 31 of these have a flag under `assets/flags` — the currency-issuing ones.
- * `CountryFlag` falls back to a lettered chip for the rest, which is why adding
- * the full list costs no artwork.
+ * Nearly all of these have artwork, from `country-flag-icons`. `CountryFlag`
+ * falls back to a lettered chip for the handful that do not, which is why
+ * adding the full list costs no artwork.
  */
 export interface Country {
   /** ISO 3166-1 alpha-2, uppercase. */

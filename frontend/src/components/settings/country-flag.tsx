@@ -8,18 +8,25 @@ import { cn } from '#/components/ui'
  * here range from 2:3 to 1:2, so a circle is what makes thirty-one of them read
  * as one set at 20px instead of thirty-one differently-shaped stickers.
  *
- * The artwork is vendored under `src/assets/flags` (see the README there), and
- * covers only the currency-issuing countries. The country list is all 249 of
- * them, so the lettered fallback below is the common case there, not the edge
- * case — it has to look deliberate, because most rows use it.
+ * The artwork comes from `country-flag-icons` (MIT): 265 flags, ISO 3166-1 plus
+ * `EU`, so every currency the picker offers can show one. It replaced 31
+ * hand-vendored files, six of which were broken — the vendoring pass stripped
+ * ids, and `cn`, `eu`, `hk`, `in`, `kr` and `nz` place their stars and emblems
+ * through `<use xlink:href="#…">`, so those references dangled and the flags
+ * painted as bare fields of colour. A maintained package cannot rot that way,
+ * and adding a currency no longer means drawing anything.
+ *
+ * The **1x1** set, not 3x2: these render as circles, and a square source loses
+ * far less to the crop than a 3:2 one.
  *
  * Emoji flags were the obvious route and are the wrong one: Windows ships no
  * flag glyphs, so Chrome and Edge there render 🇩🇰 as two boxed capitals.
  */
 
-// Resolved at build time, so a missing flag is a build-visible gap rather than
-// a broken image at runtime.
-const FLAGS = import.meta.glob('../../assets/flags/*.svg', {
+// As URLs, so Vite emits one asset per flag and the browser fetches only the
+// ones actually shown. Inlining all 265 as strings would put ~500 KB of
+// decorative SVG in the bundle to render one 20px coin.
+const FLAGS = import.meta.glob('/node_modules/country-flag-icons/1x1/*.svg', {
   eager: true,
   import: 'default',
   query: '?url',
