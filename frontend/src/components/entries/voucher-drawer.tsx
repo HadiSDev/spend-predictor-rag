@@ -299,7 +299,20 @@ export function VoucherDrawer({
                       <TabsTab value="postings">Postings</TabsTab>
                       <TabsTab value="activity">Activity</TabsTab>
                     </TabsList>
-                    <div className="min-h-0 flex-1 overflow-y-auto">
+                    {/*
+                      `overflow-y-auto` makes `overflow-x` compute to `auto`
+                      rather than `visible`, so this clips horizontally as well
+                      as vertically. Every field inside is `w-full` with a
+                      `focus-visible:ring-2`, and a ring paints *outside* the
+                      border box — so a focused input at either edge had its
+                      ring sliced off, and the last field sat flush against the
+                      bottom with its shadow cut.
+
+                      The negative margin and matching padding cancel out: the
+                      content stays exactly where it was relative to the
+                      drawer's own `p-6`, and only the clip boundary moves out.
+                    */}
+                    <div className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
                       {invoice ? (
                         <TabsPanel value="lines" className="ep-tab-fade">
                           <VoucherLinesTab
