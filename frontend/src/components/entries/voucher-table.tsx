@@ -258,9 +258,26 @@ function LineHeaderRow() {
 }
 
 /**
+ * What to call a line: its name, else its prose, else an explicit mark.
+ *
+ * The name is what the line *is*, and every line is expected to carry one. The
+ * description is prose a supplier printed sometimes, and stands in only when
+ * there is no name — a line predating the split, or one the model could not
+ * name. Neither becomes an empty cell: a blank tells a reader nothing about
+ * whether the document was silent or the extraction failed.
+ */
+function LineLabel({ line }: { line: InvoiceLineRead }) {
+  const label = line.item_name ?? line.description
+  if (label === null || label === '') {
+    return <span className="text-muted-foreground">Unnamed line</span>
+  }
+  return <>{label}</>
+}
+
+/**
  * One invoice line — what was bought, not how it was posted.
  *
- * The whole row opens the panel, not just the description. A reader pressing a
+ * The whole row opens the panel, not just the label. A reader pressing a
  * row of a table expects the thing the row describes to open, and the
  * description is a short target in a row eight columns wide — press anywhere
  * else and nothing happened at all. The button inside stays, because a row is
@@ -282,7 +299,7 @@ function LineRow({ line, onSelect }: { line: InvoiceLineRead; onSelect: () => vo
           }}
           className="text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {line.description ?? <span className="text-muted-foreground">—</span>}
+          <LineLabel line={line} />
         </button>{' '}
         <ProvenanceMark origin={line.origin} />
       </TableCell>
@@ -466,6 +483,9 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
                           voucher: group.voucher_id ?? undefined,
                           entry: postings[0]?.id,
                           tab: 'lines',
+                          // Which line, so the panel opens on the row that was
+                          // activated rather than on the invoice's first.
+                          line: line.id,
                         })
                       }
                     />

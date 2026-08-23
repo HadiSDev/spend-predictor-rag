@@ -44,6 +44,10 @@ export interface LineEditorProps {
    *  separate call from `onVerify`: the category is resolved against the
    *  company's tree, these are values read off a document. */
   onUpdate: (lineId: string, changes: InvoiceLineUpdate) => Promise<void>
+  /** Reported up so a pager can guard leaving a line mid-edit. Fires with the
+   *  *parsed* dirtiness, so a formatter tidying `1234.50000` into `1,234.50` on
+   *  mount is not mistaken for an edit. */
+  onDirtyChange?: (dirty: boolean) => void
   /** Delete the line (`DELETE /invoice-lines/{id}`). Omit to hide the control. */
   onDelete?: (lineId: string) => Promise<void>
 }
@@ -133,6 +137,7 @@ export function LineEditor({
   onVerify,
   onUpdate,
   onDelete,
+  onDirtyChange,
 }: LineEditorProps) {
   // Recomputed from the line every render, so a fresh server value (after a
   // save) is picked up without a synchronizing effect — only `chosen` below is
@@ -153,6 +158,16 @@ export function LineEditor({
   const valuesDirty = [...LINE_TEXT_FIELDS, ...LINE_NUMBER_FIELDS].some(
     (f) => values[f] !== savedValues[f],
   )
+
+  // Reported up so the pager can guard a step away from unsaved work, and
+  // cleared on unmount so an abandoned edit leaves no stale flag for the next
+  // line shown. A *category* choice is deliberately not included: it is saved
+  // by its own button and survives nothing, so prompting about it would fire on
+  // a selection the reviewer has already seen land.
+  React.useEffect(() => {
+    onDirtyChange?.(valuesDirty)
+    return () => onDirtyChange?.(false)
+  }, [valuesDirty, onDirtyChange])
 
   function setValue<K extends keyof LineValues>(field: K, value: LineValues[K]) {
     setValues((current) => ({ ...current, [field]: value }))

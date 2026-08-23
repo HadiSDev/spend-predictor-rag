@@ -258,7 +258,10 @@ describe('VoucherLinesTab', () => {
     expect(screen.getByText(/matched on "chair"/i)).toBeTruthy()
   })
 
-  it('renders every line, each with its own editor', () => {
+  it('mounts one line at a time, not every line at once', () => {
+    // Not merely *shows* one: a hidden sibling keeps its inputs focusable and
+    // its unsaved state alive, so Tab walks into an invisible line's amount
+    // field and "does this card have unsaved work?" stops having one answer.
     render(
       <VoucherLinesTab
         {...writes()}
@@ -271,8 +274,10 @@ describe('VoucherLinesTab', () => {
         spendTreeNodes={TREE_NODES}
       />,
     )
-    expect(screen.getAllByRole('button', { name: /^accept category$/i })).toHaveLength(2)
-    expect(screen.getByText('Standing desk')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: /^accept category$/i })).toHaveLength(1)
+    expect(screen.getByText('1 of 2')).toBeTruthy()
+    // The second line is not in the document at all until it is paged to.
+    expect(screen.queryByText('Standing desk')).toBeNull()
   })
 })
 
@@ -336,6 +341,238 @@ describe('VoucherLinesTab — correcting a line', () => {
     expect(screen.queryByRole('button', { name: /^save line$/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /add line/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /^delete line/i })).toBeNull()
+  })
+})
+
+describe('VoucherLinesTab — paging', () => {
+  /** Three lines, deliberately out of sequence order in the array. */
+  const threeLines = () =>
+    invoice({
+      lines: [
+        line({ id: 'l3', item_name: 'Third', sequence: 2 }),
+        line({ id: 'l1', item_name: 'First', sequence: 0 }),
+        line({ id: 'l2', item_name: 'Second', sequence: 1 }),
+      ],
+    })
+
+  const paged = (overrides = {}) => (
+    <VoucherLinesTab
+      {...writes()}
+      invoice={threeLines()}
+      onVerifyLine={vi.fn()}
+      spendTreeNodes={TREE_NODES}
+      {...overrides}
+    />
+  )
+
+  it('opens on the first line and states the position', () => {
+    render(paged())
+
+    expect(screen.getByText('1 of 3')).toBeTruthy()
+    expect(screen.getByDisplayValue('First')).toBeTruthy()
+  })
+
+  it('orders by the sequence the source stated, not by row id', () => {
+    // The row id is a random UUID, so ordering by it scrambles a document —
+    // invisible while every line was on screen, and wrong the moment "next"
+    // has to mean something.
+    render(paged())
+
+    fireEvent.click(screen.getByRole('button', { name: /next line/i }))
+    expect(screen.getByDisplayValue('Second')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /next line/i }))
+    expect(screen.getByDisplayValue('Third')).toBeTruthy()
+  })
+
+  it('steps back as well as forward', () => {
+    render(paged())
+
+    fireEvent.click(screen.getByRole('button', { name: /next line/i }))
+    fireEvent.click(screen.getByRole('button', { name: /previous line/i }))
+
+    expect(screen.getByText('1 of 3')).toBeTruthy()
+    expect(screen.getByDisplayValue('First')).toBeTruthy()
+  })
+
+  it('stops at the ends rather than wrapping', () => {
+    // Wrapping from the last line to the first is indistinguishable from having
+    // made no progress, so a reviewer cannot tell when they have finished.
+    render(paged())
+
+    expect(screen.getByRole('button', { name: /previous line/i })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: /next line/i })).toHaveProperty('disabled', false)
+
+    fireEvent.click(screen.getByRole('button', { name: /next line/i }))
+    fireEvent.click(screen.getByRole('button', { name: /next line/i }))
+
+    expect(screen.getByText('3 of 3')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /next line/i })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: /previous line/i })).toHaveProperty('disabled', false)
+  })
+
+  it('offers no navigation on a single-line invoice', () => {
+    render(paged({ invoice: invoice({ lines: [line({ id: 'only', item_name: 'Only' })] }) }))
+
+    expect(screen.getByText('1 of 1')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /previous line/i })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: /next line/i })).toHaveProperty('disabled', true)
+  })
+
+  it('opens on the line the reader activated, not on the first', () => {
+    render(paged({ initialLineId: 'l3' }))
+
+    expect(screen.getByText('3 of 3')).toBeTruthy()
+    expect(screen.getByDisplayValue('Third')).toBeTruthy()
+  })
+
+  it('ignores a line id belonging to another invoice', () => {
+    render(paged({ initialLineId: 'not-on-this-invoice' }))
+
+    expect(screen.getByText('1 of 3')).toBeTruthy()
+  })
+
+  it('shows the empty state with no navigation when there are no lines', () => {
+    render(paged({ invoice: invoice({ lines: [] }) }))
+
+    expect(screen.getByText(/no lines on this invoice/i)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /next line/i })).toBeNull()
+    expect(screen.queryByText(/ of /)).toBeNull()
+  })
+})
+
+describe('VoucherLinesTab — paging and the keyboard', () => {
+  const threeLines = () =>
+    invoice({
+      lines: [
+        line({ id: 'l1', item_name: 'First', sequence: 0 }),
+        line({ id: 'l2', item_name: 'Second', sequence: 1 }),
+      ],
+    })
+
+  it('pages on arrow keys when focus is not in a field', () => {
+    const { container } = render(
+      <VoucherLinesTab
+        {...writes()}
+        invoice={threeLines()}
+        onVerifyLine={vi.fn()}
+        spendTreeNodes={TREE_NODES}
+      />,
+    )
+
+    fireEvent.keyDown(container.firstChild as HTMLElement, { key: 'ArrowRight' })
+    expect(screen.getByText('2 of 2')).toBeTruthy()
+
+    fireEvent.keyDown(container.firstChild as HTMLElement, { key: 'ArrowLeft' })
+    expect(screen.getByText('1 of 2')).toBeTruthy()
+  })
+
+  it('leaves arrow keys alone inside a text field', () => {
+    // Stealing them here would make every numeric field impossible to edit:
+    // an arrow inside an input already means "move the caret".
+    render(
+      <VoucherLinesTab
+        {...writes()}
+        invoice={threeLines()}
+        onVerifyLine={vi.fn()}
+        spendTreeNodes={TREE_NODES}
+      />,
+    )
+
+    fireEvent.keyDown(screen.getByLabelText(/^item name$/i), { key: 'ArrowRight' })
+
+    expect(screen.getByText('1 of 2')).toBeTruthy()
+  })
+
+  it('names its navigation controls', () => {
+    render(
+      <VoucherLinesTab
+        {...writes()}
+        invoice={threeLines()}
+        onVerifyLine={vi.fn()}
+        spendTreeNodes={TREE_NODES}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /previous line/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /next line/i })).toBeTruthy()
+  })
+})
+
+describe('VoucherLinesTab — paging away from unsaved work', () => {
+  const twoLines = () =>
+    invoice({
+      lines: [
+        line({ id: 'l1', item_name: 'First', sequence: 0 }),
+        line({ id: 'l2', item_name: 'Second', sequence: 1 }),
+      ],
+    })
+
+  const render2 = () =>
+    render(
+      <VoucherLinesTab
+        {...writes()}
+        invoice={twoLines()}
+        onVerifyLine={vi.fn()}
+        spendTreeNodes={TREE_NODES}
+      />,
+    )
+
+  it('pages straight away when nothing is edited', () => {
+    // A confirmation on every step would make paging a ten-line invoice ten
+    // dialogs, which is worse than the problem it guards against.
+    render2()
+
+    fireEvent.click(screen.getByRole('button', { name: /next line/i }))
+
+    expect(screen.getByText('2 of 2')).toBeTruthy()
+    expect(screen.queryByText(/unsaved changes/i)).toBeNull()
+  })
+
+  it('asks before discarding an edit', () => {
+    render2()
+
+    fireEvent.change(screen.getByLabelText(/^item name$/i), { target: { value: 'Edited' } })
+    fireEvent.click(screen.getByRole('button', { name: /next line/i }))
+
+    expect(screen.getByText(/unsaved changes/i)).toBeTruthy()
+    // Still on the same line — the step has not happened.
+    expect(screen.getByText('1 of 2')).toBeTruthy()
+  })
+
+  it('keeps the edit when the reviewer declines', () => {
+    render2()
+
+    fireEvent.change(screen.getByLabelText(/^item name$/i), { target: { value: 'Edited' } })
+    fireEvent.click(screen.getByRole('button', { name: /next line/i }))
+    fireEvent.click(screen.getByRole('button', { name: /stay on this line/i }))
+
+    expect(screen.getByText('1 of 2')).toBeTruthy()
+    expect(screen.getByDisplayValue('Edited')).toBeTruthy()
+    expect(screen.queryByText(/unsaved changes/i)).toBeNull()
+  })
+
+  it('pages and discards when the reviewer confirms', () => {
+    render2()
+
+    fireEvent.change(screen.getByLabelText(/^item name$/i), { target: { value: 'Edited' } })
+    fireEvent.click(screen.getByRole('button', { name: /next line/i }))
+    fireEvent.click(screen.getByRole('button', { name: /discard and continue/i }))
+
+    expect(screen.getByText('2 of 2')).toBeTruthy()
+    expect(screen.getByDisplayValue('Second')).toBeTruthy()
+  })
+
+  it('does not carry one line’s pending edits onto the next', () => {
+    // The card is keyed by line id, so React replaces it rather than reusing
+    // it — otherwise the editor's state would follow the reader across lines.
+    render2()
+
+    fireEvent.change(screen.getByLabelText(/^item name$/i), { target: { value: 'Edited' } })
+    fireEvent.click(screen.getByRole('button', { name: /next line/i }))
+    fireEvent.click(screen.getByRole('button', { name: /discard and continue/i }))
+    fireEvent.click(screen.getByRole('button', { name: /previous line/i }))
+
+    expect(screen.getByDisplayValue('First')).toBeTruthy()
   })
 })
 

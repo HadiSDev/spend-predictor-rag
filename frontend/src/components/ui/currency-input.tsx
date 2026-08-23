@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { cn } from './cn'
-import { NumberInput, type NumberInputProps } from './number-input'
+import { NumberInput } from './number-input'
+import type { NumberInputProps } from './number-input'
 
 /**
  * How a currency writes an amount: its symbol, which side it sits on, and how

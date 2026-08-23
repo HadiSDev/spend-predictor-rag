@@ -73,29 +73,29 @@
 
 ## 8. Frontend: the paged Lines tab
 
-- [ ] 8.1 Rewrite `voucher-lines-tab.tsx` around a single rendered line card with Previous / Next and an `N of M` indicator; keep `ReconciliationNotice` and the Add-line control outside the card
-- [ ] 8.2 Order by `sequence` with `id` as tiebreak; mount exactly one card (no hidden siblings — their inputs stay focusable and their state alive)
-- [ ] 8.3 Disable Previous on the first line and Next on the last; no wrapping
-- [ ] 8.4 Seed the shown line from the line the table activated: extend the table's selection to carry the line id, and use it as the initial index only — component state, not a search param (see design D3)
-- [ ] 8.5 Keyboard: named buttons reachable by Tab; Left/Right arrows page **only** when focus is outside a text-entry control
-- [ ] 8.6 Dirty guard: paging away from an edited card confirms first; declining keeps the edits; a clean card pages with no prompt
-- [ ] 8.7 Directional transition — Next enters from the trailing edge, Previous from the leading edge; `transform`/`opacity` only; under 250ms; fully suppressed under `prefers-reduced-motion`; nothing loops at rest
-- [ ] 8.8 Empty invoice: keep the existing empty state, render no navigation and no indicator
-- [ ] 8.9 Tests for every scenario in `specs/frontend-line-paging/spec.md`
+- [x] 8.1 Rewrite `voucher-lines-tab.tsx` around a single rendered line card with Previous / Next and an `N of M` indicator; keep `ReconciliationNotice` and the Add-line control outside the card
+- [x] 8.2 Order by `sequence` with `id` as tiebreak; mount exactly one card (no hidden siblings — their inputs stay focusable and their state alive)
+- [x] 8.3 Disable Previous on the first line and Next on the last; no wrapping
+- [x] 8.4 Seed the shown line from the line the table activated: extend the table's selection to carry the line id, and use it as the initial index only — component state, not a search param (see design D3)
+- [x] 8.5 Keyboard: named buttons reachable by Tab; Left/Right arrows page **only** when focus is outside a text-entry control
+- [x] 8.6 Dirty guard: paging away from an edited card confirms first; declining keeps the edits; a clean card pages with no prompt
+- [x] 8.7 Directional transition — Next enters from the trailing edge, Previous from the leading edge; `transform`/`opacity` only; under 250ms; fully suppressed under `prefers-reduced-motion`; nothing loops at rest
+- [x] 8.8 Empty invoice: keep the existing empty state, render no navigation and no indicator
+- [x] 8.9 Tests for every scenario in `specs/frontend-line-paging/spec.md`
 
 ## 9. Frontend: item name and the invoice numbers
 
-- [ ] 9.1 Label lines by `item_name ?? description ?? placeholder` in `voucher-table.tsx`'s `LineRow` and on the paged card
+- [x] 9.1 Label lines by `item_name ?? description ?? placeholder` in `voucher-table.tsx`'s `LineRow` and on the paged card
 - [x] 9.2 Add an `Item name` field to the line card, above `Description`, and keep `Description` as its own field
 - [x] 9.3 Bind the Details tab's editable "Invoice number" to `document_invoice_number`
 - [x] 9.4 Show the ERP's `invoice_number` in the panel's leading metadata block as read-only text, labelled so it is not mistaken for the supplier's number
 - [x] 9.5 Leave the field empty when `document_invoice_number` is null — never backfill it from the posted value
-- [ ] 9.6 Tests: the name is the label with description as fallback; the editable field corrects the document number; the posted number renders as metadata
+- [x] 9.6 Tests: the name is the label with description as fallback; the editable field corrects the document number; the posted number renders as metadata
 
 ## 10. Verification
 
-- [ ] 10.1 `uv run pytest`
-- [ ] 10.2 `cd frontend && ./node_modules/.bin/tsc --noEmit`
-- [ ] 10.3 `cd frontend && ./node_modules/.bin/vitest run`
-- [ ] 10.4 `cd frontend && ./node_modules/.bin/eslint src` — no new errors (line 39 of `voucher-table.tsx` has a pre-existing one)
+- [x] 10.1 `uv run pytest`
+- [x] 10.2 `cd frontend && ./node_modules/.bin/tsc --noEmit`
+- [x] 10.3 `cd frontend && ./node_modules/.bin/vitest run`
+- [x] 10.4 `cd frontend && ./node_modules/.bin/eslint src` — no new errors (line 39 of `voucher-table.tsx` has a pre-existing one)
 - [ ] 10.5 Hand over the dev-server commands and confirm the panel by eye: page a multi-line invoice, correct an amount, correct the invoice number, check the audit feed shows both old values

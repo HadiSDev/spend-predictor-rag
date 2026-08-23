@@ -165,6 +165,10 @@ export function EntriesPanel({
   // reset explicitly on close, in case the drawer's content stays mounted
   // through its close animation rather than unmounting immediately.
   const [headerDirty, setHeaderDirty] = React.useState(false)
+  // Which line the reader activated, kept here rather than in the URL: paging
+  // is a position inside an open panel, and a search param would put a history
+  // entry behind every step so Back walked through lines instead of leaving.
+  const [activeLineId, setActiveLineId] = React.useState<string | null>(null)
 
   return (
     <div className="flex flex-col gap-6">
@@ -191,7 +195,13 @@ export function EntriesPanel({
         <EmptyState filters={filters} onClear={onClearFilters} />
       ) : (
         <>
-          <VoucherTable groups={result.items} onSelectEntry={onSelectEntry} />
+          <VoucherTable
+            groups={result.items}
+            onSelectEntry={(key) => {
+              setActiveLineId(key.line ?? null)
+              onSelectEntry(key)
+            }}
+          />
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
               {result.total} voucher{result.total === 1 ? '' : 's'}
@@ -209,10 +219,12 @@ export function EntriesPanel({
         tab={tab}
         open={open}
         onTabChange={onTabChange}
+        initialLineId={activeLineId}
         onOpenChange={(next) => {
           if (!next) {
             onSelectEntry({})
             setHeaderDirty(false)
+            setActiveLineId(null)
           }
         }}
         onVerifyLine={onVerifyLine}

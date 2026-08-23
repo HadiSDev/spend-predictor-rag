@@ -763,6 +763,40 @@ describe('EntriesPanel — voucher rows', () => {
   })
 })
 
+describe('EntriesPanel — a line is labelled by its name', () => {
+  const withLines = (first: Partial<InvoiceLineRead>) => ({
+    result: {
+      items: [{ ...SPLIT, lines: [line({ id: 'sl1', sequence: 0, ...first })] }],
+      page: 1, page_size: 25, total: 1,
+    },
+  })
+
+  it('shows the item name, not the description, when both exist', () => {
+    setup(withLines({ item_name: 'Figma Organization seat', description: 'Annual, 12 seats' }))
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-SPLIT/ }))
+
+    expect(screen.getByText('Figma Organization seat')).toBeTruthy()
+    // The prose belongs on the line card, not in a table cell.
+    expect(screen.queryByText('Annual, 12 seats')).toBeNull()
+  })
+
+  it('falls back to the description when the line has no name', () => {
+    // Every line stored before the split has its text in `description`, and a
+    // blank row would make them all look like extraction failures.
+    setup(withLines({ item_name: null, description: 'Cloud hosting March' }))
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-SPLIT/ }))
+
+    expect(screen.getByText('Cloud hosting March')).toBeTruthy()
+  })
+
+  it('marks a line with neither rather than leaving the cell blank', () => {
+    setup(withLines({ item_name: null, description: null }))
+    fireEvent.click(screen.getByRole('button', { name: /Expand voucher V-SPLIT/ }))
+
+    expect(screen.getByText('Unnamed line')).toBeTruthy()
+  })
+})
+
 describe('EntriesPanel — filters', () => {
   // Note: choosing from a `Select` popup is not exercised here. Base UI's
   // select only hit-tests its first option under jsdom's zero-size layout, so
@@ -1107,7 +1141,7 @@ describe('EntriesPanel — voucher panel', () => {
     fireEvent.click(screen.getByText('DKK 400.00'))
 
     expect(onSelectEntry).toHaveBeenCalledWith({
-      voucher: 'V-SPLIT', entry: 's1', tab: 'lines',
+      voucher: 'V-SPLIT', entry: 's1', tab: 'lines', line: 'sl2',
     })
   })
 
@@ -1134,7 +1168,7 @@ describe('EntriesPanel — voucher panel', () => {
     // The voucher, addressed by its id — and opened on the tab that shows the
     // row the reader actually activated.
     expect(onSelectEntry).toHaveBeenCalledWith({
-      voucher: 'V-SPLIT', entry: 's1', tab: 'lines',
+      voucher: 'V-SPLIT', entry: 's1', tab: 'lines', line: 'sl2',
     })
   })
 

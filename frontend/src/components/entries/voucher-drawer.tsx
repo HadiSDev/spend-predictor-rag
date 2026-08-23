@@ -71,6 +71,9 @@ export interface VoucherDrawerProps {
   onCreateLine: (invoiceId: string) => Promise<void>
   /** Delete a line from the open invoice. */
   onDeleteLine: (lineId: string) => Promise<void>
+  /** The line the reader activated in the table, if any — seeds which line the
+   *  Lines tab opens on. */
+  initialLineId?: string | null
   /** The organization's suppliers, for the Details tab's vendor picker. */
   vendors: Array<VendorRead> | null
   /** Queue the document to be read again (`POST /invoices/{id}/reprocess`). */
@@ -171,6 +174,7 @@ export function VoucherDrawer({
   onUpdateLine,
   onCreateLine,
   onDeleteLine,
+  initialLineId,
   vendors,
   onReprocess,
   canManage,
@@ -300,6 +304,7 @@ export function VoucherDrawer({
                         <TabsPanel value="lines" className="ep-tab-fade">
                           <VoucherLinesTab
                             invoice={invoice}
+                            initialLineId={initialLineId}
                             spendTreeNodes={spendTreeNodes}
                             companySettingsHref={companySettingsHref}
                             canManage={canManage}

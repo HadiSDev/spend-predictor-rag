@@ -270,6 +270,42 @@ h4 {
   animation: ep-tab-fade-in 160ms ease-out;
 }
 
+/*
+ * Paged invoice line: the card enters from the side the reader moved *towards*,
+ * so the motion says which way they went rather than merely decorating the
+ * change. Transform and opacity only, and short — this is a data-entry surface,
+ * and a transition a reviewer waits through is paid on every line of every
+ * invoice. Nothing loops: it runs once per step and stops.
+ *
+ * The reduced-motion block below neutralises both, app-wide.
+ */
+@keyframes ep-line-in-next {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes ep-line-in-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.ep-line-next {
+  animation: ep-line-in-next 180ms ease-out;
+}
+.ep-line-prev {
+  animation: ep-line-in-prev 180ms ease-out;
+}
+
 /* Accessibility: honour reduced-motion for the whole app. */
 @media (prefers-reduced-motion: reduce) {
   *,

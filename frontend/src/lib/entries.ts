@@ -55,7 +55,18 @@ export type VoucherKey = { voucher?: string; entry?: string }
  * through a callback typed to accept only a `VoucherKey`, which TypeScript
  * accepts and the route then silently dropped.
  */
-export type VoucherSelection = VoucherKey & { tab?: VoucherTab }
+export type VoucherSelection = VoucherKey & {
+  tab?: VoucherTab
+  /**
+   * The line the reader activated, when they activated one.
+   *
+   * Deliberately **not** carried in the URL, unlike `voucher`/`entry`/`tab`:
+   * paging is a position within an open panel, and writing it to the URL would
+   * put a history entry behind every step, so Back would walk through lines
+   * instead of leaving the panel. It seeds the panel and the panel owns it.
+   */
+  line?: string
+}
 
 /** The path segment for a key, or null when nothing is selected — the caller
  *  turns that into `enabled: false` rather than firing a request. */
