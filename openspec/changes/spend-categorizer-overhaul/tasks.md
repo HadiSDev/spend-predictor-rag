@@ -43,6 +43,6 @@
 
 ## 5. Capture the reasoning
 
-- [ ] 5.1 Author a project skill with `engineering-skills` covering the house rules this change establishes: choose by index never by name, separate an outage from a judgement, prompt-for-JSON over guided decoding, state absent facts by omission, and pin every prompt input with a test that runs through the caller.
-- [ ] 5.2 Update `CLAUDE.md` — the categorizer section (inputs, forced answer, retrieval, cache), a new supplier-enrichment note, the gap suggester, and the new env vars.
-- [ ] 5.3 Full suite green: `uv run pytest`, `./node_modules/.bin/tsc --noEmit`, frontend vitest, and eslint at or below its current baseline.
+- [x] 5.1 Author a project skill with `engineering-skills` covering the house rules this change establishes: choose by index never by name, separate an outage from a judgement, prompt-for-JSON over guided decoding, state absent facts by omission, and pin every prompt input with a test that runs through the caller.
+- [x] 5.2 Update `CLAUDE.md` — the categorizer section (inputs, forced answer, retrieval, cache), a new supplier-enrichment note, the gap suggester, and the new env vars.
+- [x] 5.3 Full suite green: `uv run pytest`, `./node_modules/.bin/tsc --noEmit`, frontend vitest, and eslint at or below its current baseline.

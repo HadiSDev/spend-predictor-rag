@@ -38,6 +38,9 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 - Run document processing: `python -m ai_api.documents.runner` (reads each
   pending invoice's attached scan into invoice lines; a **separate** process
   from the sync — see below)
+- Describe suppliers: `python -m ai_api.enrichment.runner` (fills
+  `Vendor.description` once per supplier; needs `VENDOR_ENRICHMENT_ENABLED`)
+- Propose missing categories: `python -m ai_api.suggestions.runner`
 - Run web API: `uvicorn web_api.app:app --reload`
 - Run dashboard: `streamlit run src/web_api/dashboard/app.py`
 - Test: `uv run pytest`
@@ -205,6 +208,11 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   `rationale`, plus the accepted `spend_category_id`) — there is no separate
   `LineCategorization` table. `level_4` is set only on a four-level tree.
 - **Line status**: `uncategorized` → `ai_failed` | `ai_categorized` → `verified`.
+  **`ai_failed` is a fault, not a judgement** — the model named a candidate never
+  offered, or there was no candidate set. It stopped meaning "the model looked and
+  nothing fitted" when declining was withdrawn; a hard line is now
+  `ai_categorized` with a low confidence and lands in the review queue. See *How
+  a line is categorized*.
   The AI sync runner writes the result and sets `ai_categorized`/`ai_failed`; a
   human `POST /invoice-lines/{id}/verify` (management role) sets `verified`,
   optionally correcting the category.
@@ -240,6 +248,109 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   (`GET /invoice-lines?stale=true`). Distinct from `ai_failed`: nothing failed,
   the taxonomy moved.
 
+## How a line is categorized (`ai_api/sync/`)
+
+- **The model is told what the ledger knows**: the line's **`item_name`** and,
+  when it says something else, its `description`; the ERP account *and that
+  account's name*; the supplier *and its description*; the buying company; the
+  amount and currency. A field we do not have is **left out**, never printed as
+  a null — a list of nulls reads as evidence of absence and invites the model to
+  explain them instead of answering.
+- **Reading only `description` is the bug this section exists because of.** The
+  `item_name` migration moved every line's text and `_categorize_pending` was
+  never updated, so on the dev ledger 26 of 40 lines were categorized on a
+  supplier and an amount alone — and the model said so, accurately, in the
+  rationale it was then blamed for. **A prompt input is pinned by a test that
+  runs through the runner** (`tests/ai_api/test_sync_runner.py`), asserting on
+  the *facts half* of the prompt: every test used to build its `LineContext` by
+  hand, and one mirrored the runner's mapping inside the test, so nothing could
+  disagree with the bug.
+- **The model chooses by index and must choose.** Candidates are numbered, the
+  reply is a number, and an index we never offered resolves to **nothing** —
+  never to the nearest candidate, which is how a misread list becomes a
+  confident wrong category. Declining is withdrawn: it landed the line in
+  `ai_failed`, a status the sync never revisits, so the *cause* — a taxonomy with
+  no home for that spend — went unrecorded and the same line failed every month.
+  Doubt is now a **confidence** instead, and the gap suggester repairs the tree.
+- **`ai_failed` means a fault**: an unoffered index, or no candidate set at all.
+  An unreachable or unparseable model leaves the line `uncategorized` for the
+  next run — marking it failed would bury a batch behind a status needing an
+  explicit requeue.
+- **Low confidence is the review signal.** `GET /invoice-lines?needs_review=true`,
+  `GET /erp-entries/vouchers?needs_review=true`, and a computed `needs_review` on
+  every line payload. Threshold is `CATEGORIZATION_REVIEW_THRESHOLD` (0.6,
+  provisional) — **configuration, never a column**, the same rule
+  `category_stale` follows, so raising it moves history without rewriting a row.
+  The voucher filter resolves through the **invoice**, not a posting's line link:
+  most postings have none, so a line-linked filter would hide a doubtful line
+  from the very voucher that displays it.
+- **The prompt carries accounting rules a literal reading gets wrong**: a fee,
+  tax, toll or levy outranks the supplier that issued it (freight is not one);
+  packaging outranks the supplier's trade; a product inside a professional
+  service follows the service; a bare discount follows the supplier. Lifted in
+  substance from `~/repos/groundley-ai`, which arrived at them the same way.
+- **The model may reason before answering** —
+  `json_format_hint(..., allow_reasoning=True)`, used here and nowhere else.
+  Choosing one of forty categories is a judgement; the extraction callers are
+  transcriptions, where reasoning is pure latency.
+- **`VLLM_TEMPERATURE=0.0` is not determinism.** Measured: an identical prompt
+  for a `1 Voksen` DSB ticket answered *Utilities (0.7)* on one run and *Ground
+  Transport (0.9)* on the next. Continuous batching does not give bit-identical
+  logits. The confidence and the review queue are what make a forced answer
+  survivable, not polish.
+- **Retrieval narrows within the assigned tree, and only ever widens on
+  failure.** Embed the line, fetch the closest nodes from the tree's Qdrant
+  index, expand each hit to its **siblings** (the hit is often *beside* the
+  answer — `Airfare` found, `Ground Transport` wanted). A tree below `2 × top_k`
+  is not narrowed and costs no embedding call; retrieval that finds nothing,
+  fails, or gets a line with no text yields the **full leaf set** — never an
+  empty one, which means "do not categorize". Candidate order stays the tree's,
+  because the model answers with a number and ranked order biases it toward 1.
+  `CATEGORY_RETRIEVAL_ENABLED` (default **false** — indexing downloads a
+  sentence-transformer model), `CATEGORY_RETRIEVAL_TOP_K`.
+- **The answer cache** (`sync/cache.py`, `categorization_cache`) is keyed on the
+  question digest **and a hash of the candidate set actually offered**. The tree
+  hash is the load-bearing half: a cached answer is a pointer into a taxonomy,
+  and without it the cache would serve answers against a tree that no longer
+  exists. Order-independent and content-only, so a reshuffle or a CSV re-import
+  with fresh ids costs nothing, but adding/renaming/removing a node invalidates.
+  **Every prompt input is a key input** unless it provably cannot change the
+  answer — the supplier description was omitted at first, which made vendor
+  enrichment silently useless; the amount stays out because two DSB tickets at
+  58,00 and 5.780,00 are the same question. No FK on `spend_category_id`: one
+  would make deleting a category fail on a *cache* row, so a dangling pointer is
+  dropped on read instead.
+
+## Spend-tree gap suggestions (`ai_api/suggestions/`)
+
+- **Something has to notice when the tree is the problem**, because the
+  categorizer no longer declines. A gap does not announce itself — it produces a
+  drip of barely-confident categorizations across months and reviewers that
+  nobody reads as a taxonomy problem.
+- **The signal is a run of low-confidence lines from one supplier**, never a
+  single line: a category is a structural claim about how a company spends, and
+  one odd purchase is not one (`MIN_GROUP_SIZE`). Grouping is by **supplier**
+  rather than embedding similarity — the strongest cheap signal that two lines
+  are the same kind of spend, and an argument a reviewer can check at a glance.
+  Accepted cost: several one-off suppliers that are all the same gap will not
+  group.
+- **It writes proposals and only proposals.** `SpendCategorySuggestion` carries
+  the proposed name, parent, rationale and **the lines that evidence it**.
+  Accepting goes through `web_api/spend_trees/service.py::add_node` like any
+  other node — that service is the only writer of `SpendCategory`, since a
+  rename rewrites every descendant's path.
+- **A dismissal is remembered, and reversible.** Remembered so the suggester
+  does not re-argue a settled question; reversible via
+  `POST /spend-tree-suggestions/{id}/reopen`, because dismiss sits one click from
+  accept. An **accepted** one never reopens — it created a node, and deleting one
+  is the node editor's job, which says what it does.
+- Endpoints: `GET /spend-trees/{id}/suggestions` (any member — judging a proposal
+  needs to see it), `POST /spend-tree-suggestions/{id}/accept|dismiss|reopen`
+  (management). Surfaced in the tree editor at `/settings/spend-trees`, beside
+  the tree because accepting one *is* a tree edit. A read-only role sees the
+  evidence and **no controls**, never disabled ones.
+- Run: `python -m ai_api.suggestions.runner [--company-id ID]`.
+
 ## Spend trees (the target taxonomy)
 
 - **A `SpendTree` belongs to an `Organization`; a `Company` points at the one it
@@ -259,8 +370,8 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   same transaction, and an ORM write straight to the table silently desyncs the
   two representations. Nothing there commits — the caller owns the transaction.
 - **The default tree is a code-resident template** (`spend_trees/template.py`,
-  three levels, `Direct`/`Indirect` at level 1), **copied into an org on first
-  use** by `ensure_default_tree()` — idempotent per org, so an org holds at most
+  three levels, `Direct`/`Indirect` at level 1, **`TEMPLATE_VERSION = 2`**),
+  **copied into an org on first use** by `ensure_default_tree()` — idempotent per org, so an org holds at most
   one copy. A customer edits their copy freely; the template and other tenants
   are untouched. `POST /companies` assigns it when no `spend_tree_id` is given,
   in the same transaction as the company. **`POST /spend-trees/default` exists
@@ -268,6 +379,15 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   spend trees could not obtain the default at all. It is idempotent and returns
   `200`, and the settings page + company picker only offer it while no copy
   exists.
+- **A version bump never reaches into an existing copy.** Raising
+  `TEMPLATE_VERSION` affects only trees seeded afterwards: a node the platform
+  adds might duplicate one the customer already made under another name, and a
+  node it renames might be one they deliberately renamed first. Version 2 added
+  `Travel & Entertainment > Ground Transport` (6830), `Financial Services`
+  (7300/7310/7320) and `Insurance` (7200/7210/7220) — **not guessed**: the first
+  real customer had already built all three by hand, at those codes, because
+  version 1's only travel leaves were airfare, lodging and meals and a commuter
+  rail ticket had nowhere to go. The categorizer was blamed for saying so.
 - **A tree is deleted hard, a company is deactivated soft** — the asymmetry is
   deliberate: a company owns financial records, a tree owns none, since a line
   keeps its `level_*` whatever happens to the node it pointed at. `DELETE
@@ -298,9 +418,9 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   `uncategorized`, the reason lands on the integration's `SyncState`, the ledger
   still persists and the watermark still advances. There is deliberately no
   fallback taxonomy. `_META` is gone from `ai_api`; the template is its
-  successor, and its curated keywords attach to template-seeded nodes by `code`
-  (a custom node matches on its own name/description — a weakness of the
-  *keyword stub*, which the embedding categorizer removes).
+  successor. **The candidate set may be narrowed within the assigned tree** by
+  retrieval before the model sees it — never widened, and never to another
+  taxonomy. See *How a line is categorized*.
 - Endpoints: `GET /spend-trees` (+ `?include_archived`), `GET /spend-trees/{id}`
   (whole tree in one response — the selector's navigation and search are only
   instant if the client holds it), `POST /spend-trees` (clone or empty),
@@ -534,6 +654,19 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   companies collapses onto one row.
 - Only `Invoice.vendor_id` references a vendor. Invoice **lines do not** link to
   a vendor, and the vendor holds no back-reference to invoices/lines.
+- **`description` is what makes a supplier categorizable**, and
+  `ai_api/enrichment/` fills it: "DSB" is three letters, "DSB — Danish State
+  Railways" answers the question the taxonomy is asking. Researched **once per
+  supplier** (`python -m ai_api.enrichment.runner`), and because the catalog is
+  global one lookup serves every tenant that has ever bought from them — which is
+  also the constraint: it describes the supplier's trade and nothing
+  tenant-specific. `VENDOR_ENRICHMENT_ENABLED` (default **false**, like
+  `FX_ENABLED`) because it reaches the public web. `description_source`
+  (`web` | `erp` | `human`) records who wrote it and **a human's is never
+  overwritten** — by enrichment or by a sync. `_persist_vendors` assigns only
+  when the ERP actually states one; a plain assignment there wiped the field on
+  every run, and since no connector states a vendor description that would have
+  destroyed every enrichment at the next sync, for every tenant at once.
 
 ## Reporting
 
@@ -814,10 +947,15 @@ src/
     ├── parsing.py            LLM JSON repair
     ├── rag/indexer.py        Qdrant vector store (CoA CSV + SpendTree nodes)
     ├── synthdata/            synthetic invoice generator
-    ├── persistence/          ai_api-owned store: line_ground_truth (synthetic gt_*)
+    ├── persistence/          ai_api-owned store: line_ground_truth (synthetic
+    │                         gt_*), categorization_cache
     ├── sync/runner.py        pipeline orchestrator (discover→connect→fetch→persist→categorize)
-    ├── sync/categorizer.py   deterministic keyword categorizer over the company's
-    │                         assigned spend tree (stub for Qdrant+LLM)
+    ├── sync/categorizer.py   the candidate set: a tree's leaves, optionally
+    │                         narrowed by retrieval to a hit's neighbourhood
+    ├── sync/llm_categorizer.py  the decision: one numbered candidate, chosen by index
+    ├── sync/cache.py         answer-cache keys (question digest + candidate-set hash)
+    ├── enrichment/           describe a supplier once, on the global vendor row
+    ├── suggestions/          categories a tree is missing, proposed with evidence
     ├── documents/            document→invoice lines stage: runner (discover→claim→
     │                         fetch→extract→reconcile→replace), extractor, reconcile
     ├── aggregation/engine.py SQL rollups (stub)
