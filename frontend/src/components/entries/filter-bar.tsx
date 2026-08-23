@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from '#/components/ui'
 import { LINE_ORIGINS } from '#/lib/entry-search'
-import { humanizeKey } from '#/lib/format'
+import { fromIsoDate, humanizeKey, toIsoDate } from '#/lib/format'
 import { CountryFlag } from '#/components/settings/country-flag'
 import type { CompanyRead, EntryFilters, LineOrigin, VendorRead } from '#/lib/types'
 
@@ -91,20 +91,6 @@ const ALL = '__all__'
 
 /** Statuses as a reader sees them, not as the column stores them. */
 const STATUS_OPTIONS = STATUSES.map((value) => ({ value, label: humanizeKey(value) }))
-
-/** `<input type=date>`-shaped string, which is also what the API takes. */
-function toIsoDate(date: Date | undefined): string | undefined {
-  if (!date) return undefined
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${date.getFullYear()}-${month}-${day}`
-}
-
-function fromIsoDate(value: string | undefined): Date | undefined {
-  if (!value) return undefined
-  const parsed = new Date(`${value}T00:00:00`)
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed
-}
 
 export interface FilterBarProps {
   filters: EntryFilters

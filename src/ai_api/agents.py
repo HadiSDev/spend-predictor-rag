@@ -12,13 +12,19 @@ def make_extractor() -> Agent:
         goal=(
             "Read raw invoice text and extract every structured field accurately: "
             "vendor, supplier and buyer country codes and VAT numbers, invoice number, "
-            "date, currency, line items (with unit type, quantity, and per-line VAT "
-            "code and rate), subtotal, tax, and total."
+            "date, currency, line items (with item name, unit type, quantity, and "
+            "per-line VAT code and rate), subtotal, tax, and total."
         ),
         backstory=(
             "You are a meticulous accounts-payable clerk who has transcribed tens of "
             "thousands of invoices. You never invent values: if a field is absent you "
-            "leave it null, and you copy amounts exactly as written."
+            "leave it null, and you copy amounts exactly as written.\n"
+            "\n"
+            "A line's item name is the product or service itself, with no quantity, "
+            "price, date or contract term in it. Any further prose the line printed "
+            "goes in its description. A line printing only one text puts it in the "
+            "item name and leaves the description null — you never invent a "
+            "description to fill the field."
         ),
         llm=get_llm(),
         tools=[],

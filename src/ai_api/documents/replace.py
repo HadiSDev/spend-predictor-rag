@@ -61,6 +61,31 @@ _REMOVED_FIELDS = (
 )
 
 
+def _name_and_description(item) -> tuple[str | None, str | None]:
+    """Split one extracted line into the thing bought and the prose about it.
+
+    The rule, in one tested place rather than in a prompt's good intentions:
+
+    * Both stated, and different — keep both.
+    * Only a description — **it is the name**. A document printing one text has
+      named the item; filing that under `description` would leave the field
+      every line is expected to carry empty on exactly the documents that read
+      cleanly.
+    * Both stated and identical — one text, said twice. Models echo, and storing
+      the same string in both columns makes the split meaningless on the day it
+      was introduced.
+    * Neither — a line the model could not read. Null, never a guess, on the
+      same rule that an unreadable amount becomes no amount.
+    """
+    name = (item.item_name or "").strip() or None
+    description = (item.description or "").strip() or None
+    if name is None:
+        return description, None
+    if description == name:
+        return name, None
+    return name, description
+
+
 def _dec(value) -> Decimal | None:
     if value is None:
         return None
@@ -132,13 +157,17 @@ def replace_invoice_lines(
         session.delete(line)
 
     for seq, item in enumerate(lines):
+        name, description = _name_and_description(item)
         row = InvoiceLine(
             company_id=invoice.company_id,
             invoice_id=invoice.id,
             # The order the document stated them in, which is how an invoice is
             # read. The row's random id would scramble it.
             sequence=seq,
-            description=item.description,
+            # Name and prose, split by one tested rule rather than by the
+            # model's discipline — see `_name_and_description`.
+            item_name=name,
+            description=description,
             quantity=_dec(item.quantity),
             # What the quantity counts. Only the document reliably states this —
             # an ERP bill line carries a quantity and no unit at all — which is

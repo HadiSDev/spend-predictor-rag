@@ -68,3 +68,35 @@ export function humanizeKey(value: string): string {
     })
     .join(' ')
 }
+
+
+/**
+ * A `Date` as the `YYYY-MM-DD` string the API takes — and that
+ * `<input type=date>` uses.
+ *
+ * Built from the **local** date parts rather than `toISOString()`, which
+ * converts to UTC first: a date picked as the 1st in Copenhagen is `…T00:00:00`
+ * local, which is the previous day in UTC, so `toISOString().slice(0, 10)`
+ * silently reports the 31st. An invoice date is a calendar date with no time
+ * and no zone, and it must survive the round trip unchanged.
+ */
+export function toIsoDate(date: Date | undefined): string | undefined {
+  if (!date) return undefined
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+/**
+ * The inverse: an ISO date string as a local `Date`, or `undefined` if it is
+ * not one.
+ *
+ * The explicit `T00:00:00` is what keeps it local — `new Date('2026-08-20')`
+ * is parsed as UTC midnight by specification, which lands on the 19th for any
+ * viewer behind UTC.
+ */
+export function fromIsoDate(value: string | undefined | null): Date | undefined {
+  if (!value) return undefined
+  const parsed = new Date(`${value}T00:00:00`)
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed
+}

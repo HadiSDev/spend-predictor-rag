@@ -175,6 +175,79 @@ def test_patch_correcting_only_invoice_number_leaves_base_amounts_intact(client,
         assert inv.fx_rate_date == date(2025, 7, 1)
 
 
+# -- The number printed on the document ----------------------------------------
+
+
+def _audit_rows(engine, invoice_id: str) -> list[AuditLog]:
+    with Session(engine) as s:
+        return s.exec(
+            select(AuditLog)
+            .where(AuditLog.entity_type == "invoice", AuditLog.entity_id == invoice_id)
+            .order_by(AuditLog.created_at, AuditLog.id)
+        ).all()
+
+
+def test_patch_corrects_the_printed_number_and_audits_what_was_read(client, seed, engine):
+    """A model read this off a scan and may have misread a digit. The correction
+    is applied in place, so the audit row is the only record of the reading."""
+    with Session(engine) as s:
+        inv = s.get(Invoice, seed["inv_a"])
+        inv.document_invoice_number = "2026-04I2"
+        s.add(inv)
+        s.commit()
+
+    res = client.patch(f"/api/v1/invoices/{seed['inv_a']}",
+                       json={"document_invoice_number": "2026-0412"}, headers=auth("tokA"))
+
+    assert res.status_code == 200
+    assert res.json()["document_invoice_number"] == "2026-0412"
+
+    rows = _audit_rows(engine, seed["inv_a"])
+    assert [r.action for r in rows] == ["edit"]
+    assert {"field": "document_invoice_number", "old": "2026-04I2",
+            "new": "2026-0412"} in rows[0].changes
+
+
+def test_correcting_the_printed_number_leaves_the_posted_one_alone(client, seed, engine):
+    """The as-posted value is the ledger's own record. Billy's often falls back
+    to the bill id, and that fact is evidence, not something to overwrite."""
+    client.patch(f"/api/v1/invoices/{seed['inv_a']}",
+                 json={"document_invoice_number": "2026-0412"}, headers=auth("tokA"))
+
+    with Session(engine) as s:
+        assert s.get(Invoice, seed["inv_a"]).invoice_number == "A1"
+
+
+def test_correcting_the_printed_number_leaves_the_conversion_intact(client, seed, engine):
+    """An invoice number is not an input to any conversion, so unlike
+    currency/total/tax it must not clear the base figures."""
+    client.patch(f"/api/v1/invoices/{seed['inv_a']}",
+                 json={"document_invoice_number": "2026-0412"}, headers=auth("tokA"))
+
+    with Session(engine) as s:
+        inv = s.get(Invoice, seed["inv_a"])
+        assert inv.base_currency == "DKK"
+        assert inv.base_total == Decimal("100.00")
+        assert inv.fx_rate == Decimal("1")
+        assert inv.fx_rate_date == date(2025, 7, 1)
+
+
+def test_verify_settles_the_printed_number(client, seed, engine):
+    """Resubmitting the value a model read is a human asserting that figure —
+    which is the label the extractor learns from."""
+    with Session(engine) as s:
+        inv = s.get(Invoice, seed["inv_a"])
+        inv.document_invoice_number = "2026-0412"
+        s.add(inv)
+        s.commit()
+
+    body = client.post(f"/api/v1/invoices/{seed['inv_a']}/verify",
+                       json={"document_invoice_number": "2026-0412"},
+                       headers=auth("tokA")).json()
+
+    assert "document_invoice_number" in body["verified_fields"]
+
+
 # -- Supplier: an invoice-scoped override, never a write to the shared catalog --
 
 

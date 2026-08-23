@@ -117,6 +117,7 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     id: 'l1',
     invoice_id: 'inv1',
     company_id: 'c1',
+    item_name: null,
     description: 'Figma Organization, 12 seats',
     quantity: '12.0000',
     unit: 'pcs',

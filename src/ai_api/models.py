@@ -7,8 +7,21 @@ from pydantic import BaseModel, Field
 
 
 class LineItem(BaseModel):
-    description: str = Field(
-        description="Free-text description of the product or service on this line."
+    # What was bought, named. Separate from the prose below because one field
+    # was doing both jobs, and the name is the half a supplier comparison needs.
+    item_name: str | None = Field(
+        default=None,
+        description="The name of the product or service on this line, as the "
+        "document names it — just the thing bought, with no quantity, price, "
+        "date or contract term folded in.",
+    )
+    # Optional, unlike before: a line stating only one text puts it in
+    # `item_name`, and a page the model could not read states neither. The
+    # one-text fallback is applied in `documents/replace.py`, not guessed here.
+    description: str | None = Field(
+        default=None,
+        description="Any further prose this line printed beyond its name — "
+        "terms, period covered, specification. Null when the line printed none.",
     )
     quantity: float | None = Field(
         default=None, description="Quantity billed on this line, if stated."

@@ -549,7 +549,8 @@ class BillyConnector(HttpErpConnector):
         lines = [
             ErpInvoiceLineData(
                 line_erp_id=str(line["id"]),
-                description=line.get("description") or "",
+                # Billy's bill line has one text and it names the item.
+                item_name=line.get("description") or None,
                 quantity=line.get("quantity"),
                 unit_price=None,  # Billy states an amount, not a unit price.
                 amount=float(line.get("amount") or 0),

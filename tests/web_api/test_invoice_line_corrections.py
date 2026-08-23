@@ -83,6 +83,74 @@ def test_correcting_only_a_description_leaves_the_conversion_intact(client, seed
     assert line.fx_rate == Decimal("1")
 
 
+def test_correcting_the_item_name_stores_it_and_audits_the_old_value(client, seed, engine):
+    """The name is what was bought. Applied in place, so the audit row is the
+    only record of what the source had stated."""
+    res = client.patch(f"/api/v1/invoice-lines/{seed['line_a1']}",
+                       json={"item_name": "Hetzner CX41"}, headers=auth("tokA"))
+
+    assert res.status_code == 200
+    assert res.json()["item_name"] == "Hetzner CX41"
+
+    rows = _audit(engine, "invoice_line", seed["line_a1"])
+    assert [r.action for r in rows] == ["edit"]
+    assert {"field": "item_name", "old": None, "new": "Hetzner CX41"} in rows[0].changes
+
+
+def test_a_corrected_item_name_is_settled_against_the_next_sync(client, seed):
+    body = client.patch(f"/api/v1/invoice-lines/{seed['line_a1']}",
+                        json={"item_name": "Hetzner CX41"}, headers=auth("tokA")).json()
+
+    assert body["verified_fields"] == ["item_name"]
+
+
+def test_the_item_name_can_be_cleared(client, seed, engine):
+    """A reviewer splitting a stand-in may legitimately have nothing to name, so
+    an explicit null is a correction rather than a rejected value."""
+    client.patch(f"/api/v1/invoice-lines/{seed['line_a1']}",
+                 json={"item_name": "Hetzner CX41"}, headers=auth("tokA"))
+
+    body = client.patch(f"/api/v1/invoice-lines/{seed['line_a1']}",
+                        json={"item_name": None}, headers=auth("tokA")).json()
+
+    assert body["item_name"] is None
+    assert _line(engine, seed["line_a1"]).item_name is None
+
+
+def test_the_name_and_the_description_are_corrected_independently(client, seed, engine):
+    """One field was doing both jobs before this; correcting either must not
+    disturb the other, or the split would be cosmetic."""
+    client.patch(f"/api/v1/invoice-lines/{seed['line_a1']}",
+                 json={"item_name": "Hetzner CX41"}, headers=auth("tokA"))
+
+    body = client.patch(f"/api/v1/invoice-lines/{seed['line_a1']}",
+                        json={"description": "Monthly, 8 vCPU"}, headers=auth("tokA")).json()
+
+    assert body["item_name"] == "Hetzner CX41"
+    assert body["description"] == "Monthly, 8 vCPU"
+
+
+def test_correcting_only_the_item_name_leaves_the_conversion_intact(client, seed, engine):
+    """A name is not an input to any conversion, so the base figures stand."""
+    client.patch(f"/api/v1/invoice-lines/{seed['line_a1']}",
+                 json={"item_name": "Hetzner CX41"}, headers=auth("tokA"))
+
+    assert _line(engine, seed["line_a1"]).base_amount == Decimal("80.00")
+
+
+def test_a_category_cannot_be_smuggled_alongside_an_item_name(client, seed, engine):
+    """The whole payload is refused, not the offending key alone — a partially
+    applied correction is the outcome `extra="forbid"` exists to prevent."""
+    res = client.patch(f"/api/v1/invoice-lines/{seed['line_a2']}",
+                       json={"item_name": "Support plan", "level_2": "Facilities"},
+                       headers=auth("tokA"))
+
+    assert res.status_code == 422
+    line = _line(engine, seed["line_a2"])
+    assert line.level_2 == "Technology"
+    assert line.item_name is None
+
+
 def test_a_category_cannot_be_smuggled_through_the_value_endpoint(client, seed, engine):
     """Silently ignoring it would read to the caller as a category edit that did
     nothing. A category is corrected through `verify`, which resolves it against

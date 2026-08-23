@@ -23,6 +23,7 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
     id: 'l2',
     invoice_id: 'inv1',
     company_id: 'c1',
+    item_name: null,
     description: 'Office chairs',
     quantity: '2',
     unit: null,

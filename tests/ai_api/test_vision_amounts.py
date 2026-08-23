@@ -92,14 +92,25 @@ def test_a_line_whose_amount_cannot_be_read_is_kept_without_one():
 
     assert [l.description for l in result.line_items] == ["Readable", "Unreadable"]
     assert [l.amount for l in result.line_items] == [58.0, None]
+    # `to_line_item` transcribes; it does not decide which column the text
+    # belongs in. That is `_name_and_description`'s job, at the point of
+    # persistence, and it is tested in `test_document_item_name.py`.
 
 
-def test_a_line_with_no_description_is_still_a_line():
+def test_a_line_with_no_text_is_still_a_line():
+    """A priced row the model could not name is kept for its amount.
+
+    Its name is null rather than `""` — the empty string was an artefact of
+    `LineItem.description` having been a required `str`, and it read as "the
+    document stated nothing here" when what it meant was "the field had to hold
+    something". Reconciliation is what notices a nameless line, not a sentinel.
+    """
     reply = _reply([{"description": None, "amount": "58,00"}])
 
     result = look_at("", [_page()], complete=lambda m: reply)
 
-    assert result.line_items[0].description == ""
+    assert result.line_items[0].item_name is None
+    assert result.line_items[0].description is None
     assert result.line_items[0].amount == 58.0
 
 

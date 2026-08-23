@@ -456,6 +456,20 @@ def test_sideloaded_bill_lines_become_invoice_lines(connector):
         assert line.native_account_code == codes.get(raw["accountId"])
 
 
+def test_a_bill_lines_text_names_the_item(connector):
+    """Billy's bill line carries exactly one free-text field, and it names what
+    was bought — 'Company Free plan fee', not prose about it. It therefore lands
+    in `item_name`, leaving `description` for a connector that genuinely states
+    both. None does today, and copying the same string into each would make the
+    distinction meaningless."""
+    source = load("bill_single")
+    scan = connector.fetch_invoice_scan(_bill_voucher(connector))
+
+    for line, raw in zip(scan.lines, source["billLines"]):
+        assert line.item_name == raw["description"]
+        assert line.description is None
+
+
 def test_the_scan_maps_the_money_from_the_bill(connector):
     bill = load("bill_single")["bill"]
     scan = connector.fetch_invoice_scan(_bill_voucher(connector))

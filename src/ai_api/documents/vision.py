@@ -141,7 +141,16 @@ class VisionLine(BaseModel):
     the only reason `5.780,00` stops coming back as `5.78`.
     """
 
-    description: str | None = Field(default=None, description="What was bought, as printed.")
+    item_name: str | None = Field(
+        default=None,
+        description="The name of what was bought, as printed — the thing itself, "
+        "without quantity, price or terms.",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Any further prose printed on the line beyond its name. Null "
+        "when the line prints only one text.",
+    )
     quantity: str | float | None = Field(default=None, description="Quantity, exactly as printed.")
     unit_type: str | None = Field(default=None, description="Unit of measure, e.g. 'pcs', 'hours'.")
     unit_price: str | float | None = Field(default=None, description="Price per unit, exactly as printed.")
@@ -156,7 +165,8 @@ class VisionLine(BaseModel):
     def to_line_item(self) -> LineItem:
         """The domain line. An unreadable amount becomes no amount, never a guess."""
         return LineItem(
-            description=_clean(self.description) or "",
+            item_name=_clean(self.item_name),
+            description=_clean(self.description),
             quantity=parse_amount(self.quantity),
             unit_type=_clean(self.unit_type),
             unit_price=parse_amount(self.unit_price),
@@ -198,8 +208,17 @@ _INSTRUCTIONS = (
     "image. Transcribe what the document states — do not infer, compute or "
     "invent anything it does not show.\n"
     "\n"
-    "Return every line item visible here, with its description and its amount. "
+    "Return every line item visible here, with its name and its amount. "
     "Leave any field this page does not state as null.\n"
+    "\n"
+    # The split is stated as a fallback rather than a demand. Asking for two
+    # texts where the document prints one invites the model to manufacture the
+    # second, and an invented description is worse than an absent one.
+    "A line's name is the product or service itself — 'Figma Organization seat', "
+    "'Consulting', 'DJI Osmo Nano 128GB' — with no quantity, price, date or "
+    "contract term in it. If the line prints further prose beyond that name, put "
+    "it in the description. If the line prints only one text, put it in the name "
+    "and leave the description null. Never invent a description.\n"
     "\n"
     # Deliberately NOT told to exclude summary rows. That instruction was tried
     # and made things worse: on a DSB receipt it pushed the model off the product
@@ -321,7 +340,16 @@ def _merge(pages: list[VisionPage]) -> ExtractedInvoice:
     # prints its items early and its total last, and a page-local rule would
     # keep the total whenever it arrived alone on the final page.
     stated = [item for page in pages for item in page.line_items]
-    itemised = [item for item in stated if not _is_summary_row(item.description)]
+    # Judged on the line's **label**, wherever the model put it. The name is
+    # where a line's text now lands and `description` is null on nearly every
+    # one, so reading `description` alone silently switched this filter off:
+    # every summary row survived, and a receipt counted its item *and* its
+    # total — the exact doubling the comment above describes, reintroduced by
+    # moving the text one field to the left.
+    itemised = [
+        item for item in stated
+        if not _is_summary_row(item.item_name or item.description)
+    ]
     # …unless the totals were all we were given. The filter exists to stop
     # double-counting, and with nothing left to double-count it has no work to
     # do: a lone total can only equal the document's own total, so keeping it

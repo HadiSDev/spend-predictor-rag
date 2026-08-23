@@ -218,6 +218,12 @@ class InvoiceLineRead(BaseModel):
     id: str
     invoice_id: str
     company_id: str
+    # What was bought, named. Carried beside `description` rather than instead
+    # of it: the name is the field every line is expected to have, and the
+    # description is prose a supplier printed sometimes. Which to show is the
+    # client's decision — only it knows how much room it has — so both are sent
+    # and neither is folded into the other.
+    item_name: str | None = None
     description: str | None = None
     quantity: Decimal | None = None
     # What `quantity` counts ('pcs', 'hours'). Null is the ordinary case — an
@@ -330,6 +336,7 @@ class InvoiceLineUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    item_name: str | None = None
     description: str | None = None
     quantity: Decimal | None = None
     unit: str | None = None
@@ -367,6 +374,11 @@ class InvoiceUpdate(BaseModel):
     on this document".
     """
 
+    # The number printed on the scan. This is the one a human reconciles
+    # against, and the one a model may have misread a digit of, so it is
+    # correctable. `invoice_number` beside it stays the ERP's own as-posted
+    # value — still correctable, but no longer the field a reviewer is shown.
+    document_invoice_number: str | None = None
     invoice_number: str | None = None
     invoice_date: date | None = None
     currency: str | None = None

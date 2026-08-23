@@ -62,7 +62,12 @@ from web_api.db.models.enums import EXPENSE_ACCOUNT_TYPE
 from ..persistence import LineGroundTruth
 from ..procurement_agent import recommender
 from ..redundancy import detector as redundancy
-from web_api.audit import LINE_AUDIT_FIELDS, diff_changes, record_audit
+from web_api.audit import (
+    LINE_AUDIT_FIELDS,
+    LINE_VALUE_AUDIT_FIELDS,
+    diff_changes,
+    record_audit,
+)
 from web_api.db.models.audit_log import SYSTEM_ACTOR
 from web_api.db.session import engine
 from web_api.fx import CONVERTED, UNCHANGED, UNCONVERTED, FxService
@@ -99,11 +104,17 @@ _VOIDED_ENTRY_FIELDS = (
 
 # Auditing a removal by diffing the line against nothing yields everything it
 # held, which is the only record it ever existed. Mirrors
-# `documents/replace.py::_REMOVED_FIELDS` and for the same reason: `description`
+# `documents/replace.py::_REMOVED_FIELDS` and for the same reason: `item_name`
 # and `amount` say *which* line went, `verified_fields` says whether anyone had
 # settled any of it, and the categorization is what a human may have supplied.
+#
+# Splatted from `LINE_VALUE_AUDIT_FIELDS` rather than hand-listed. It was
+# hand-listed, and the copy is exactly how a correctable field goes unrecorded:
+# adding one to the audit set reached `_REMOVED_FIELDS`, which splats, and
+# silently missed this one, which did not — so the same line withdrawn by a sync
+# lost the value that an extraction would have preserved.
 _WITHDRAWN_FIELDS = (
-    "description", "quantity", "unit", "unit_price", "amount",
+    *LINE_VALUE_AUDIT_FIELDS,
     "native_account_code", "origin", "sequence", "verified_fields",
     *LINE_AUDIT_FIELDS,
 )
@@ -497,7 +508,12 @@ def _persist_invoices(
             # bottom, and the row's random id would scramble it.
             lrow.sequence = idx
             assign_line = _assigner(session, lrow, hard_reset)
-            assign_line("description", line.description)
+            # A connector states one text and it names the item. `description`
+            # stays null unless a connector genuinely states prose apart from
+            # the name — none does today, and copying the same string into both
+            # would make the distinction meaningless on the day it landed.
+            assign_line("item_name", line.item_name or line.description)
+            assign_line("description", line.description if line.item_name else None)
             assign_line("quantity", _dec(line.quantity))
             assign_line("unit", line.unit)
             assign_line("unit_price", _dec(line.unit_price))
@@ -760,6 +776,7 @@ def _persist_standin_lines(
     fx: FxService,
     base_currency: str,
     fx_counts: dict[str, int],
+    hard_reset: bool = False,
 ) -> int:
     """Stand a line in for every expense posting on an invoice that has none.
 
@@ -830,10 +847,24 @@ def _persist_standin_lines(
             # Stand-ins have no document order to preserve, so they take the
             # posting order — stable across re-syncs, which is what matters.
             lrow.sequence = seq
+            # Through `_assigner`, like the ERP-line path above, so a field a
+            # human settled is not overwritten. This path assigned directly
+            # until now, which made the per-field guarantee a half-truth: the
+            # API marked a reviewer's correction verified and the very next sync
+            # wrote over it, on the one line kind most likely to need correcting.
+            assign_line = _assigner(session, lrow, hard_reset)
             # Signed, exactly as `_net_spend` reads a posting: a credit on an
             # expense account is a refund and the line is negative.
-            lrow.amount = (entry.debit_amount or _ZERO) - (entry.credit_amount or _ZERO)
-            lrow.description = entry.description
+            assign_line(
+                "amount",
+                (entry.debit_amount or _ZERO) - (entry.credit_amount or _ZERO),
+            )
+            # The posting's memo is the only statement of what was bought, so it
+            # names the item. Frequently null — sometimes it is only the
+            # counterparty's name — and null is left as null rather than
+            # inventing a product.
+            assign_line("item_name", entry.description)
+            assign_line("description", None)
             lrow.native_account_code = account_code
             # Status is not reset: a re-sync must not undo a categorization.
             _safe_convert(
@@ -1218,7 +1249,7 @@ def _sync_one(
         # there is nothing to stand in for until they are persisted.
         n_standin = _persist_standin_lines(
             session, company_id, set(voucher_invoice_map.values()),
-            fx, base_currency, fx_counts,
+            fx, base_currency, fx_counts, hard_reset,
         )
         n_lines += n_standin
         logger.info("    persisted %d invoices, %d lines (%d standing in for a posting), "

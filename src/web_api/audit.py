@@ -26,7 +26,7 @@ LINE_AUDIT_FIELDS = (
 # These go through `PATCH /invoice-lines/{id}`; the categorization goes through
 # `verify`, which resolves it against the company's spend tree.
 LINE_VALUE_AUDIT_FIELDS = (
-    "description", "quantity", "unit", "unit_price", "amount",
+    "item_name", "description", "quantity", "unit", "unit_price", "amount",
 )
 
 # The line's stored conversion, cleared whenever a correction changes `amount`
@@ -45,7 +45,8 @@ LINE_BASE_FX_FIELDS = (
 # human may correct therefore has to be in this tuple; one omitted here is one
 # whose original value is gone for good.
 INVOICE_AUDIT_FIELDS = (
-    "invoice_number", "invoice_date", "currency", "total", "tax", "vendor_id",
+    "document_invoice_number", "invoice_number", "invoice_date", "currency",
+    "total", "tax", "vendor_id",
     "supplier_name", "supplier_country_code", "supplier_vat_number",
 )
 

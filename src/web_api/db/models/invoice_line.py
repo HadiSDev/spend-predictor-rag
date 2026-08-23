@@ -15,6 +15,18 @@ class InvoiceLine(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     company_id: str = Field(sa_type=String, foreign_key="companies.id", nullable=False)
     invoice_id: str = Field(sa_type=String, foreign_key="invoices.id", nullable=False)
+    # What was bought, named. Short, expected on every line, and the value a
+    # supplier comparison is actually about: "Figma Organization seat" is
+    # comparable across suppliers in a way that a sentence of prose is not.
+    #
+    # Separate from `description` below because one field was doing both jobs.
+    # Nullable despite being the always-present one: a stand-in line is built
+    # from a ledger memo that is itself frequently null, and a NOT NULL column
+    # would force the sync to invent a name.
+    item_name: Optional[str] = Field(sa_type=String, nullable=True)
+    # Supplementary prose the supplier printed, when it printed any. Frequently
+    # absent, and nothing downstream may assume it is present. A source stating
+    # only one text puts it in `item_name`, not here.
     description: Optional[str] = Field(sa_type=String, nullable=True)
     quantity: Optional[Decimal] = Field(sa_type=Numeric(12, 4), nullable=True)
     # The unit `quantity` is counted in ('pcs', 'hours', 'kg', 'months'). A bare

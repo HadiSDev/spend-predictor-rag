@@ -67,6 +67,7 @@ import {
   FormMessage,
   IconButton,
   Input,
+  CurrencyInput,
   NumberInput,
   Popover,
   PopoverContent,
@@ -220,6 +221,7 @@ function UiShowcase() {
   const toast = useToast()
   const [date, setDate] = React.useState<Date | undefined>()
   const [amount, setAmount] = React.useState<string>('12500')
+  const [total, setTotal] = React.useState<number | null>(1234.5)
 
   return (
     <AppShell
@@ -413,6 +415,18 @@ function UiShowcase() {
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium">Invoice date</label>
               <DatePicker value={date} onChange={setDate} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium">Total (DKK)</label>
+              <CurrencyInput currency="DKK" value={total} onChange={setTotal} />
+              <p className="text-xs text-muted-foreground">
+                Emits {total === null ? 'null' : `the number ${total}`} — never a
+                formatted string, and never NaN.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium">Total (EUR)</label>
+              <CurrencyInput currency="EUR" value={total} onChange={setTotal} />
             </div>
           </div>
         </Section>

@@ -14,6 +14,7 @@ export { IconButton, type IconButtonProps } from './icon-button'
 export { CodeInput, type CodeInputProps } from './code-input'
 export { Input, inputClassName } from './input'
 export { NumberInput, type NumberInputProps } from './number-input'
+export { CurrencyInput, type CurrencyInputProps } from './currency-input'
 export { Textarea } from './textarea'
 export {
   Field,

@@ -112,7 +112,7 @@ class MockErpConnector(HttpErpConnector):
         lines = [
             ErpInvoiceLineData(
                 line_erp_id=str(ln.get("lineNumber", "")),
-                description=ln.get("description", ""),
+                item_name=ln.get("description") or None,
                 quantity=ln.get("quantity"),
                 unit_price=ln.get("unitPrice"),
                 amount=ln.get("netAmount", 0),

@@ -22,7 +22,10 @@ from sqlmodel import Session, select
 
 from ai_api.sync import runner
 from web_api.connectors.base import ErpAccountData, ErpEntryData, ErpInvoiceData
-from web_api.db.models import DocStatus, ErpEntry, Invoice, InvoiceLine, LineOrigin
+from web_api.db.models import (
+    AuditLog, DocStatus, ErpEntry, Invoice, InvoiceLine, LineOrigin,
+)
+from web_api.db.models.audit_log import SYSTEM_ACTOR
 
 # A chart that actually declares account types — the module default leaves them
 # null, which is what every pre-existing test is pinned against.
@@ -115,7 +118,86 @@ def test_a_scanless_voucher_yields_one_line_per_expense_posting(engine, make_ten
     (line,) = lines
     assert line.origin == LineOrigin.ENTRY_FALLBACK
     assert line.amount == Decimal("800.00")
-    assert line.description == "Cloud hosting March"
+    # The posting's memo names the item. It is the only statement of what was
+    # bought on a scanless voucher, and `description` stays null because the
+    # posting carries no prose beyond it.
+    assert line.item_name == "Cloud hosting March"
+    assert line.description is None
+
+
+def test_a_corrected_standin_line_survives_the_next_sync(engine, make_tenant, scanless):
+    """The guarantee the rest of the system makes, finally kept on this path.
+
+    This path assigned its fields directly, bypassing `_assigner`, so the API
+    marked a reviewer's correction verified and the very next sync wrote over
+    it — on the line kind *most* likely to need correcting, since a stand-in's
+    text is a bookkeeper's memo rather than a statement of what was bought.
+    """
+    tenant = make_tenant("Acme")
+    runner.run_sync()
+
+    (found,) = _lines(engine, tenant["company_id"])
+    with Session(engine) as s:
+        line = s.get(InvoiceLine, found.id)
+        line.item_name = "Hetzner CX41, March"
+        line.verified_fields = ["item_name"]
+        s.add(line)
+        s.commit()
+
+    runner.run_sync()
+
+    (line,) = _lines(engine, tenant["company_id"])
+    assert line.item_name == "Hetzner CX41, March"
+
+
+def test_an_untouched_standin_line_still_refreshes(engine, make_tenant, scanless):
+    """Per field, not per row: nobody spoke for this one, so the ERP still wins.
+    A guard that froze the whole line would be the opposite failure."""
+    tenant = make_tenant("Acme")
+    runner.run_sync()
+
+    scanless.entries = [
+        _entry("E-1", "6010", debit=800.0, description="Cloud hosting April"),
+        _entry("E-2", "2610", debit=200.0, description="VAT 25%"),
+        _entry("E-3", "8010", credit=1000.0, description="Contoso ApS"),
+    ]
+    runner.run_sync()
+
+    (line,) = _lines(engine, tenant["company_id"])
+    assert line.item_name == "Cloud hosting April"
+
+
+def test_a_hard_reset_still_lets_the_erp_win_over_a_standin_correction(
+    engine, make_tenant, scanless
+):
+    """The single documented override, and it stays audited so the human's
+    value is recoverable rather than merely gone."""
+    tenant = make_tenant("Acme")
+    runner.run_sync()
+
+    (found,) = _lines(engine, tenant["company_id"])
+    line_id = found.id
+    with Session(engine) as s:
+        line = s.get(InvoiceLine, line_id)
+        line.item_name = "Hetzner CX41, March"
+        line.verified_fields = ["item_name"]
+        s.add(line)
+        s.commit()
+
+    runner.run_sync(hard_reset=True)
+
+    (line,) = _lines(engine, tenant["company_id"])
+    assert line.item_name == "Cloud hosting March"
+    assert "item_name" not in line.verified_fields
+
+    with Session(engine) as s:
+        rows = s.exec(
+            select(AuditLog).where(
+                AuditLog.entity_id == line_id, AuditLog.action == "hard_reset"
+            )
+        ).all()
+    assert rows, "an overwrite of a human's value must stay recoverable"
+    assert rows[0].actor == SYSTEM_ACTOR
 
 
 def test_a_split_account_voucher_yields_a_line_per_expense_posting(

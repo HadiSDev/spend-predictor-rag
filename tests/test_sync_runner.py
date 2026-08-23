@@ -369,7 +369,9 @@ def test_a_posting_links_to_the_invoice_line_it_came_from(sqlite_engine):
         e1 = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == "E1")).one()
         line = s.get(InvoiceLine, e1.source_invoice_line_id)
         assert line is not None
-        assert line.description == "Cloud server - monthly hosting"
+        # A bill line states one text and it names the item.
+        assert line.item_name == "Cloud server - monthly hosting"
+        assert line.description is None
         assert line.invoice_id == e1.source_invoice_id
 
 

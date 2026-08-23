@@ -12,6 +12,7 @@ import {
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
+  CurrencyInput,
   DataTable,
   DatePicker,
   Dialog,
@@ -206,6 +207,75 @@ describe('NumberInput', () => {
       />,
     )
     expect(screen.getByDisplayValue('kr 1,234,567.50')).toBeTruthy()
+  })
+})
+
+/**
+ * `CurrencyInput` is what every money field in the app uses. Its whole purpose
+ * is that a caller never parses: it takes the API's Decimal-as-string and hands
+ * back a number or null, so the `Number(input.value)` that turned `1,5` into
+ * `NaN` — and then into a JSON `null` that erased the figure — has nowhere left
+ * to live.
+ */
+describe('CurrencyInput', () => {
+  it('formats a stored decimal string for its currency', () => {
+    render(<CurrencyInput currency="DKK" value="1234.50000" onChange={() => {}} readOnly />)
+    // Two decimals, grouped, and not the raw `1234.50000` the column holds.
+    expect(screen.getByDisplayValue(/1,234\.50/)).toBeTruthy()
+  })
+
+  it('hands the caller a number, never the formatted string', () => {
+    const onChange = vi.fn()
+    render(<CurrencyInput currency="DKK" value={null} onChange={onChange} />)
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '1234.5' } })
+
+    expect(onChange).toHaveBeenCalled()
+    expect(typeof onChange.mock.lastCall?.[0]).toBe('number')
+    expect(onChange.mock.lastCall?.[0]).toBe(1234.5)
+  })
+
+  it('reports an empty field as null rather than zero', () => {
+    const onChange = vi.fn()
+    render(<CurrencyInput currency="DKK" value={12} onChange={onChange} />)
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '' } })
+
+    expect(onChange).toHaveBeenLastCalledWith(null)
+  })
+
+  it('never reports NaN, whatever is typed', () => {
+    const onChange = vi.fn()
+    render(<CurrencyInput currency="DKK" value={null} onChange={onChange} />)
+
+    for (const typed of ['1,5', 'abc', '.', '-', '1.2.3']) {
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: typed } })
+    }
+
+    for (const call of onChange.mock.calls) {
+      expect(Number.isNaN(call[0])).toBe(false)
+    }
+  })
+
+  it('renders a plain number when the invoice states no currency', () => {
+    render(<CurrencyInput currency={null} value={1234.5} onChange={() => {}} readOnly />)
+    expect(screen.getByDisplayValue('1,234.50')).toBeTruthy()
+  })
+
+  it('keeps a negative, because a credit note reduces spend', () => {
+    const onChange = vi.fn()
+    render(<CurrencyInput currency="DKK" value={null} onChange={onChange} />)
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '-50' } })
+
+    expect(onChange).toHaveBeenLastCalledWith(-50)
+  })
+
+  it('right-aligns with tabular figures, so a column can be scanned', () => {
+    render(<CurrencyInput currency="DKK" value={1} onChange={() => {}} readOnly />)
+    const input = screen.getByRole('textbox')
+    expect(input.className).toContain('text-right')
+    expect(input.className).toContain('tabular-nums')
   })
 })
 

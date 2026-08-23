@@ -542,6 +542,11 @@ export interface InvoiceLineRead {
   id: string
   invoice_id: string
   company_id: string
+  /** What was bought, named. The line's primary label; `description` is prose
+   *  the supplier printed alongside it, and is frequently null. Which to show
+   *  is the client's call, so the server sends both rather than folding one
+   *  into the other. */
+  item_name: string | null
   description: string | null
   quantity: Money | null
   /** What `quantity` counts — `pcs`, `hours`. Null is the ordinary case: an ERP
@@ -665,6 +670,10 @@ export interface InvoiceDetailRead extends InvoiceRead {
  * details are wrong on this document".
  */
 export interface InvoiceUpdate {
+  /** The number printed on the scan — what a human reconciles against, and
+   *  what a model may have misread. `invoice_number` beside it is the ERP's
+   *  as-posted value, shown as evidence rather than offered for editing. */
+  document_invoice_number?: string | null
   invoice_number?: string | null
   invoice_date?: string | null
   currency?: string | null
@@ -693,6 +702,7 @@ export type InvoiceVerify = InvoiceUpdate
  * ignoring it, so the mistake is loud.
  */
 export interface InvoiceLineUpdate {
+  item_name?: string | null
   description?: string | null
   quantity?: number | null
   unit?: string | null

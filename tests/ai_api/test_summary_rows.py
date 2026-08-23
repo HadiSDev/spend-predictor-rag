@@ -62,6 +62,61 @@ def test_the_dsb_receipt_is_one_line_not_two():
     assert sum(l.amount for l in result.line_items) == 58.0
 
 
+def test_the_dsb_receipt_is_one_line_when_the_model_names_the_item():
+    """The same receipt, in the shape the model returns *now*.
+
+    A line's text moved from `description` to `item_name`, and this filter went
+    on reading `description` — which is null on nearly every line the model
+    produces. The filter silently stopped filtering: the DSB receipt counted
+    `1 Voksen` **and** `Samlet pris`, summed to 116,00 against a 58,00 posting,
+    and was rejected. Two more documents in the live corpus failed the same way,
+    each at exactly twice its own total.
+
+    Every case below duplicates the `description` tests deliberately. The old
+    ones kept passing throughout, which is precisely why they caught nothing.
+    """
+    result = _read([
+        {"item_name": "1 Voksen", "amount": "58,00 kr."},
+        {"item_name": "Samlet pris", "amount": "58,00 kr."},
+    ])
+
+    assert [l.item_name for l in result.line_items] == ["1 Voksen"]
+    assert sum(l.amount for l in result.line_items) == 58.0
+
+
+@pytest.mark.parametrize(
+    "label",
+    ["Samlet pris", "I alt", "At betale", "Total", "Grand Total", "Subtotal"],
+)
+def test_a_named_summary_row_is_never_a_line_item(label):
+    result = _read([
+        {"item_name": "Widget", "amount": "10,00"},
+        {"item_name": label, "amount": "10,00"},
+    ])
+
+    assert [l.item_name for l in result.line_items] == ["Widget"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["Total Station Kit", "Sumatra coffee", "Subtotal Analyser 3000"],
+)
+def test_a_named_product_containing_a_summary_word_is_kept(name):
+    """Matched on the whole label, never as a substring — the rule the
+    `description` tests pin, holding for the field that carries the text now."""
+    result = _read([{"item_name": name, "amount": "10,00"}])
+
+    assert [l.item_name for l in result.line_items] == [name]
+
+
+def test_a_lone_named_total_is_still_kept():
+    """The filter exists to stop double-counting; with nothing to double-count
+    it has no work to do, and dropping the row throws the document away."""
+    result = _read([{"item_name": "Samlet pris", "amount": "58,00 kr."}])
+
+    assert [l.item_name for l in result.line_items] == ["Samlet pris"]
+
+
 @pytest.mark.parametrize(
     "label",
     [

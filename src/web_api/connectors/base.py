@@ -31,7 +31,13 @@ class ErpVendorData(BaseModel):
 
 class ErpInvoiceLineData(BaseModel):
     line_erp_id: str | None = None
-    description: str
+    # What the line names as bought. An ERP bill line carries exactly one
+    # free-text field and this is it — `description` below stays for the rare
+    # connector that states prose separately, and is null for every one we have.
+    # A connector stating only `description` has still named the item; the sync
+    # applies that fallback rather than leaving the always-present field empty.
+    item_name: str | None = None
+    description: str | None = None
     quantity: float | None = None
     # What `quantity` counts, when the ERP says. Most do not — Billy's bill line
     # carries a quantity and no unit field at all — so None is the norm and is
