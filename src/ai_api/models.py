@@ -33,15 +33,44 @@ class LineItem(BaseModel):
     unit_price: float | None = Field(
         default=None, description="Price per unit, excluding VAT, if stated."
     )
+    # The line's money column, in whatever convention the document printed it.
+    # It said "excluding VAT" until an Aquatuning invoice printed its prices
+    # VAT-inclusive and the model — correctly — transcribed what it saw. A
+    # description that contradicts the document is not a constraint on the
+    # document; the honest field is "the figure the money column carries", with
+    # `subtotal` beside it for the net when the page states both.
     amount: float | None = Field(
         default=None,
-        description="Net line amount (quantity x unit_price), excluding VAT.",
+        description="The line's total in money, exactly as the document's amount "
+        "column states it — VAT-inclusive or not, whichever the document prints.",
+    )
+    # -- What the document said about this line's tax, where it said it -------
+    #
+    # All optional, and every one is genuinely absent somewhere: a receipt
+    # prints one number per line and nothing else. Read, never inferred — the
+    # inference is exactly what rejected a correctly-read invoice.
+    subtotal: float | None = Field(
+        default=None,
+        description="The line's amount NET of VAT, when the document prints a "
+        "net figure separately from a gross one. Null when it prints only one.",
+    )
+    tax_amount: float | None = Field(
+        default=None,
+        description="The VAT charged on this line in money, if the line states it.",
+    )
+    discount: float | None = Field(
+        default=None,
+        description="A discount stated on this line, as a money amount. Record it "
+        "as its own figure; do not subtract it from the line's total.",
     )
     vat_code: str | None = Field(
         default=None,
         description="VAT category code for the line, e.g. 'S' standard, 'R' reduced, "
         "'Z' zero-rated, 'E' exempt.",
     )
+    # The tax *rate*. Named `vat_rate` because it already existed and is already
+    # extracted; the reference implementation calls the same thing `tax_rate`,
+    # and a second field would be two names for one figure.
     vat_rate: float | None = Field(
         default=None,
         description="VAT rate applied to the line, as a percentage (e.g. 25.0 for 25%).",
@@ -87,8 +116,17 @@ class ExtractedInvoice(BaseModel):
     tax: float | None = Field(
         default=None, description="Total VAT amount across the invoice."
     )
-    total: float = Field(
-        description="Gross invoice total, including VAT (subtotal + tax)."
+    # Optional, and that is a correction rather than a relaxation. The vision
+    # merge had to invent `0.0` for a document stating no total, because a page
+    # is a fragment and the whole-invoice schema demanded one — so "the document
+    # printed no total" and "the document printed zero" arrived here as the same
+    # value. They are different claims, and the reconciliation rule now turns on
+    # exactly which one it is: a stated total is what the lines are judged
+    # against, an absent one falls back to the ledger's figure.
+    total: float | None = Field(
+        default=None,
+        description="Gross invoice total, including VAT (subtotal + tax), as the "
+        "document states it. Null when the document states no total at all.",
     )
 
 

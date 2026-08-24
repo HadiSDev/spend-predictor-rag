@@ -33,6 +33,30 @@ class Invoice(SQLModel, table=True):
     total: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
     tax: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
 
+    # What the *document* said about its own arithmetic, beside the as-posted
+    # figures above — which extraction still never rewrites. The same rule
+    # `document_invoice_number` follows, and for the same reason: when the two
+    # disagree, the disagreement *is* the information, and overwriting either
+    # destroys it.
+    #
+    # This is what makes reconciliation answerable. The rule used to ask whether
+    # the document's lines summed to the *ERP's* total — two systems, two VAT
+    # conventions, one comparison — and rejected correctly-read invoices for
+    # arithmetic that was never wrong.
+    #
+    # Null means the document stated none, never a stated zero: a receipt often
+    # prints no totals block at all, and folding the two together would make a
+    # document nobody could read look like one that balances.
+    #
+    # `document_subtotal` is here for the read side. `InvoiceDetailRead` has to
+    # reproduce the verdict the extraction stage reached, and without the net
+    # figure it would report a gross-printed / net-posted invoice as disagreeing
+    # where the stage said it agreed — the exact drift `web_api/reconcile.py`
+    # exists in one place to prevent.
+    document_total: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
+    document_tax: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
+    document_subtotal: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
+
     # Conversion into the company's base currency, at the rate in force on
     # `invoice_date`. `currency`/`total`/`tax` above stay exactly as posted —
     # they are the evidence these are derived from. Null base fields mean "not

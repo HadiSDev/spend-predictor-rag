@@ -39,6 +39,28 @@ class InvoiceLine(SQLModel, table=True):
     unit: Optional[str] = Field(sa_type=String, nullable=True)
     unit_price: Optional[Decimal] = Field(sa_type=Numeric(12, 4), nullable=True)
     amount: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
+
+    # What the document printed about this line's tax, where it printed it.
+    #
+    # Gross-versus-net is **read, never inferred**. `amount` is the line's money
+    # column in whatever convention the document used, and a page printing both
+    # figures has both taken — so nothing downstream has to decide which one it
+    # is looking at. That decision, made by guessing, is what rejected a
+    # correctly-read Aquatuning invoice whose line prices were VAT-inclusive and
+    # whose posted total was net.
+    #
+    # All null on an ERP stand-in line and on most document lines: a receipt
+    # prints one number per line and nothing else. Absent is not zero.
+    subtotal: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
+    tax_amount: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
+    # As a percentage, e.g. 25.000 for 25%. Not a money figure, so it is neither
+    # converted nor summed.
+    tax_rate: Optional[Decimal] = Field(sa_type=Numeric(7, 3), nullable=True)
+    # Recorded as its own figure and never subtracted from `amount`: the line's
+    # total stays the figure the document printed, or the row no longer agrees
+    # with the page it was read from.
+    discount: Optional[Decimal] = Field(sa_type=Numeric(14, 2), nullable=True)
+
     native_account_code: Optional[str] = Field(sa_type=String, nullable=True)
 
     # Which source produced this line. Stored rather than inferred: a stand-in

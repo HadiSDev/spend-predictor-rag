@@ -71,6 +71,21 @@ CLERK_SYSTEM_ADMIN_CLAIM = os.getenv("CLERK_SYSTEM_ADMIN_CLAIM", "system_admin")
 DOC_RECONCILE_TOLERANCE_PCT = float(os.getenv("DOC_RECONCILE_TOLERANCE_PCT", "0.01"))
 DOC_RECONCILE_TOLERANCE_ABS = float(os.getenv("DOC_RECONCILE_TOLERANCE_ABS", "1.00"))
 
+# How far a document's lines may be from a total printed on the *same page*.
+#
+# Tighter than the pair above, and deliberately so: those size a comparison
+# between two systems, where a supplier printing gross and a bookkeeper posting
+# net are both correct. This one sizes arithmetic within one source, which ought
+# to be near-exact — and on every real document examined for this rule it was
+# exact to the øre (Aquatuning 88,95 + 15,90 = 104,85; CompuMail 15,07 + 484,00
+# + 39,00 = 538,07; Fuluo US$75,00 + US$38,00 = US$113,00).
+#
+# The absolute floor is 0,10 rather than 0,01 because per-line rounding can
+# drift a cent per line, and a fifteen-line invoice legitimately lands a few
+# cents out. Provisional: sized from five documents, not from a distribution.
+DOC_INTERNAL_TOLERANCE_PCT = float(os.getenv("DOC_INTERNAL_TOLERANCE_PCT", "0.001"))
+DOC_INTERNAL_TOLERANCE_ABS = float(os.getenv("DOC_INTERNAL_TOLERANCE_ABS", "0.10"))
+
 # Historical FX rates (ECB daily reference rates via Frankfurter). Off by
 # default: with FX_ENABLED unset nothing makes an outbound rate request and rows
 # are simply stored unconverted, which is what keeps tests and offline runs

@@ -688,6 +688,17 @@ export interface InvoiceRead {
    *  beside the retrigger action, not only logged. */
   doc_error: string | null
   doc_processed_at: string | null
+  /** What the *document* stated about its own arithmetic, beside the as-posted
+   *  `total`/`tax` — which extraction never rewrites. Both are carried because
+   *  which to show is presentation, and collapsing them server-side would throw
+   *  away the disagreement, which is the information. */
+  document_total: Money | null
+  document_tax: Money | null
+  /** Do the two describe the same invoice? **Null when the document stated no
+   *  total** — "nothing to compare" and "compared and agreed" are different
+   *  claims, and a client that cannot tell them apart presents an unread
+   *  document as a verified one. Gross against net is not a disagreement. */
+  totals_agree: boolean | null
 }
 
 /** `InvoiceRead` plus its lines — the shape a voucher's detail panel needs. */

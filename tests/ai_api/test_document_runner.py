@@ -613,3 +613,179 @@ def test_a_document_stating_no_number_stores_none(engine, synced):
     docs.run_documents(extract=extract)
 
     assert _invoice(engine).document_invoice_number is None
+
+
+# -- A charge stated in the totals block is an ordinary line ------------------
+
+
+def _extractor_with_charge():
+    """Three products and the freight the totals block charged for them."""
+    def _extract(payload: DocumentPayload) -> ExtractedLines:
+        return ExtractedLines(
+            lines=[
+                LineItem(item_name="Cloud hosting March", amount=800.0),
+                LineItem(item_name="Shipping", amount=200.0),
+            ],
+            currency="DKK",
+        )
+
+    return _extract
+
+
+def test_a_charge_line_is_written_like_any_other(engine, synced):
+    """No flag, no marker, nothing that could gate it downstream.
+
+    Whether the money went on a product or on delivering the product is a
+    categorization question. A second kind of line would have to be understood
+    by the categorizer, the reports, the reconciler and the entry payload, and
+    the one that forgot would be a silent bug.
+    """
+    counts = docs.run_documents(extract=_extractor_with_charge())
+    assert counts["processed"] == 1
+
+    lines = sorted(_lines(engine), key=lambda l: l.sequence)
+    assert [l.item_name for l in lines] == ["Cloud hosting March", "Shipping"]
+
+    product, shipping = lines
+    assert shipping.origin == product.origin == LineOrigin.DOCUMENT_AI
+    assert shipping.status == product.status == LineStatus.UNCATEGORIZED
+    assert shipping.amount == Decimal("200.00")
+
+
+def test_a_charge_line_is_picked_up_by_the_categorizer(engine, synced):
+    """It is `uncategorized` on the invoice the categorizer scopes through, so
+    it is in the work list by construction — which is the point of it not being
+    a special case."""
+    from web_api.db.models import ErpAccount
+
+    docs.run_documents(extract=_extractor_with_charge())
+
+    with Session(engine) as s:
+        integration_id = s.exec(select(ErpAccount.erp_integration_id)).first()
+        # The exact scope `_categorize_pending` uses: an invoice reached through
+        # the integration's entries, and its lines that are still uncategorized.
+        invoice_ids = list(
+            s.exec(
+                select(ErpEntry.source_invoice_id)
+                .join(ErpAccount, ErpEntry.erp_account_id == ErpAccount.id)
+                .where(
+                    ErpAccount.erp_integration_id == integration_id,
+                    ErpEntry.source_invoice_id.is_not(None),
+                )
+                .distinct()
+            ).all()
+        )
+        pending = list(
+            s.exec(
+                select(InvoiceLine).where(
+                    InvoiceLine.invoice_id.in_(invoice_ids),
+                    InvoiceLine.status == LineStatus.UNCATEGORIZED,
+                )
+            ).all()
+        )
+
+    assert sorted(l.item_name for l in pending) == ["Cloud hosting March", "Shipping"]
+
+
+# -- The document's own figures, stored beside the ledger's -------------------
+
+
+def _aquatuning():
+    """`F10566081`, with its real figures.
+
+    Three lines printed VAT-inclusive, shipping stated only in the totals block,
+    the document's own total 104,85 — against a Danish posting of 1000,00 that
+    disagrees with all of it. The disagreement is the point.
+    """
+    def _extract(payload: DocumentPayload) -> ExtractedLines:
+        return ExtractedLines(
+            currency="DKK",
+            total=104.85, tax=20.97, subtotal=83.88,
+            lines=[
+                LineItem(item_name="Double Protect Ultra", subtotal=29.31,
+                         tax_amount=7.33, vat_rate=25.0, amount=36.64),
+                LineItem(item_name="Loop Cleaner", amount=31.41, discount=1.50),
+                LineItem(item_name="Wärmeleitpaste", amount=20.90),
+                LineItem(item_name="Shipping", amount=15.90),
+            ],
+        )
+
+    return _extract
+
+
+def test_the_documents_totals_are_stored_and_the_posted_ones_are_not_touched(
+    engine, synced
+):
+    """The rule `document_invoice_number` already follows. When the two
+    disagree, the disagreement *is* the information."""
+    docs.run_documents(extract=_aquatuning())
+
+    invoice = _invoice(engine)
+    assert invoice.document_total == Decimal("104.85")
+    assert invoice.document_tax == Decimal("20.97")
+    assert invoice.document_subtotal == Decimal("83.88")
+    # As the ERP posted them, untouched.
+    assert invoice.total == Decimal("1000.00")
+    assert invoice.tax == Decimal("200.00")
+
+
+def test_a_line_keeps_the_tax_figures_its_document_printed(engine, synced):
+    docs.run_documents(extract=_aquatuning())
+
+    lines = {l.item_name: l for l in _lines(engine)}
+    protect = lines["Double Protect Ultra"]
+    assert protect.subtotal == Decimal("29.31")
+    assert protect.tax_amount == Decimal("7.33")
+    assert protect.tax_rate == Decimal("25.000")
+    assert protect.amount == Decimal("36.64"), "the printed total is not rewritten"
+
+    assert lines["Loop Cleaner"].discount == Decimal("1.50")
+    # A line printing one figure prints one. Absent is not zero.
+    assert lines["Wärmeleitpaste"].subtotal is None
+    assert lines["Wärmeleitpaste"].tax_amount is None
+
+
+def test_a_ledger_disagreement_is_accepted_and_flagged(engine, synced):
+    """The lines add up to the page they came from; the ledger says 1000,00.
+
+    Rejecting means the reviewer never sees the lines and cannot tell a
+    misreading from a mis-posting — which is the position this invoice has been
+    in. The lines are written and the disagreement is recorded instead.
+    """
+    counts = docs.run_documents(extract=_aquatuning())
+
+    assert counts == {"processed": 1, "failed": 0, "rejected": 0}
+
+    invoice = _invoice(engine)
+    assert invoice.doc_status == DocStatus.PROCESSED
+    assert invoice.doc_error is None
+    assert len(_lines(engine)) == 4
+
+
+def test_lines_that_miss_the_documents_own_total_are_still_rejected(engine, synced):
+    """The internal check is what rejection is for, and it is stricter than the
+    rule it replaces — the tolerance is against a figure from the same page."""
+    def _extract(payload: DocumentPayload) -> ExtractedLines:
+        return ExtractedLines(
+            currency="DKK", total=104.85,
+            lines=[LineItem(item_name="Loop Cleaner", amount=31.41)],
+        )
+
+    counts = docs.run_documents(extract=_extract)
+
+    assert counts["rejected"] == 1
+    invoice = _invoice(engine)
+    assert invoice.doc_status == DocStatus.FAILED
+    assert "document" in invoice.doc_error.lower()
+    # The stand-in line stands. A coarse answer beats no answer, and the
+    # voucher's spend must not vanish from the reports over a document problem.
+    assert [l.origin for l in _lines(engine)] == [LineOrigin.ENTRY_FALLBACK]
+
+
+def test_a_document_stating_no_total_falls_back_to_the_ledger(engine, synced):
+    """A receipt often prints no totals block, and then the ERP's figure is the
+    only one there is. The new path is an addition, not a replacement."""
+    counts = docs.run_documents(extract=_extractor("1000.00"))
+
+    assert counts["processed"] == 1
+    assert _invoice(engine).document_total is None

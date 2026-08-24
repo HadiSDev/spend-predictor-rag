@@ -40,6 +40,29 @@ logger = logging.getLogger("ai_api.documents")
 #: Media types whose text layer we try first.
 _PDF_MEDIA_TYPES = {"application/pdf", "application/x-pdf"}
 
+#: Charges printed *outside* the line table are still spend, and both paths say
+#: so in the same words. €15,90 of freight on an Aquatuning invoice existed only
+#: in the totals block: it was dropped on the floor — money no report could see
+#: — and it was simultaneously why the extraction could not reconcile, because
+#: no set of line items can sum to a total that includes a charge none of them
+#: state.
+#:
+#: Shared by the text and vision prompts deliberately. Two copies would drift,
+#: and the symptom would be scanned invoices losing freight that text ones keep,
+#: with nothing in the product saying why.
+#:
+#: A **discount** is excluded in the same breath, because the rule invites the
+#: mistake: it reduces spend rather than being spend, and a negative line would
+#: flow into every report as a category with negative spend.
+TOTALS_BLOCK_CHARGES = (
+    "A charge printed in or beside the totals block — shipping, freight, "
+    "postage, packing, handling, a payment or card fee, a surcharge — is a line "
+    "item like any other, even though it sits outside the line table. Return it "
+    "as a line, named as the document names it. Do NOT return a discount, a "
+    "rebate or a promotion as a line, and do not return the totals themselves "
+    "(subtotal, VAT, total) as lines: those have fields of their own."
+)
+
 
 class UnsupportedMediaError(Exception):
     """The document is fine; we have no extractor that can read this type."""
@@ -78,6 +101,18 @@ class ExtractedLines(BaseModel):
     #: (Billy's is the bill id when the customer left the field blank), and this
     #: is the number a human reconciles against.
     invoice_number: str | None = None
+    #: What the document says about its **own** arithmetic — the totals block,
+    #: which was read past and discarded until now. That omission is why the
+    #: only figure available to reconcile against belonged to a different
+    #: system: the rule asked whether *the document's lines* added up to *the
+    #: ERP's total*, two sources and two VAT conventions in one comparison.
+    #:
+    #: `None` means the document stated none, which is not the same as a stated
+    #: zero and must never be folded into one — a document nobody could read
+    #: would then look like one that balances.
+    total: float | None = None
+    tax: float | None = None
+    subtotal: float | None = None
 
 
 def _media_type(payload: DocumentPayload) -> str:
@@ -164,7 +199,13 @@ def extract_lines(payload: DocumentPayload, *, kickoff=None, look=None) -> Extra
         run = kickoff or _kickoff_extractor
         extracted = run(
             "Extract the structured invoice data from the following invoice text. "
-            "Leave any missing field null.\n\n" + content.text
+            "Leave any missing field null.\n\n"
+            # In the prompt this function builds rather than in the agent's
+            # backstory, so a test exercising the `kickoff` seam can see it. An
+            # instruction only the agent carries is one no test can reach, and
+            # an unreachable prompt input is one that quietly stops being sent.
+            + TOTALS_BLOCK_CHARGES
+            + "\n\n" + content.text
         )
     else:
         from .vision import look_at
@@ -182,6 +223,14 @@ def extract_lines(payload: DocumentPayload, *, kickoff=None, look=None) -> Extra
         # Blank is not a number. An empty string would read as "the document
         # states its number is ''" rather than "it states none".
         invoice_number=(extracted.invoice_number or "").strip() or None,
+        # Carried through unchanged from whichever path read them. The text path
+        # gets floats from a model reading text this module already normalized;
+        # the vision path gets them through `parse_amount`, which is where a
+        # printed figure becomes a number in this codebase. Neither is
+        # re-interpreted here.
+        total=extracted.total,
+        tax=extracted.tax,
+        subtotal=extracted.subtotal,
     )
 
 

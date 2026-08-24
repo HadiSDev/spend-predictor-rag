@@ -31,6 +31,7 @@ from ..schemas import (
     VoucherDetailRead,
     VoucherGroupRead,
 )
+from ..reconcile import reconcile_lines
 from .invoices import _invoice_read
 
 router = APIRouter(prefix="/api/v1", tags=["erp-entries"])
@@ -641,6 +642,15 @@ def _voucher_detail(
             )
             detail = _invoice_read(invoice, file_row).model_dump()
             detail["lines"] = [_line_read(ln, invoice.currency) for ln in lines]
+            # Computed, not defaulted. Validating an `InvoiceRead` dump into an
+            # `InvoiceDetailRead` took the schema default — `True` — so the
+            # panel asserted that every voucher's lines added up and its "Lines
+            # do not add up" badge could never fire. `GET /invoices/{id}` had
+            # been getting this right the whole time: sharing the *rule* is not
+            # the same as calling it.
+            verdict = reconcile_lines(lines, invoice)
+            detail["lines_reconciled"] = verdict.ok
+            detail["reconciliation_delta"] = verdict.delta
             invoice_payload = InvoiceDetailRead.model_validate(detail)
             if file_row is not None:
                 document = DocumentRead(file_id=file_row.id, filename=file_row.filename)

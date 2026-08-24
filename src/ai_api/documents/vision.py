@@ -62,6 +62,7 @@ from pydantic import BaseModel, Field
 
 from ..models import ExtractedInvoice, LineItem
 from ..parsing import json_format_hint, parse_model
+from .extractor import TOTALS_BLOCK_CHARGES
 from .images import DocumentImage
 from .numbers import parse_amount
 
@@ -157,13 +158,36 @@ class VisionLine(BaseModel):
     amount: str | float | None = Field(
         default=None,
         description="Line total in money, exactly as printed, e.g. '1 919,20' or "
-        "'kr. 58,00'. Never an article number, barcode or product code.",
+        "'kr. 58,00' — VAT-inclusive or not, whichever this line's amount column "
+        "shows. Never an article number, barcode or product code.",
+    )
+    # Read where the document prints them, so nothing downstream has to decide
+    # which convention a column follows. A page printing one number per line
+    # leaves all three null, which is the ordinary case on a receipt.
+    subtotal: str | float | None = Field(
+        default=None,
+        description="This line's amount NET of VAT, exactly as printed, when the "
+        "line shows a net figure separately from a gross one.",
+    )
+    tax_amount: str | float | None = Field(
+        default=None,
+        description="The VAT charged on this line in money, exactly as printed.",
+    )
+    discount: str | float | None = Field(
+        default=None,
+        description="A discount printed on this line, as money, exactly as printed. "
+        "Do not subtract it from the line's amount.",
     )
     vat_code: str | None = Field(default=None, description="VAT category code, if printed.")
     vat_rate: str | float | None = Field(default=None, description="VAT percentage, exactly as printed.")
 
     def to_line_item(self) -> LineItem:
-        """The domain line. An unreadable amount becomes no amount, never a guess."""
+        """The domain line. An unreadable amount becomes no amount, never a guess.
+
+        Every money field goes through `parse_amount`, including the three added
+        for the tax block. Routing one of them around it would put the decision
+        back in the prompt, which is where `5.780,00` became `5.78`.
+        """
         return LineItem(
             item_name=_clean(self.item_name),
             description=_clean(self.description),
@@ -171,6 +195,9 @@ class VisionLine(BaseModel):
             unit_type=_clean(self.unit_type),
             unit_price=parse_amount(self.unit_price),
             amount=parse_amount(self.amount),
+            subtotal=parse_amount(self.subtotal),
+            tax_amount=parse_amount(self.tax_amount),
+            discount=parse_amount(self.discount),
             vat_code=_clean(self.vat_code),
             vat_rate=parse_amount(self.vat_rate),
         )
@@ -246,7 +273,11 @@ _INSTRUCTIONS = (
     "\n"
     "Report the currency the document itself prints as an ISO 4217 code — 'kr' "
     "on a Danish document is 'DKK' — since that may differ from the currency it "
-    "was booked in."
+    "was booked in.\n"
+    "\n"
+    # The same words the text path sends. Two wordings would drift, and the
+    # symptom would be scanned invoices losing freight that text ones keep.
+    + TOTALS_BLOCK_CHARGES
 )
 
 #: Said only when there is more than one page. Telling a single-page document it
@@ -326,10 +357,15 @@ def _merge(pages: list[VisionPage]) -> ExtractedInvoice:
             ),
             None,
         )
-    # `total` and `vendor_name` are mandatory on a whole invoice. No page stating
-    # a total means zero, which reconciliation then rejects against the ledger —
-    # the right outcome, and a visible one.
-    merged["total"] = merged.get("total") or 0.0
+    # `vendor_name` is mandatory on a whole invoice; `total` no longer is.
+    #
+    # It used to be forced to `0.0` here, on the reasoning that reconciliation
+    # would then reject the document against the ledger — visibly, which it was.
+    # But it made "no page stated a total" indistinguishable from "a page stated
+    # zero", and the reconciliation rule now turns on exactly that difference: a
+    # stated total is the figure the lines are judged against, an absent one
+    # falls back to the ledger's. Inventing a zero would send every scan down
+    # the wrong branch of that rule.
     merged["vendor_name"] = merged.get("vendor_name") or ""
     # Never deduplicated: a supplier who billed the same item twice billed it
     # twice, and collapsing that is a correction we have no standing to make.

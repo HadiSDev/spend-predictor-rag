@@ -100,6 +100,8 @@ DOC_MAX_ATTEMPTS = int(os.getenv("DOC_MAX_ATTEMPTS", "3"))
 # rule reads its values there.
 DOC_RECONCILE_TOLERANCE_PCT = _web_config.DOC_RECONCILE_TOLERANCE_PCT
 DOC_RECONCILE_TOLERANCE_ABS = _web_config.DOC_RECONCILE_TOLERANCE_ABS
+DOC_INTERNAL_TOLERANCE_PCT = _web_config.DOC_INTERNAL_TOLERANCE_PCT
+DOC_INTERNAL_TOLERANCE_ABS = _web_config.DOC_INTERNAL_TOLERANCE_ABS
 
 # An invoice claimed for processing whose run died leaves it stuck in
 # `processing` forever. After this long a claim is treated as abandoned and the

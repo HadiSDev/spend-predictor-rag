@@ -416,3 +416,88 @@ def test_a_correction_that_breaks_reconciliation_is_saved_and_reported(client, s
     assert body["lines_reconciled"] is False
     # Signed, so a reader can see which way it is out: the lines are 400 short.
     assert Decimal(body["reconciliation_delta"]) == Decimal("-400.00")
+
+
+# -- The document's totals against the ledger's --------------------------------
+
+
+def _set_document_totals(engine, invoice_id: str, **figures) -> None:
+    with Session(engine) as s:
+        invoice = s.get(Invoice, invoice_id)
+        for field, value in figures.items():
+            setattr(invoice, field, value)
+        s.add(invoice)
+        s.commit()
+
+
+def test_no_document_total_means_nothing_to_compare(client, seed):
+    """Null, not True.
+
+    "Nothing to compare" and "compared and agreed" are different claims, and a
+    client that cannot tell them apart will present an unread document as a
+    verified one.
+    """
+    body = client.get(f"/api/v1/invoices/{seed['inv_a']}", headers=auth("tokA")).json()
+
+    assert body["totals_agree"] is None
+    assert body["document_total"] is None
+
+
+def test_totals_that_agree_say_so(client, seed, engine):
+    _set_document_totals(engine, seed["inv_a"], document_total=Decimal("100.00"))
+
+    body = client.get(f"/api/v1/invoices/{seed['inv_a']}", headers=auth("tokA")).json()
+
+    assert body["totals_agree"] is True
+    assert Decimal(body["document_total"]) == Decimal("100.00")
+
+
+def test_a_disagreement_is_reported_and_both_figures_are_carried(client, seed, engine):
+    """The supplier billed 130,00 and the bookkeeper posted 100,00. Which is
+    right is a human's question — the payload's job is to show both."""
+    _set_document_totals(engine, seed["inv_a"], document_total=Decimal("130.00"),
+                         document_tax=Decimal("26.00"))
+
+    body = client.get(f"/api/v1/invoices/{seed['inv_a']}", headers=auth("tokA")).json()
+
+    assert body["totals_agree"] is False
+    assert Decimal(body["document_total"]) == Decimal("130.00")
+    assert Decimal(body["document_tax"]) == Decimal("26.00")
+    assert Decimal(body["total"]) == Decimal("100.00"), "the posted figure is untouched"
+
+
+def test_gross_against_net_is_not_a_disagreement(client, seed, engine):
+    """A supplier printing VAT-inclusive and a bookkeeper posting VAT-exclusive
+    describe one invoice. A flag that fires on every cross-border invoice is one
+    a reviewer learns to ignore."""
+    _set_document_totals(engine, seed["inv_a"], document_total=Decimal("125.00"),
+                         document_subtotal=Decimal("100.00"))
+
+    body = client.get(f"/api/v1/invoices/{seed['inv_a']}", headers=auth("tokA")).json()
+
+    assert body["totals_agree"] is True
+
+
+def test_widening_the_tolerance_moves_the_verdict_without_rewriting_a_row(
+    client, seed, engine, monkeypatch
+):
+    """Computed on read, like `category_stale` and `needs_review`. A stored
+    verdict would be a snapshot of a setting, and raising the setting would
+    leave history asserting the old answer."""
+    from web_api import config as web_config
+
+    _set_document_totals(engine, seed["inv_a"], document_total=Decimal("105.00"))
+
+    monkeypatch.setattr(web_config, "DOC_RECONCILE_TOLERANCE_PCT", 0.01)
+    monkeypatch.setattr(web_config, "DOC_RECONCILE_TOLERANCE_ABS", 1.00)
+    strict = client.get(f"/api/v1/invoices/{seed['inv_a']}", headers=auth("tokA")).json()
+    assert strict["totals_agree"] is False
+
+    monkeypatch.setattr(web_config, "DOC_RECONCILE_TOLERANCE_PCT", 0.10)
+    relaxed = client.get(f"/api/v1/invoices/{seed['inv_a']}", headers=auth("tokA")).json()
+    assert relaxed["totals_agree"] is True
+
+    with Session(engine) as s:
+        assert s.get(Invoice, seed["inv_a"]).document_total == Decimal("105.00"), (
+            "nothing was rewritten"
+        )

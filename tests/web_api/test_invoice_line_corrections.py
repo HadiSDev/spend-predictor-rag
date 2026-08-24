@@ -330,3 +330,41 @@ def test_splitting_a_stand_in_line(client, seed, engine):
     assert descriptions == ["Support", "Monitor", "Cables"]
     # 20 + 60 + 20 against a total of 100 — the split reconciles.
     assert detail["lines_reconciled"] is True
+
+
+# -- A charge line is not a second kind of line --------------------------------
+
+
+def test_a_shipping_charge_is_corrected_and_deleted_like_any_other_line(
+    client, seed, engine
+):
+    """Freight extracted from a document's totals block is an ordinary line.
+
+    It carries no flag, so nothing here needs to know it was a charge — which is
+    the whole argument for not making it a special case. The test exists because
+    "indistinguishable downstream" is a claim about *this* boundary, and a gate
+    added later would break it silently.
+    """
+    with Session(engine) as s:
+        invoice_id = s.get(InvoiceLine, seed["line_a1"]).invoice_id
+
+    created = client.post(
+        f"/api/v1/invoices/{invoice_id}/lines",
+        json={"description": "shipping cost incl. VAT", "amount": "15.90"},
+        headers=auth("tokA"),
+    )
+    assert created.status_code == 201
+    charge_id = created.json()["id"]
+
+    corrected = client.patch(
+        f"/api/v1/invoice-lines/{charge_id}",
+        json={"description": "Freight", "amount": "15.90"},
+        headers=auth("tokA"),
+    )
+    assert corrected.status_code == 200
+    assert corrected.json()["description"] == "Freight"
+
+    assert client.delete(
+        f"/api/v1/invoice-lines/{charge_id}", headers=auth("tokA")
+    ).status_code == 204
+    assert _line(engine, charge_id) is None

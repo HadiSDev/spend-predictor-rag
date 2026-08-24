@@ -658,6 +658,25 @@ class InvoiceRead(BaseModel):
     doc_error: str | None = None
     doc_processed_at: datetime | None = None
 
+    # What the *document* stated about its own arithmetic, beside the as-posted
+    # `total`/`tax` above — which extraction never rewrites. Both are carried
+    # because which to show is presentation, and collapsing them server-side
+    # would throw away the disagreement, which is the information.
+    document_total: Decimal | None = None
+    document_tax: Decimal | None = None
+    # Do the two describe the same invoice? **Null when the document stated no
+    # total** — "nothing to compare" and "compared and agreed" are different
+    # claims. Computed on read against the current tolerance, like
+    # `category_stale` and `needs_review`: a stored verdict would be a snapshot
+    # of a setting, and raising the setting would leave history asserting the
+    # old answer.
+    #
+    # Gross against net is *not* a disagreement: a supplier printing
+    # VAT-inclusive and a bookkeeper posting VAT-exclusive describe one invoice,
+    # and a flag that fires on every cross-border invoice is one a reviewer
+    # learns to ignore.
+    totals_agree: bool | None = None
+
 
 class InvoiceDetailRead(InvoiceRead):
     lines: list[InvoiceLineRead] = []

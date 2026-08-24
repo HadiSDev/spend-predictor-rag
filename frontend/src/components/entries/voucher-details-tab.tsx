@@ -18,6 +18,7 @@ import { formatMoney, fromIsoDate, toIsoDate, toNumber } from '#/lib/format'
 import { serverErrorMessage } from '#/lib/form-errors'
 import type { InvoiceDetailRead, InvoiceUpdate, VendorRead } from '#/lib/types'
 import { DocumentProcessing } from './document-processing'
+import { DocumentTotal } from './document-total'
 import { VendorField } from './vendor-field'
 
 export interface VoucherDetailsTabProps {
@@ -470,6 +471,11 @@ export function VoucherDetailsTab({
           </div>
           <ProvenanceBadge source={invoice.source} />
         </div>
+
+        {/* Above the header rather than beside the Total field, so it reads the
+            same to a manager (who sees inputs) and a viewer (who sees evidence
+            text). The disagreement is about the invoice, not about one input. */}
+        <DocumentTotal invoice={invoice} />
 
         {canManage ? (
           <EditableInvoiceHeader

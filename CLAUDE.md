@@ -475,15 +475,19 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   payload's category resolution, and one that forgot would double-count. The
   audit row carries the line's values and categorization instead. Its postings
   survive with `source_invoice_line_id` nulled — the same thing extraction does.
-- **Reconciliation warns, never blocks.** `web_api/reconcile.py` owns the rule
-  (`max(1%, 1.00)` against `total` or `total − tax`) and **both** the document
+- **Reconciliation warns, never blocks.** `web_api/reconcile.py` owns the rule —
+  now a **split** one (see *Document processing*) — and **both** the document
   stage's accept/reject and `InvoiceDetailRead.lines_reconciled` /
   `reconciliation_delta` use it, so an extraction accepted as reconciling is
   never then reported to a reviewer as not reconciling. Computed on read, never
-  stored — the same reasoning as `category_stale`. Extraction still *rejects*: a
-  model producing lines that do not add up has no reviewer behind them, whereas a
-  human mid-way through a multi-line fix must not be blocked by their own
-  unfinished work.
+  stored — the same reasoning as `category_stale`. Extraction still *rejects* a
+  failed **internal** check: a model producing lines that do not add up to their
+  own page has no reviewer behind them, whereas a human mid-way through a
+  multi-line fix must not be blocked by their own unfinished work. Sharing the
+  rule is not the same as calling it: the voucher panel built its invoice payload
+  by validating an `InvoiceRead` dump into an `InvoiceDetailRead`, took the
+  schema default `True`, and its "Lines do not add up" badge could never fire —
+  fixed, and pinned by a test.
 - **A correction clears what it invalidates, and never reconverts inline.**
   Correcting `currency`/`total`/`tax` nulls the invoice's base figures;
   correcting a line's `amount` nulls the line's. The cleared fields ride in the
@@ -535,6 +539,11 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   The Entries table prefers the printed number and keeps the posted one reachable
   when they disagree, because a disagreement means the ERP's is wrong or the scan
   belongs to another invoice.
+- **`InvoiceLine.subtotal` / `tax_amount` / `tax_rate` / `discount`** record what
+  the document printed about that line's tax, so gross-versus-net is read rather
+  than inferred. `amount` is the money column in **whatever convention the
+  document used** — see *Document processing*. All null on a stand-in line and
+  on most document lines: absent is not zero.
 - **`InvoiceLine.sequence`** is the position its source stated. The row id is a
   random UUID, so ordering by it alone scrambles a document — invisible while the
   page listed postings, wrong the moment it lists lines. `id` is the tiebreak.
@@ -569,12 +578,78 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   `POST /invoices/{id}/reprocess` (management), which also resets the attempt
   count — the ceiling is what stopped the stage, and a human asking is new
   information. It 409s with no document, or while `processing`.
-- **An extraction that does not reconcile is rejected**, not flagged. The lines
-  must sum to the invoice's `total` *or* its `total − tax` (documents state
-  either; `ErpAccount.with_vat` describes the account, not the document) within
-  `max(1% , 1.00)`. Lines that miss a line would be categorized, aggregated and
-  surfaced as a savings opportunity with nothing downstream able to tell they
-  were wrong. A rejection keeps the invoice's existing lines.
+- **Two checks, because there are two questions.** The rule used to ask whether
+  *the document's lines* summed to *the ERP's total* — two systems, two VAT
+  conventions, one comparison — and rejected documents that were read perfectly.
+  It splits:
+  1. **Internal** — do the lines sum to the total the document states about
+     **itself**? Arithmetic within one source, with an exact answer, and the only
+     check that **rejects**: failing it means we misread the page. Tolerance
+     `max(0.1%, 0.10)`, much tighter than the cross-source pair, because a
+     document is normally exact to the øre about itself.
+  2. **Cross-source** — does the document's total match the ERP's? No exact
+     answer, so it **never rejects**: the lines are written and the disagreement
+     is recorded as a computed `totals_agree`. Rejecting means the reviewer never
+     sees the lines and cannot tell a misreading from a mis-posting. Gross
+     against net is *not* a disagreement — both sides are offered gross and net,
+     so a flag that would fire on every cross-border invoice does not.
+
+  **Where the document states no total the old rule stands unchanged**: sum
+  against `total` or `total − tax` within `max(1%, 1.00)`. A receipt often prints
+  no totals block, and then the ledger's figure is the only one there is. A
+  rejection still keeps the invoice's existing lines.
+- **The case this exists because of.** Aquatuning `F10566081` extracted to three
+  correct lines summing to 88,95 and was rejected against a posted total of
+  83,88. Its own totals block: lines gross 88,95, `shipping cost incl. VAT`
+  15,90, `Total without VAT 25 %` 83,88, VAT 20,97, `Total amount` 104,85 —
+  `(88,95 + 15,90) / 1,25 = 83,88`, exact. Two things defeated the rule at once:
+  the lines were printed **gross** while the posting was **net** (and Billy posts
+  `tax = 0.00`, so the `total − tax` branch was a no-op), and **shipping had no
+  line**. On the dev ledger 6 of 28 invoices were `failed` and every one was a
+  reconciliation refusal, not a document we could not read.
+- **Gross-versus-net is read, never inferred.** `LineItem` and `InvoiceLine`
+  carry `subtotal` (net), `tax_amount`, `tax_rate` and `discount` beside
+  `amount`, which is the money column **in whatever convention the document
+  printed it** — its description said "excluding VAT" until a model correctly
+  transcribed a VAT-inclusive price. A stated discount is recorded as its own
+  figure and never subtracted from the line's total. Every field is optional: a
+  receipt prints one number per line. Taken from `~/repos/groundley-ai`, which
+  reached the same shape from the same problem — though **not** its
+  `price_fixer.py`, which rewrites amounts the document printed and marks two of
+  its own branches `# questionable`.
+- **A charge stated in the totals block becomes a line.** Shipping, freight,
+  postage, handling, a card fee. It is spend — the money left the company and
+  the default tree carries `Logistics > Shipping` — and it is *also* why a
+  correctly-read invoice could not reconcile: a charge existing only in the
+  totals block cannot be summed from any set of line items. **Nothing marks it**:
+  a second kind of line would have to be understood by the categorizer, the
+  reports, the reconciler and the entry payload, and the one that forgot would
+  double-count. Whether money went on a product or on delivering it is a
+  categorization question. A total-level **discount** is deliberately excluded —
+  it reduces spend rather than being spend, and a negative line would appear in
+  every report as a category with negative spend. `TOTALS_BLOCK_CHARGES` is one
+  constant shared by the text and vision prompts, because two wordings would
+  drift and the symptom would be scanned invoices losing freight that text ones
+  keep.
+- **`Invoice.document_total` / `document_tax` / `document_subtotal` sit beside
+  the as-posted figures**, which extraction still never rewrites — the rule
+  `document_invoice_number` already follows, and for the same reason: when the
+  two disagree, the disagreement *is* the information. Stored in the invoice's
+  currency at the very rate the reconciliation used, so the figure judged and the
+  figure stored cannot differ. **Null means the document stated none**, never a
+  stated zero — which is why `ExtractedInvoice.total` became optional and the
+  vision merge stopped inventing `0.0` for a page that printed nothing.
+  `document_subtotal` exists for the read side: without the net figure,
+  `InvoiceDetailRead` would report a gross-printed / net-posted invoice as
+  disagreeing where the stage said it agreed.
+- **`totals_agree` is computed, never stored** — `category_stale`,
+  `lines_reconciled` and `needs_review` all follow the same rule, and a stored
+  verdict would be a snapshot of a tolerance setting. **Null, not `true`**, when
+  the document stated no total: "nothing to compare" and "compared and agreed"
+  are different claims, and a client that cannot tell them apart presents an
+  unread document as a verified one. The voucher panel shows both totals only
+  when they disagree — a second figure that always matches teaches the reader to
+  stop looking at it.
 - **The comparison is made in one currency, or refused by name**
   (`ai_api/documents/currency.py`). A document is frequently denominated
   differently from its posting — Anthropic bills in EUR, Cloudflare in USD, EK
@@ -642,7 +717,8 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   holds the money — a small vision model on a wide table is this path's real
   limit, and `parse_amount` turns its wrong answers into no answer.
 - Env: `DOC_MAX_ATTEMPTS`, `DOC_RECONCILE_TOLERANCE_PCT`,
-  `DOC_RECONCILE_TOLERANCE_ABS`, `DOC_STALE_CLAIM_MINUTES`,
+  `DOC_RECONCILE_TOLERANCE_ABS`, `DOC_INTERNAL_TOLERANCE_PCT`,
+  `DOC_INTERNAL_TOLERANCE_ABS`, `DOC_STALE_CLAIM_MINUTES`,
   `DOC_VISION_MAX_PAGES`, `DOC_VISION_MAX_EDGE`.
 
 ## Vendors (global supplier catalog)

@@ -917,3 +917,31 @@ def test_reports_exclude_a_deactivated_company_too(client, seed, deactivated_com
 
     assert retired, "the deactivated company must have figures of its own to leak"
     assert org_wide == active_only
+
+
+def test_the_voucher_panel_reports_whether_its_lines_add_up(client, voucher_seed, engine):
+    """The drawer badges "Lines do not add up" off this field, and the panel
+    built it by validating an `InvoiceRead` dump into an `InvoiceDetailRead` —
+    so it took the schema default, `True`, and the badge could never fire on a
+    real mismatch. `GET /invoices/{id}` computed it correctly the whole time,
+    which is exactly the drift `web_api/reconcile.py` exists in one place to
+    prevent: the check was shared, calling it was not.
+    """
+    from web_api.db.models import Invoice
+
+    body = client.get(
+        f"/api/v1/erp-entries/vouchers/{voucher_seed["voucher"]}", headers=auth("tokA")
+    ).json()
+    assert body["invoice"]["lines_reconciled"] is True
+
+    with Session(engine) as s:
+        invoice = s.get(Invoice, body["invoice"]["id"])
+        invoice.total = Decimal("99999.00")
+        s.add(invoice)
+        s.commit()
+
+    body = client.get(
+        f"/api/v1/erp-entries/vouchers/{voucher_seed["voucher"]}", headers=auth("tokA")
+    ).json()
+    assert body["invoice"]["lines_reconciled"] is False
+    assert body["invoice"]["reconciliation_delta"] is not None

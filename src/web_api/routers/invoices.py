@@ -16,7 +16,7 @@ from .. import integrations
 from ..audit import INVOICE_AUDIT_FIELDS, INVOICE_BASE_FX_FIELDS, diff_changes, record_audit
 from ..deps import TenantScope, get_session, require_management, resolve_company_ids, tenant_scope
 from ..documents import resolve_document_source
-from ..reconcile import reconcile_lines
+from ..reconcile import reconcile_lines, totals_agree
 from ..schemas import (
     InvoiceDetailRead, InvoiceLineRead, InvoiceRead, InvoiceUpdate, InvoiceVerify, Page,
 )
@@ -94,6 +94,9 @@ def _invoice_read(
     resolved, overridden = _resolve_supplier(invoice, vendor)
     data.update(resolved)
     data["supplier_overrides"] = overridden
+    # Computed here so a list row and an invoice detail cannot disagree about
+    # it. Pure arithmetic over columns already on the row — no extra query.
+    data["totals_agree"] = totals_agree(invoice)
     return InvoiceRead.model_validate(data)
 
 

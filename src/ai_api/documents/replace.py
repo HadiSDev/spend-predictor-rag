@@ -114,6 +114,9 @@ def replace_invoice_lines(
     fx: FxService,
     base_currency: str | None,
     rate: Decimal | None = None,
+    document_total: Decimal | None = None,
+    document_tax: Decimal | None = None,
+    document_subtotal: Decimal | None = None,
 ) -> tuple[int, int]:
     """Replace the invoice's provisional lines with ``lines``. Does not commit.
 
@@ -180,6 +183,12 @@ def replace_invoice_lines(
             # figure written cannot disagree.
             unit_price=_money(item.unit_price, rate),
             amount=_money(item.amount, rate),
+            # What the document printed about this line's tax. Money converts
+            # with everything else; a *rate* is a percentage and does not.
+            subtotal=_money(item.subtotal, rate),
+            tax_amount=_money(item.tax_amount, rate),
+            discount=_money(item.discount, rate),
+            tax_rate=_dec(item.vat_rate),
             # Left uncategorized on purpose: the categorizer categorizes, on its
             # own schedule, exactly as it does for every other line.
             status=LineStatus.UNCATEGORIZED,
@@ -210,6 +219,18 @@ def replace_invoice_lines(
     # falling back to the posted value, which would make "read from the
     # document" indistinguishable from "copied from the ledger".
     invoice.document_invoice_number = extracted.invoice_number
+
+    # The document's own arithmetic, beside the ledger's — which is not touched
+    # here or anywhere else in extraction. When the two disagree the
+    # disagreement *is* the information, and it is now visible rather than
+    # being the grounds for throwing the reading away.
+    #
+    # Already in the invoice's currency, converted by the caller at the very
+    # rate the reconciliation used, so the figure that was judged and the figure
+    # stored can never disagree.
+    invoice.document_total = document_total
+    invoice.document_tax = document_tax
+    invoice.document_subtotal = document_subtotal
 
     invoice.doc_status = DocStatus.PROCESSED
     invoice.doc_processed_at = datetime.now(timezone.utc)

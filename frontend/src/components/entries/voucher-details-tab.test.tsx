@@ -77,6 +77,9 @@ function invoice(overrides: Partial<InvoiceDetailRead> = {}): InvoiceDetailRead 
     doc_status: 'not_applicable',
     doc_error: null,
     doc_processed_at: null,
+    document_total: null,
+    document_tax: null,
+    totals_agree: null,
     lines: [line()],
     lines_reconciled: true,
     reconciliation_delta: null,
@@ -100,6 +103,34 @@ function props(overrides: Partial<VoucherDetailsTabProps> = {}): VoucherDetailsT
 }
 
 describe('VoucherDetailsTab', () => {
+  it('shows a totals disagreement to a manager and a viewer alike', () => {
+    // Role decides what may be *changed*, never what may be *seen*. The
+    // supplier billing something other than what was posted is evidence, and
+    // withholding it from a read-only reviewer would leave them reading a
+    // number the document contradicts with nothing saying so.
+    const disagreeing = invoice({
+      document_total: '104.85',
+      document_tax: '20.97',
+      totals_agree: false,
+    })
+
+    const manager = render(<VoucherDetailsTab {...props({ invoice: disagreeing })} />)
+    expect(screen.getByRole('note').textContent).toContain('104.85')
+    manager.unmount()
+
+    render(<VoucherDetailsTab {...props({ invoice: disagreeing, canManage: false })} />)
+    expect(screen.getByRole('note').textContent).toContain('104.85')
+  })
+
+  it('shows no second total when the two agree', () => {
+    render(
+      <VoucherDetailsTab
+        {...props({ invoice: invoice({ document_total: '900.00', totals_agree: true }) })}
+      />,
+    )
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+
   it('lets a manager correct an ERP-sourced header', () => {
     // Provenance used to decide this, and gated on a value no production
     // invoice ever carried — so the editor existed and no customer could reach

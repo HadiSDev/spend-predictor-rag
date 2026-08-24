@@ -27,6 +27,7 @@ from web_api.db.models import Company, DocStatus, ErpIntegration, Invoice
 from web_api.db.session import engine
 from web_api.documents import resolve_document_source
 from web_api.fx import FxService
+from web_api.fx.service import convert as fx_convert
 from web_api import integrations as integrations_mod
 
 from .. import config
@@ -43,6 +44,18 @@ _ZERO = Decimal("0")
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _converted(value: float | None, rate: Decimal) -> Decimal | None:
+    """A figure the document stated, restated in the invoice's currency.
+
+    ``None`` stays ``None``: a document that printed no total printed none, and
+    a zero here would be a claim it never made.
+    """
+    if value is None:
+        return None
+    amount = Decimal(str(value))
+    return amount if rate == 1 else fx_convert(amount, rate)
 
 
 # -- Work discovery ----------------------------------------------------------
@@ -192,13 +205,37 @@ def process_invoice(
         return "rejected"
     comparable = lines_total * rate
 
-    verdict = reconcile(comparable, invoice.total, invoice.tax)
+    # What the document said about itself, in the invoice's money — at the very
+    # rate the lines are judged and stored at, so the figure that reconciled and
+    # the figure in the ledger can never disagree.
+    document_total = _converted(extracted.total, rate)
+    document_subtotal = _converted(extracted.subtotal, rate)
+
+    verdict = reconcile(
+        comparable,
+        invoice.total,
+        invoice.tax,
+        document_total=document_total,
+        document_subtotal=document_subtotal,
+    )
+    # Only the internal check rejects. A document whose lines add up to the
+    # total printed on the same page is one we read correctly; if the bookkeeper
+    # posted something else, that is exactly what a reviewer should be shown —
+    # and rejecting means they never see the lines at all.
     if not verdict.ok:
         _fail(session, invoice, verdict.reason or "the extracted lines do not reconcile")
         return "rejected"
+    if verdict.totals_agree is False:
+        logger.info(
+            "  invoice %s: the document states %s where the ledger posted %s — "
+            "accepted, and the disagreement recorded for a reviewer",
+            invoice.id, document_total, invoice.total,
+        )
 
     n_removed, n_written = replace_invoice_lines(
-        session, invoice, extracted, fx=fx, base_currency=base_currency, rate=rate
+        session, invoice, extracted, fx=fx, base_currency=base_currency, rate=rate,
+        document_total=document_total, document_subtotal=document_subtotal,
+        document_tax=_converted(extracted.tax, rate),
     )
     session.commit()
     logger.info(
