@@ -58,4 +58,4 @@
 - [x] 9.1 `uv run pytest -q` passes the baseline count (the migration test skips or runs according to the user's DB state after 8.5). Vitest passes the baseline plus the new tests, ESLint shows no new problems, and `tsc --noEmit` is clean.
 - [x] 9.2 Run `git grep -niE "spend.?predictor|erpsaa|d7ff53"` outside `openspec/changes/archive`, `docs/superpowers` and lockfiles. Matches may remain only in `scripts/rename-dev-db.sh` (the old name is its input) and the CLAUDE.md migration note.
 - [x] 9.3 "After" screenshots matching 1.3, in both themes. Show them to the user side by side with the "before" set, and get their verdict on visual weight before committing.
-- [ ] 9.4 Commit in two commits (brand + UI + names, then infra), and list the user's one-time migration steps in the second commit's message
+- [x] 9.4 Commit in two commits (brand + UI + names, then infra), and list the user's one-time migration steps in the second commit's message

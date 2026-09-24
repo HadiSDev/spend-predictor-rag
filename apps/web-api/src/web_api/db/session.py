@@ -10,7 +10,7 @@ from web_api.config import DATABASE_URL
 
 
 def get_engine() -> Any:
-    url = DATABASE_URL or "postgresql://spend_predictor:spend_predictor@localhost:5432/spend_predictor"
+    url = DATABASE_URL or "postgresql://steelyard:steelyard@localhost:5432/steelyard"
     return create_engine(url, echo=False)
 
 

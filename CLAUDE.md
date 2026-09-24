@@ -106,7 +106,18 @@ code imports — web-api carries no CrewAI, sentence-transformers or Qdrant.
   base against a throwaway PostgreSQL database, so this cannot silently rot
   again; it skips explicitly when no PostgreSQL is reachable.
 - Infra: `docker compose up` (Qdrant on :6333, PostgreSQL on :5432, mock ERP
-  built from `apps/mock-erp` alone)
+  built from `apps/mock-erp` alone). The compose project is named `steelyard`,
+  and so are the database, role and password
+  (`postgresql://steelyard:steelyard@localhost:5432/steelyard`).
+  **`POSTGRES_*` only applies to an empty `pgdata/`**, so a stack first
+  initialised as `spend_predictor` keeps those names until
+  `scripts/rename-dev-db.sh` renames them in place (role renamed, not
+  re-created — it is the bootstrap superuser and cannot be dropped). One-time
+  steps: stop the API and runners;
+  `docker compose -p spend-predictor-rag down` (no `-v`; `pgdata` is a bind
+  mount); `docker compose up -d postgres`; `scripts/rename-dev-db.sh`; set
+  `DATABASE_URL` in `.env` and in each worktree's `.env`. Roll back with
+  `--from steelyard --to spend_predictor`.
 - **Shared runtime data stays at the repo root**: `data/`, `output/`,
   `chroma_db/`. `ai_api.config.PROJECT_ROOT` is `parents[4]` of `config.py` —
   the repository, not `apps/ai-api` — and a test pins it.

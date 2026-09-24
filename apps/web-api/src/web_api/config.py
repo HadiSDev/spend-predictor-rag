@@ -13,7 +13,7 @@ load_dotenv()
 # PostgreSQL (transactions, vendors, recommendations, domain entities)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://spend_predictor:spend_predictor@localhost:5432/spend_predictor",
+    "postgresql://steelyard:steelyard@localhost:5432/steelyard",
 )
 
 # Fernet key (urlsafe base64, 32 bytes) used to encrypt ERP integration
