@@ -1,13 +1,13 @@
-"""Streamlit dashboard for the ERP Procurement Agent.
+"""Streamlit dashboard for Steelyard.
 
 Run with:  streamlit run apps/web-api/src/web_api/dashboard/app.py
 """
 
 import streamlit as st
 
-st.set_page_config(page_title="Procurement Agent", layout="wide")
+st.set_page_config(page_title="Steelyard", layout="wide")
 
-st.title("ERP Procurement Agent")
+st.title("Steelyard")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
     ["Overview", "Vendors", "Categories", "Savings", "Settings"]

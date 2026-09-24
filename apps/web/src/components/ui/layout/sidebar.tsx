@@ -36,7 +36,9 @@ export function sidebarNavItemClass(active?: boolean) {
   return cn(
     'flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-5 [&_svg]:shrink-0',
     active
-      ? 'bg-primary/15 text-foreground'
+      ? // An ink fill, not a tint: with no accent colour, a faint grey is
+        // indistinguishable from hover, and the active item is the anchor.
+        'bg-primary text-primary-foreground'
       : 'text-muted-foreground hover:bg-muted hover:text-foreground',
   )
 }

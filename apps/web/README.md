@@ -1,4 +1,4 @@
-# Spend Predictor — Admin panel frontend
+# Steelyard — admin panel frontend
 
 Vite + React 19 + TanStack Start, styled with Tailwind v4 and a reusable UI
 component library built on [Base UI](https://base-ui.com/) primitives.
@@ -37,24 +37,25 @@ Copy `.env.example` to `.env` and set:
 
 - `VITE_CLERK_PUBLISHABLE_KEY` — Clerk publishable key (same instance the API
   verifies). Required; the app shows a config error without it.
-- `VITE_API_BASE_URL` — web API base URL (e.g. `http://localhost:8000`).
+- `VITE_API_BASE_URL` — web API base URL (e.g. `http://localhost:8100`).
 - `VITE_CLERK_GOOGLE_OAUTH=true` — optional; shows the Google sign-in button
   (only when the provider is enabled on the Clerk instance).
 
 In dev the web API's `WEB_API_CORS_ORIGINS` must include the frontend origin
-(`http://localhost:3000`).
+(`http://localhost:3100`).
 
 ## UI component library (`src/components/ui/`)
 
 `src/components/ui/` is the design system: token-driven, accessible, reusable components
-that render the **ERPSAA** theme. Import everything from the barrel:
+that render the **Steelyard** palette — black `#0A0A0A` and white, with status
+colours as the only hue (see `brand/README.md` at the repository root). Import everything from the barrel:
 
 ```tsx
 import { Button, Card, DataTable, useToast } from '#/components/ui'
 ```
 
 Browse every component and variant at the **`/ui`** kitchen-sink route
-(`src/routes/ui.tsx`) — run `bun run dev` and open http://localhost:3000/ui.
+(`src/routes/ui.tsx`) — run `bun run dev` and open http://localhost:3100/ui.
 
 ### Design tokens
 
@@ -63,12 +64,17 @@ variables are defined in `src/styles.css` under `:root` (light) and `.dark`, and
 wired into Tailwind utilities via `@theme inline`. To re-theme, edit the token
 values in one place — every component follows:
 
-- Colors: `bg-primary` (lime accent), `text-foreground` (ink), `bg-card`,
-  `bg-muted`, `border-border`, `text-muted-foreground`, status colors, …
-- Type: `font-display` (Outfit) for headings, `font-sans` (Inter) for body.
+- Colors: `bg-primary` (the ink — the primary action), `text-foreground` (ink),
+  `bg-card`, `bg-muted`, `border-border`, `text-muted-foreground`, status colors
+  (`success`/`warning`/`destructive`/`info`, the only hue, and only for status).
+  There is no accent: an active or selected state is an ink fill or ink border.
+- Type: Geist throughout (`font-display` and `font-sans`), Geist Mono
+  (`font-mono`) for figures that must align.
+- Logo: `<Logo>` from `#/components/brand/logo` — never the product name typed
+  beside an icon.
 - Shape/elevation: `rounded-card`, `rounded-full` (pill buttons), `shadow-card`.
 
-Fonts are self-hosted via `@fontsource-variable/{inter,outfit}`. Dark mode is a
+Fonts are self-hosted via `@fontsource-variable/{geist,geist-mono}`. Dark mode is a
 `.dark` class on `<html>`, toggled by the `ThemeProvider` (`useTheme()`).
 
 ### Conventions (Base UI + Tailwind v4)

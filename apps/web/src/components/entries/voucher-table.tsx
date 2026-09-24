@@ -76,7 +76,7 @@ function GroupAmount({ group }: { group: VoucherGroupRead }) {
   const negative = toNumber(group.amount) < 0
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className={cn('tabular-nums', negative && 'text-success')}>
+      <span className={cn('font-mono tabular-nums', negative && 'text-success')}>
         {formatMoney(group.amount, group.currency)}
       </span>
       {/* The total leaves postings out, so it must not read as the whole. */}
@@ -204,7 +204,7 @@ function InvoiceNumber({ group }: { group: VoucherGroupRead }) {
 
   if (!shown) return <span className="text-muted-foreground">—</span>
   if (!printed || !posted || printed === posted) {
-    return <span className="tabular-nums">{shown}</span>
+    return <span className="font-mono tabular-nums">{shown}</span>
   }
   return (
     <Tooltip>
@@ -213,7 +213,7 @@ function InvoiceNumber({ group }: { group: VoucherGroupRead }) {
           <span
             tabIndex={0}
             aria-label={`${printed}, read from the document. The ERP posted ${posted}.`}
-            className="cursor-help tabular-nums underline decoration-dotted underline-offset-4"
+            className="cursor-help font-mono tabular-nums underline decoration-dotted underline-offset-4"
           />
         }
       >
@@ -303,7 +303,7 @@ function LineRow({ line, onSelect }: { line: InvoiceLineRead; onSelect: () => vo
         </button>{' '}
         <ProvenanceMark origin={line.origin} />
       </TableCell>
-      <TableCell className="text-right tabular-nums text-muted-foreground">
+      <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
         {line.quantity === null ? '—' : formatQuantity(line.quantity)}
       </TableCell>
       <TableCell className="text-muted-foreground">
@@ -311,7 +311,7 @@ function LineRow({ line, onSelect }: { line: InvoiceLineRead; onSelect: () => vo
             is a wrong figure presented with confidence. */}
         {line.unit ?? '—'}
       </TableCell>
-      <TableCell className="text-right tabular-nums text-muted-foreground">
+      <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
         {/* As stated, in the currency it was stated in — not converted. There
             is no stored base unit price (only `base_amount` is converted), and
             deriving one here would make this the single place in the app that

@@ -14,7 +14,9 @@ export const Switch = React.forwardRef<
     )}
     {...props}
   >
-    <BaseSwitch.Thumb className="size-5 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform data-[checked]:translate-x-[22px]" />
+    {/* Checked, the thumb takes the ink's counter-colour: in dark mode the
+        checked track *is* white, and a hard-coded white thumb vanished on it. */}
+    <BaseSwitch.Thumb className="size-5 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform data-[checked]:translate-x-[22px] data-[checked]:bg-primary-foreground" />
   </BaseSwitch.Root>
 ))
 Switch.displayName = 'Switch'

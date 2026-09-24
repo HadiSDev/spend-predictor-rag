@@ -578,13 +578,14 @@ function ErpTypeGrid({
               // Selection has to read differently from hover, not just darker:
               // the ring is what makes a chosen card unambiguous once the
               // pointer is elsewhere.
-              'peer-checked:border-primary peer-checked:bg-primary/5 peer-checked:ring-1 peer-checked:ring-primary',
+              // In ink, and with weight — a tint of near-black reads as grime.
+              'peer-checked:border-foreground peer-checked:ring-1 peer-checked:ring-foreground peer-checked:[&_[data-choice-title]]:font-semibold',
               'peer-focus-visible:ring-2 peer-focus-visible:ring-ring',
             )}
           >
             <ErpBrandMark slug={type.brand_slug} label={type.label} />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium text-foreground">
+              <span data-choice-title className="block truncate text-sm font-medium text-foreground">
                 {type.label}
               </span>
               {/* Omitted rather than filled with invented text: a connector the

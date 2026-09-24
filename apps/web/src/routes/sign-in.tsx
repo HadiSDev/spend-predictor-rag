@@ -2,7 +2,6 @@ import * as React from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useForm } from 'react-hook-form'
 import { useAuth, useSignIn } from '@clerk/tanstack-react-start'
-import { BarChart3 } from 'lucide-react'
 import {
   Button,
   Card,
@@ -20,6 +19,7 @@ import {
   TabsPanel,
   TabsTab,
 } from '#/components/ui'
+import { Logo } from '#/components/brand/logo'
 import { GOOGLE_OAUTH_ENABLED } from '#/lib/env'
 
 export const Route = createFileRoute('/sign-in')({ component: SignInPage })
@@ -255,11 +255,8 @@ function SignInPage() {
   return (
     <div className="grid min-h-screen place-items-center bg-background px-4 py-10">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center justify-center gap-2">
-          <div className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <BarChart3 className="size-5" />
-          </div>
-          <span className="font-display text-xl font-semibold tracking-tight">Spend Predictor</span>
+        <div className="mb-8 flex justify-center">
+          <Logo width={160} />
         </div>
 
         <Card className="p-6">

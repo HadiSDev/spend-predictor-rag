@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the core domain entities for the ERP Procurement Agent. The model supports multi-tenant organizations (bookkeeping firms managing multiple clients), each company having its own spend tree, ERP connections, and users with role-based access.
+Define the core domain entities for Steelyard. The model supports multi-tenant organizations (bookkeeping firms managing multiple clients), each company having its own spend tree, ERP connections, and users with role-based access.
 
 ## Entities
 

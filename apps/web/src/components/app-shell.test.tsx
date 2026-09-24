@@ -36,6 +36,14 @@ describe('isNavItemActive', () => {
 })
 
 describe('AppSidebar', () => {
+  it('shows the Steelyard lockup, rendered rather than typed', () => {
+    const { container } = render(<AppSidebar pathname="/" />)
+
+    const logo = screen.getByRole('img', { name: 'Steelyard' })
+    expect(logo.tagName.toLowerCase()).toBe('svg')
+    expect(container.textContent).not.toMatch(/steelyard/i)
+  })
+
   it('renders Settings as an enabled link', () => {
     render(<AppSidebar pathname="/" />)
 

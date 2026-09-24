@@ -1,4 +1,4 @@
-// Design-system primitives for the ERPSAA-themed admin panel.
+// Design-system primitives for the Steelyard admin panel (monochrome tokens in styles.css).
 // Import from '#/components/ui' (or '@/ui').
 
 export { cn } from './cn'

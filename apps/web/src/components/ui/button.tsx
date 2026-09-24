@@ -7,13 +7,15 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-primary text-primary-foreground hover:brightness-95',
+        // `/90`, not a brightness filter: brightness does nothing visible to
+        // near-black, which is what the primary action now is.
+        primary: 'bg-primary text-primary-foreground hover:bg-primary/90',
         secondary:
           'bg-card text-foreground border border-border hover:bg-muted',
         outline: 'border border-border bg-transparent text-foreground hover:bg-muted',
         ghost: 'bg-transparent text-foreground hover:bg-muted',
-        destructive: 'bg-destructive text-destructive-foreground hover:brightness-95',
-        inverted: 'bg-inverted text-inverted-foreground hover:brightness-110',
+        destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+        inverted: 'bg-inverted text-inverted-foreground hover:bg-inverted/90',
       },
       size: {
         sm: 'h-8 px-4 text-sm',

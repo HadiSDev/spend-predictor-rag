@@ -3,7 +3,7 @@
 /** Base URL of the web API (no trailing slash). */
 export const API_BASE_URL: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ??
-  'http://localhost:8000'
+  'http://localhost:8100'
 
 /** Clerk publishable key; `ClerkProvider` reads it, this is for explicit checks. */
 export const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as

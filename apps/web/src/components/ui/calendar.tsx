@@ -5,7 +5,7 @@ import { cn } from './cn'
 export type CalendarProps = React.ComponentProps<typeof DayPicker>
 
 /** Themed react-day-picker calendar. Base styles come from
- * `react-day-picker/style.css` (imported in `styles.css`); the ERPSAA palette is
+ * `react-day-picker/style.css` (imported in `styles.css`); the Steelyard palette is
  * applied by overriding the `--rdp-*` variables on `.rdp-root` there. */
 export function Calendar({ className, ...props }: CalendarProps) {
   return (

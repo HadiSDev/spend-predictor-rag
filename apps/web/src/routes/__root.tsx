@@ -4,6 +4,7 @@ import { TanStackDevtools } from '@tanstack/react-devtools'
 import { ClerkProvider } from '@clerk/tanstack-react-start'
 
 import { ThemeProvider, ToastProvider, TooltipProvider } from '#/components/ui'
+import { BRAND_LINKS, BRAND_META } from '#/lib/brand-head'
 import { CLERK_PUBLISHABLE_KEY } from '#/lib/env'
 import appCss from '../styles.css?url'
 
@@ -17,15 +18,14 @@ export const Route = createRootRoute({
         name: 'viewport',
         content: 'width=device-width, initial-scale=1',
       },
-      {
-        title: 'Spend Predictor',
-      },
+      ...BRAND_META,
     ],
     links: [
       {
         rel: 'stylesheet',
         href: appCss,
       },
+      ...BRAND_LINKS,
     ],
   }),
   shellComponent: RootDocument,
@@ -64,7 +64,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body>
+      {/* Browser extensions write attributes onto <body> before React hydrates
+          (Grammarly adds `data-gr-ext-installed` and
+          `data-new-gr-c-s-check-loaded`), which React reports as a hydration
+          mismatch in our code. This silences attribute differences on <body>
+          itself only — a real mismatch anywhere inside it still warns. */}
+      <body suppressHydrationWarning>
         {CLERK_PUBLISHABLE_KEY ? (
           <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
             <AppProviders>{children}</AppProviders>

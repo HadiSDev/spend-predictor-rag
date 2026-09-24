@@ -84,7 +84,7 @@ export function ConversionRows({ entry }: { entry: ErpEntryRead }) {
 function PostingAmount({ entry }: { entry: ErpEntryRead }) {
   const amount = postingAmount(entry)
   return (
-    <span className={cn('tabular-nums font-medium', amount < 0 && 'text-success')}>
+    <span className={cn('font-mono tabular-nums font-medium', amount < 0 && 'text-success')}>
       {formatMoney(amount, entry.currency)}
     </span>
   )

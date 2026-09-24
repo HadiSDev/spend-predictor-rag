@@ -34,7 +34,7 @@ export function PreferencesPanel() {
             <div
               key={value}
               onClick={() => setTheme(value)}
-              className="flex cursor-pointer items-center gap-2 rounded-full border border-border px-4 py-2 text-sm transition-colors has-data-checked:border-primary has-data-checked:bg-primary/10"
+              className="flex cursor-pointer items-center gap-2 rounded-full border border-border px-4 py-2 text-sm transition-colors has-data-checked:border-foreground has-data-checked:font-medium has-data-checked:ring-1 has-data-checked:ring-foreground"
             >
               <RadioItem value={value} aria-label={label} />
               <Icon className="size-4 text-muted-foreground" />

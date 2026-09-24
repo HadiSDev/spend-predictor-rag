@@ -1,7 +1,7 @@
 """FastAPI application factory for the Clerk-authenticated web API.
 
 Run either way:
-    uvicorn web_api.app:app --reload --reload-dir apps/web-api/src
+    uvicorn web_api.app:app --reload --reload-dir apps/web-api/src --port 8100
     uv run apps/web-api/src/web_api/app.py   # launches uvicorn (dev, reloads apps/web-api/src/)
 """
 from __future__ import annotations
@@ -11,8 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from scalar_fastapi import get_scalar_api_reference
 
-# Absolute imports (not `from . import …`) so this module also works when run
-# as a file (`python apps/web-api/src/web_api/app.py`), where it isn't part of a package.
+import pathlib
+
+import uvicorn
 from web_api import config
 from web_api.routers import (
     companies,
@@ -30,19 +31,14 @@ from web_api.routers import (
 
 
 def create_app() -> FastAPI:
-    # Scalar is the API reference UI, served at /scalar. Disable FastAPI's
-    # built-in Swagger/ReDoc so Scalar is the single docs surface (OpenAPI JSON
-    # stays at /openapi.json, which Scalar consumes).
     app = FastAPI(
-        title="Spend Predictor Web API",
+        title="Steelyard Web API",
         version="0.1.0",
         description="Clerk-authenticated API for reviewing raw ERP spend data.",
         docs_url=None,
         redoc_url=None,
     )
 
-    # Browser front-end access. Empty origins ⇒ no cross-origin access (prod is
-    # explicit); read at call time so tests can configure it.
     if config.WEB_API_CORS_ORIGINS:
         app.add_middleware(
             CORSMiddleware,
@@ -81,17 +77,12 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    import pathlib
 
-    import uvicorn
-
-    # Watch only this app's src/ so the reloader never touches data dirs like pgdata/
-    # (which are owned by the Postgres container and raise permission errors).
     src_dir = str(pathlib.Path(__file__).resolve().parents[1])
     uvicorn.run(
         "web_api.app:app",
         host="127.0.0.1",
-        port=8000,
+        port=8100,
         reload=True,
         reload_dirs=[src_dir],
     )

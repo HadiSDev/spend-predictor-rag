@@ -1,8 +1,9 @@
 import * as React from 'react'
 import { Link, useMatches, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useClerk, useUser } from '@clerk/tanstack-react-start'
+
+import { Logo } from '#/components/brand/logo'
 import {
-  BarChart3,
   ChevronDown,
   LayoutDashboard,
   LogOut,
@@ -148,12 +149,7 @@ export function AppSidebar({ pathname }: { pathname: string }) {
   return (
     <Sidebar>
       <SidebarHeader className="flex-col items-stretch gap-2">
-        <div className="flex items-center gap-2">
-          <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <BarChart3 className="size-4" />
-          </div>
-          <span className="font-display text-lg font-semibold tracking-tight">Spend Predictor</span>
-        </div>
+        <Logo width={124} className="my-1" />
         <OrgSwitcher />
       </SidebarHeader>
       <SidebarContent>

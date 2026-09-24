@@ -531,6 +531,12 @@ describe('LoadingScreen', () => {
     expect(status).toBeTruthy()
     expect(status.textContent).toContain('Preparing your workspace…')
   })
+
+  it('shows the Steelyard lockup, rendered rather than typed', () => {
+    const { container } = render(<LoadingScreen />)
+    expect(screen.getByRole('img', { name: 'Steelyard' }).tagName.toLowerCase()).toBe('svg')
+    expect(container.textContent).not.toMatch(/steelyard/i)
+  })
 })
 
 describe('DatePicker', () => {

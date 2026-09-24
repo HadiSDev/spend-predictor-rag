@@ -1,6 +1,18 @@
-# Autonomous Invoice Processing & Spend Categorization (CrewAI + RAG)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/png/steelyard-lockup-white-600.png">
+  <img alt="Steelyard" src="brand/png/steelyard-lockup-black-600.png" width="300">
+</picture>
 
-A multi-agent pipeline that reads PDF invoices and codes each to a corporate
+# Steelyard
+
+**Know the true price of everything you buy.** Steelyard ingests a company's
+spend from its ERP, categorizes every invoice line against the company's own
+spend tree, and surfaces redundant suppliers and product-level savings. The
+brand pack — logo, favicons, usage rules — lives in [`brand/`](brand/README.md).
+
+## Autonomous invoice processing (CrewAI + RAG)
+
+The original PDF pipeline: a multi-agent pipeline that reads PDF invoices and codes each to a corporate
 chart of accounts, writing results to a CSV ledger. Built on CrewAI (`Flow` +
 `Agent.kickoff`) with RAG-backed categorization over a persisted ChromaDB index.
 

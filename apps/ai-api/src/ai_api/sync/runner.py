@@ -1,4 +1,4 @@
-"""Sync runner — the batch pipeline for the ERP Procurement Agent.
+"""Sync runner — Steelyard's batch pipeline.
 
 Orchestrates the full end-to-end flow against any ``ErpConnector``:
 

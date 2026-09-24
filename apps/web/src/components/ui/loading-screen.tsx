@@ -1,4 +1,4 @@
-import { BarChart3 } from 'lucide-react'
+import { Logo } from '#/components/brand/logo'
 import { cn } from './cn'
 
 export interface LoadingScreenProps {
@@ -11,10 +11,10 @@ export interface LoadingScreenProps {
 const BAR_DELAYS = ['0ms', '120ms', '240ms', '360ms']
 
 /**
- * Full-screen, on-brand loading state. Layered for depth (atmospheric glow
- * behind a pulsing brand mark) with an animated "spend bars" indicator that
- * echoes the logo. Motion is GPU-safe (transform/opacity) and pauses under
- * `prefers-reduced-motion`.
+ * Full-screen, on-brand loading state: the Steelyard lockup, still, above an
+ * animated "spend bars" indicator. The logo itself never moves, glows or pulses
+ * — the pack forbids effects on the mark — so the motion lives in the bars.
+ * GPU-safe (transform/opacity) and paused under `prefers-reduced-motion`.
  */
 export function LoadingScreen({ message, className }: LoadingScreenProps) {
   return (
@@ -26,22 +26,10 @@ export function LoadingScreen({ message, className }: LoadingScreenProps) {
         className,
       )}
     >
-      {/* depth-1 — atmospheric glow */}
-      <div
-        aria-hidden="true"
-        className="ep-loading-glow pointer-events-none absolute size-[36rem] rounded-full bg-primary/25 blur-3xl"
-      />
-
       <div className="relative flex flex-col items-center gap-7">
-        {/* depth-3 — brand mark + wordmark */}
-        <div className="flex items-center gap-2.5">
-          <div className="ep-loading-mark grid size-10 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-card">
-            <BarChart3 className="size-5" />
-          </div>
-          <span className="font-display text-xl font-semibold tracking-tight">Spend Predictor</span>
-        </div>
+        <Logo width={160} />
 
-        {/* depth-4 — animated spend bars */}
+        {/* animated spend bars */}
         <div className="flex h-9 items-end gap-1.5" aria-hidden="true">
           {BAR_DELAYS.map((delay) => (
             <span

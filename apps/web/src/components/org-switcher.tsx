@@ -50,15 +50,16 @@ export function OrgSwitcher() {
   }
 
   if (!isLoaded) {
-    return <Skeleton className="ml-10 h-4 w-28" data-testid="org-switcher-loading" />
+    return <Skeleton className="h-4 w-28" data-testid="org-switcher-loading" />
   }
 
   if (memberships.length <= 1) {
     const name = active?.name ?? memberships.at(0)?.name
-    // Nothing to switch to: read as a second line of the product mark — indented
-    // past the 8-unit logo tile and its gap so it aligns under the product name.
+    // Nothing to switch to: read as a second line under the lockup, flush with
+    // its left edge (the wordmark's offset inside the lockup scales with its
+    // width, so an indent matched to it would drift).
     return (
-      <span className="ml-10 truncate text-xs text-muted-foreground" title={name}>
+      <span className="truncate text-xs text-muted-foreground" title={name}>
         {name ?? 'No organization'}
       </span>
     )

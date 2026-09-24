@@ -2,9 +2,9 @@
 
 ## Project
 
-**ERP Procurement Agent** — AI that ingests spend data, categorizes it against a
-company's own spend tree, detects redundant suppliers, and suggests product-level
-savings.
+**Steelyard** — *Know the true price of everything you buy.* AI that ingests
+spend data, categorizes it against a company's own spend tree, detects redundant
+suppliers, and suggests product-level savings.
 
 Two pipelines coexist:
 
@@ -39,6 +39,27 @@ and nothing on the web-api side declares `ai-api`, so an AI import from the
 domain fails in a web-api-only install. Each manifest lists only what its own
 code imports — web-api carries no CrewAI, sentence-transformers or Qdrant.
 
+## Brand
+
+- **`brand/` is the Steelyard logo pack as delivered, and the source of truth**
+  (its `README.md` holds the usage rules). `apps/web/public` serves exact copies
+  of the favicon set and the OG image; `src/brand.test.ts` fails if a copy is
+  re-exported or tidied, so change the pack, then copy.
+- **The logo is rendered, never retyped.** `components/brand/logo.tsx` draws the
+  lockup and symbol from the pack's outlines in `currentColor`, which is the ink
+  — black on light, white on dark, and no other colour. Below 32 px it switches
+  to the favicon geometry (thicker arm); it never renders the lockup under 80 px
+  or the symbol under 20 px. Nowhere puts "Steelyard" in text beside an icon.
+- **The UI is monochrome.** Ink `#0A0A0A`, white, neutral greys; the primary
+  action *is* the ink. There is no accent colour — the old lime-on-sage template
+  theme is gone, and a source-scan test forbids its hexes returning. **Status colours
+  (success, warning, destructive, info) are the only hue**, and only for status;
+  third-party ERP marks and country flags are exempt. Without an accent,
+  hierarchy is contrast and weight: an active item is an ink fill or an ink
+  border, never a faint grey tint.
+- **Type is Geist** (display and body) with **Geist Mono** for aligned figures,
+  matching the wordmark.
+
 ## Environment
 
 - Managed with Astral `uv`; **Python 3.12**.
@@ -57,8 +78,14 @@ code imports — web-api carries no CrewAI, sentence-transformers or Qdrant.
 - Describe suppliers: `python -m ai_api.enrichment.runner` (fills
   `Vendor.description` once per supplier; needs `VENDOR_ENRICHMENT_ENABLED`)
 - Propose missing categories: `python -m ai_api.suggestions.runner`
-- Run web API: `uv run uvicorn web_api.app:app --reload --reload-dir apps/web-api/src`
-- Run frontend: `cd apps/web && bun run dev` (bun only — `bun.lock` is committed)
+- **Ports: web 3100, web API 8100.** 3000 and 8000 belong to
+  other projects on the same machine; the defaults (`package.json` dev script,
+  `app.py`, `lib/env.ts`, both `.env.example`s) all say so, and
+  `WEB_API_CORS_ORIGINS` must list `http://localhost:3100`. A frontend pointed
+  at :8000 reaches a *different* API and fails after sign-in with "Couldn't
+  load your account" — Clerk succeeds, `GET /users/me` 404s.
+- Run web API: `uv run uvicorn web_api.app:app --reload --reload-dir apps/web-api/src --port 8100`
+- Run frontend: `cd apps/web && bun run dev` (port 3100; bun only — `bun.lock` is committed)
 - Run dashboard: `streamlit run apps/web-api/src/web_api/dashboard/app.py`
 - Test: `uv run pytest` at the root runs every app's suite; inside `apps/<app>`
   it runs only that app's. **`apps/<app>/tests/` is deliberately not a package**

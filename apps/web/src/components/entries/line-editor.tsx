@@ -310,7 +310,7 @@ export function LineEditor({
               thousandSeparator=","
               decimalScale={4}
               inputMode="decimal"
-              className="text-right tabular-nums"
+              className="text-right font-mono tabular-nums"
             />
           </Field>
           <Field>
@@ -454,7 +454,7 @@ function NoTreeNotice({
           <>
             {' '}
             in{' '}
-            <a href={href} className="font-medium text-primary underline-offset-2 hover:underline">
+            <a href={href} className="font-medium text-foreground underline underline-offset-2 hover:decoration-2">
               company settings
             </a>
           </>

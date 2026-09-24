@@ -18,7 +18,7 @@ const columns: Array<ColumnDef<CategorySpendRow>> = [
     header: 'Amount',
     meta: { align: 'right' },
     cell: ({ row }) => (
-      <span className="tabular-nums">
+      <span className="font-mono tabular-nums">
         {formatMoney(row.original.amount_total, row.original.currency)}
       </span>
     ),

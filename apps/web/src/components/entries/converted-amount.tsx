@@ -88,7 +88,7 @@ export function ConvertedAmount({
               // only explains itself to a mouse explains itself to nobody.
               aria-label={`${shown}, not converted — no exchange rate was available for this date`}
               className={cn(
-                'cursor-help tabular-nums text-muted-foreground underline decoration-dotted underline-offset-4',
+                'cursor-help font-mono tabular-nums text-muted-foreground underline decoration-dotted underline-offset-4',
                 className,
               )}
             />
@@ -105,7 +105,7 @@ export function ConvertedAmount({
 
   if (!wasConverted(row)) {
     return (
-      <span className={cn('tabular-nums', tint && 'text-success', className)}>
+      <span className={cn('font-mono tabular-nums', tint && 'text-success', className)}>
         {formatMoney(base ?? 0, row.base_currency)}
       </span>
     )
@@ -121,7 +121,7 @@ export function ConvertedAmount({
             tabIndex={0}
             aria-label={`${shown}, converted from ${summary}`}
             className={cn(
-              'cursor-help tabular-nums underline decoration-dotted underline-offset-4',
+              'cursor-help font-mono tabular-nums underline decoration-dotted underline-offset-4',
               tint && 'text-success',
               className,
             )}

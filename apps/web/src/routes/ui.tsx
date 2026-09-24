@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { createFileRoute } from '@tanstack/react-router'
+import { Logo } from '#/components/brand/logo'
 import { useForm } from 'react-hook-form'
 import {
   BarChart3,
@@ -147,7 +148,7 @@ const COLUMNS: Array<ColumnDef<Row>> = [
     accessorKey: 'amount',
     header: 'Amount',
     meta: { align: 'right' },
-    cell: ({ getValue }) => <span className="tabular-nums">{getValue<number>().toLocaleString()} kr</span>,
+    cell: ({ getValue }) => <span className="font-mono tabular-nums">{getValue<number>().toLocaleString()} kr</span>,
   },
   {
     accessorKey: 'status',
@@ -228,10 +229,7 @@ function UiShowcase() {
       sidebar={
         <Sidebar>
           <SidebarHeader>
-            <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <BarChart3 className="size-4" />
-            </div>
-            <span className="font-display text-lg font-semibold tracking-tight">Spendly</span>
+            <Logo width={124} className="my-1" />
           </SidebarHeader>
           <SidebarContent>
             <SidebarNav>

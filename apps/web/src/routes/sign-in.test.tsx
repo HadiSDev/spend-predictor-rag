@@ -32,6 +32,15 @@ beforeEach(() => {
   clerk.status = 'needs_first_factor'
 })
 
+describe('sign-in branding', () => {
+  it('shows the Steelyard lockup, rendered rather than typed', () => {
+    const { container } = render(<SignInPage />)
+
+    expect(screen.getByRole('img', { name: 'Steelyard' }).tagName.toLowerCase()).toBe('svg')
+    expect(container.textContent).not.toMatch(/steelyard/i)
+  })
+})
+
 describe('sign-in (password)', () => {
   it('renders and surfaces an error when Clerk rejects the credentials', async () => {
     clerk.password.mockResolvedValue({ error: { message: 'Invalid email or password' } })

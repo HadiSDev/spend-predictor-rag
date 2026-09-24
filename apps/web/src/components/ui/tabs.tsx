@@ -14,13 +14,12 @@ export const TabsList = React.forwardRef<HTMLDivElement, React.ComponentProps<ty
     <BaseTabs.List
       ref={ref}
       className={cn(
-        'relative inline-flex items-center gap-1 rounded-full bg-muted p-1 text-muted-foreground',
+        'inline-flex items-center gap-1 rounded-full bg-muted p-1 text-muted-foreground',
         className,
       )}
       {...props}
     >
       {children}
-      <BaseTabs.Indicator className="absolute top-1 left-0 z-0 h-[calc(100%-0.5rem)] w-[var(--active-tab-width)] translate-x-[var(--active-tab-left)] rounded-full bg-card shadow-sm transition-all duration-200" />
     </BaseTabs.List>
   ),
 )
@@ -31,7 +30,13 @@ export const TabsTab = React.forwardRef<HTMLButtonElement, React.ComponentProps<
     <BaseTabs.Tab
       ref={ref}
       className={cn(
-        'relative z-10 inline-flex h-8 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring data-[selected]:text-foreground',
+        // The selected tab is an ink pill, like the sidebar's active item — painted
+        // on the tab itself rather than by Base UI's sliding Indicator. The
+        // indicator is sized by JavaScript after hydration, so until then the
+        // white label sat on the grey track, unreadable; and the old white
+        // indicator on that track measured ~1.1:1, so the selection was never
+        // visible anyway.
+        'relative inline-flex h-8 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring hover:text-foreground data-[active]:bg-primary data-[active]:text-primary-foreground data-[active]:shadow-sm data-[active]:hover:text-primary-foreground',
         className,
       )}
       {...props}
