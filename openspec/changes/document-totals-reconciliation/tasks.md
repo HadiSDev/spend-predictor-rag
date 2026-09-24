@@ -20,7 +20,7 @@
 
 ## 4. Split the reconciliation rule
 
-- [x] 4.1 Write failing tests in `tests/web_api/` for the split rule in `web_api/reconcile.py`: lines matching the document's own total reconcile; lines missing one against the document's total do not; a document total differing from the posted total is a *disagreement*, not a reconciliation failure; a document with no total falls back to the existing gross-or-net comparison unchanged.
+- [x] 4.1 Write failing tests in `apps/web-api/tests/` for the split rule in `web_api/reconcile.py`: lines matching the document's own total reconcile; lines missing one against the document's total do not; a document total differing from the posted total is a *disagreement*, not a reconciliation failure; a document with no total falls back to the existing gross-or-net comparison unchanged.
 - [x] 4.2 Implement the split in `web_api/reconcile.py`, keeping the existing comparison intact as the no-document-total path. Both the stage and `InvoiceDetailRead.lines_reconciled` read it, so they cannot drift.
 - [x] 4.3 Add a separate tolerance for the internal check, tighter than the cross-source one, configurable and both relative and absolute. Leave the value provisional and note that step 6 sets it.
 - [x] 4.4 Pin the Aquatuning case as a regression test with its real figures — lines 36.64 + 31.41 + 20.90, shipping 15.90, document total 104.85, posted total 83.88, posted tax 0.00 — asserting acceptance. Verify it fails against the pre-split rule.

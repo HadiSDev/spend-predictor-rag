@@ -5,7 +5,6 @@ and the token verifier is overridden via FastAPI ``dependency_overrides``.
 """
 from __future__ import annotations
 
-import base64
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -25,13 +24,11 @@ from web_api.db.models import (
     Organization,
 )
 from web_api import deps
+from web_api_testkit import TEST_WEBHOOK_SECRET
 from web_api.app import create_app
 from web_api.auth import ClerkPrincipal, TokenVerificationError
 from web_api.clerk_client import get_clerk_client
 from web_api.routers.webhooks import SvixWebhookVerifier, get_webhook_verifier
-
-# A valid Svix signing secret for tests (base64 payload behind the whsec_ prefix).
-TEST_WEBHOOK_SECRET = "whsec_" + base64.b64encode(b"clerk-org-sync-test-secret-32b!!").decode()
 
 # Tokens map to Clerk principals. Org ids match the seeded organizations so a
 # provisioned user lands in the right tenant.
@@ -231,5 +228,55 @@ def client(seed, clerk_recorder):
     return TestClient(app)
 
 
-def auth(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}"}
+
+
+# --- Suite-wide guards ----------------------------------------------------
+# These lived in a repository-root conftest.py while both APIs shared one test
+# tree. Each app now carries the ones its own session needs, so the web-api
+# suite never imports ai_api (the root conftest's categorizer guard used to).
+
+
+@pytest.fixture
+def mock_erp_connector():
+    """A MockErpConnector wired to the mock ERP app, in-process.
+
+    Mirrors ``tests/test_mock_erp.py``'s ``connector_over_app`` fixture:
+    ``TestClient`` is a synchronous ``httpx.Client`` bound to the ASGI app
+    (entering it fires startup, i.e. the data generator). Assigning it as
+    the connector's own ``_http`` — an attribute the connector already
+    lazily builds itself — gives every fetch a real HTTP round-trip through
+    the actual FastAPI handlers, without a live server and without touching
+    any private httpx internals.
+    """
+    from fastapi.testclient import TestClient
+    from mock_erp.main import app
+    from web_api.connectors.mock import MockErpConnector
+
+    client = TestClient(app)
+    client.__enter__()
+    connector = MockErpConnector({"api_key": "mock-secret"})
+    connector._http = client
+    yield connector
+    client.__exit__(None, None, None)
+
+
+@pytest.fixture(autouse=True)
+def offline_fx(monkeypatch):
+    """No test ever fetches a rate over the network.
+
+    `FX_ENABLED` is read from the environment, and the environment includes the
+    developer's own `.env`. Switching FX on for real work therefore reached into
+    the suite: two tests asserting the off-by-default posture began failing, and
+    — far worse — `default_provider()` started handing back the Frankfurter
+    client, so a full run made outbound HTTP requests. The codebase promises the
+    opposite in as many words: "tests and offline runs make no outbound
+    request."
+
+    Forcing it off costs no coverage. Every test that wants rates injects its
+    own `StubProvider` into `FxService`; only `default_provider()` consults this
+    flag, and what those two tests assert is precisely the default. A test that
+    genuinely needs the flag on can monkeypatch it back.
+    """
+    from web_api import config as web_config
+
+    monkeypatch.setattr(web_config, "FX_ENABLED", False)

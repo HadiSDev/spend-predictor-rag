@@ -38,8 +38,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlmodel import Session, SQLModel
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-ALEMBIC_INI = REPO_ROOT / "alembic.ini"
+APP_ROOT = Path(__file__).resolve().parents[1]  # apps/web-api
+REPO_ROOT = APP_ROOT.parents[1]
+ALEMBIC_INI = APP_ROOT / "alembic.ini"
 
 
 def _script_directory():
@@ -68,7 +69,7 @@ def test_base_revision_creates_tables() -> None:
     source = Path(script.get_revision(base).path).read_text()
     assert "op.create_table(" in source, (
         f"base revision {base} creates no table — a fresh database has nothing "
-        "to ALTER. See tests/web_api/test_migrations.py."
+        "to ALTER. See apps/web-api/tests/test_migrations.py."
     )
 
 
@@ -113,7 +114,7 @@ def _assert_subprocess_targets(env: dict[str, str], db_name: str) -> None:
     probe = subprocess.run(
         [sys.executable, "-c", "from web_api.config import DATABASE_URL; print(DATABASE_URL)"],
         cwd=REPO_ROOT,
-        env={**env, "PYTHONPATH": str(REPO_ROOT / "src")},
+        env=env,
         capture_output=True,
         text=True,
     )
@@ -139,7 +140,7 @@ def _postgres_admin_url() -> str | None:
 
 def _upgrade(env: dict[str, str], revision: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", revision],
+        [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_INI), "upgrade", revision],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -285,7 +286,7 @@ def test_backfill_queues_only_the_invoices_that_have_a_scan() -> None:
 
 def _downgrade(env: dict[str, str], revision: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, "-m", "alembic", "downgrade", revision],
+        [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_INI), "downgrade", revision],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -426,7 +427,7 @@ def test_upgrade_from_empty_database() -> None:
         _assert_subprocess_targets(env, db_name)
 
         result = subprocess.run(
-            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_INI), "upgrade", "head"],
             cwd=REPO_ROOT,
             env=env,
             capture_output=True,

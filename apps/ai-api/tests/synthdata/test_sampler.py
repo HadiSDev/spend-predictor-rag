@@ -1,4 +1,4 @@
-# tests/synthdata/test_sampler.py
+# apps/ai-api/tests/synthdata/test_sampler.py
 from ai_api.synthdata.sampler import InvoicePlan, sample_plans
 
 _ACCOUNTS = [

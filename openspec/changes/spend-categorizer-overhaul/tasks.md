@@ -1,7 +1,7 @@
 ## 1. Phase 1 — stop the blindness
 
-- [x] 1.1 Write a failing test in `tests/ai_api/test_sync_runner.py` that persists an `InvoiceLine` with `item_name` set and `description` null, runs `_categorize_pending` with a `complete` stub capturing the prompt, and asserts the item name appears in it. Watch it fail against today's code.
-- [x] 1.2 Rename `LineContext.description` to `item_name` and add a separate `description` field; update `_fact_lines` to state `Item:` and, only when it differs, `Detail:`. Update the existing `LineContext(description=…)` call sites in `tests/ai_api/test_llm_categorizer.py` and `test_sync_spend_tree.py`.
+- [x] 1.1 Write a failing test in `apps/ai-api/tests/test_sync_runner.py` that persists an `InvoiceLine` with `item_name` set and `description` null, runs `_categorize_pending` with a `complete` stub capturing the prompt, and asserts the item name appears in it. Watch it fail against today's code.
+- [x] 1.2 Rename `LineContext.description` to `item_name` and add a separate `description` field; update `_fact_lines` to state `Item:` and, only when it differs, `Detail:`. Update the existing `LineContext(description=…)` call sites in `apps/ai-api/tests/test_llm_categorizer.py` and `test_sync_spend_tree.py`.
 - [x] 1.3 Fix `_categorize_pending` in `ai_api/sync/runner.py` to pass `ln.item_name` and `ln.description` separately. Test 1.1 passes.
 - [x] 1.4 Replace `test_sync_spend_tree.py:219`'s hand-mirrored mapping with a call through the runner, so no test agrees with a future mapping bug.
 - [x] 1.5 Add the accounting rules to `_INSTRUCTIONS` (fee/tax/toll/levy outranks the supplier and freight is not one; packaging outranks the supplier; a product inside a professional service follows the service; a bare discount follows the supplier), with a test per rule using a stub `complete` that asserts the rule text is in the prompt.

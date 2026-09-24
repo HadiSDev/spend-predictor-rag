@@ -9,7 +9,7 @@ from web_api.connectors import register_connector
 from web_api.connectors.base import CredentialField, DocumentPayload, ErpAccountData, ErpConnector
 from web_api.db.models import ErpCredential
 from sqlmodel import Session, select
-from .conftest import auth
+from web_api_testkit import auth
 
 SECRET = "super-secret-key-value"
 

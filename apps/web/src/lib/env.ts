@@ -18,7 +18,7 @@ export const GOOGLE_OAUTH_ENABLED =
 export function assertRequiredEnv(): void {
   if (!CLERK_PUBLISHABLE_KEY) {
     throw new Error(
-      'Missing VITE_CLERK_PUBLISHABLE_KEY. Copy frontend/.env.example to .env and set it ' +
+      'Missing VITE_CLERK_PUBLISHABLE_KEY. Copy apps/web/.env.example to .env and set it ' +
         'to your Clerk publishable key.',
     )
   }

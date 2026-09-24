@@ -1,6 +1,6 @@
 """Streamlit dashboard for the ERP Procurement Agent.
 
-Run with:  streamlit run src/web_api/dashboard/app.py
+Run with:  streamlit run apps/web-api/src/web_api/dashboard/app.py
 """
 
 import streamlit as st

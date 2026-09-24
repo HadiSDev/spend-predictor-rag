@@ -2,7 +2,7 @@
 
 ### Requirement: Segmented one-time-code field
 
-The UI library SHALL export a `CodeInput` from `frontend/src/components/ui/`
+The UI library SHALL export a `CodeInput` from `apps/web/src/components/ui/`
 that renders a one-time code as one cell per digit rather than as a single
 free-text field. The number of cells SHALL be a `length` prop defaulting to 6,
 and the component SHALL be controlled — taking `value` and emitting `onChange`

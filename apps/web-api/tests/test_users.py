@@ -1,7 +1,7 @@
 """Current-user endpoint + organization member directory."""
 from __future__ import annotations
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 # -- /users/me ---------------------------------------------------------------

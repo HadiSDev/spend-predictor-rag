@@ -6,8 +6,8 @@ from sqlmodel import Session
 from web_api.clerk_client import ClerkClient
 from web_api.db.models import Organization
 
-from .conftest import auth
-from .test_webhooks import post_event
+from web_api_testkit import auth
+from web_api_testkit import post_event
 
 
 # -- DELETE /organization (7.6) -----------------------------------------------

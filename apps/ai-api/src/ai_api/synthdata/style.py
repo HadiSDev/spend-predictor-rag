@@ -1,4 +1,4 @@
-# src/ai_api/synthdata/style.py
+# apps/ai-api/src/ai_api/synthdata/style.py
 """Per-invoice render style + extra fields, built deterministically from a seeded Faker."""
 from __future__ import annotations
 

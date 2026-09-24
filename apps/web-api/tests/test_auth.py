@@ -18,7 +18,7 @@ from web_api.auth import (
     map_role,
 )
 
-from .conftest import auth
+from web_api_testkit import auth
 
 ISSUER = "https://test.clerk.example"
 

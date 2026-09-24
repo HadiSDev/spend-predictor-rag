@@ -102,17 +102,17 @@ into a labelled dataset for evaluating and improving extraction.
 `supplier_country_code`, `supplier_vat_number`, `verified_fields`,
 `verified_at`, `verified_by`; `invoice_lines` gains `verified_fields`.
 
-**API** (`src/web_api/`): `routers/invoices.py` (PATCH gate removed, verify
+**API** (`apps/web-api/src/web_api/`): `routers/invoices.py` (PATCH gate removed, verify
 added), `routers/invoice_lines.py` (line PATCH / POST / DELETE), `schemas.py`
 (`InvoiceUpdate`, `InvoiceVerify`, `InvoiceLineUpdate`, `InvoiceLineCreate`,
 plus read-model additions), `audit.py` (field sets and actions), `rollup.py`
 (unchanged rollup, re-run after line add/delete), `reconcile` helper shared with
 the document stage.
 
-**Sync** (`src/ai_api/sync/runner.py`): `_persist_invoices` becomes
+**Sync** (`apps/ai-api/src/ai_api/sync/runner.py`): `_persist_invoices` becomes
 verified-aware; the CLI gains `--hard-reset`.
 
-**Frontend** (`frontend/src/`): `components/entries/voucher-details-tab.tsx`,
+**Frontend** (`apps/web/src/`): `components/entries/voucher-details-tab.tsx`,
 `voucher-lines-tab.tsx`, `line-category-editor.tsx`, `lib/invoices.ts`,
 `lib/types.ts`, plus a vendor picker reusing the existing `/vendors` endpoint.
 

@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from web_api.db.models import AuditLog, Invoice, Vendor
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 def _link_vendor(engine, invoice_id: str, **fields) -> str:

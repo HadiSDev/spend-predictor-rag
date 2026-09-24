@@ -1,8 +1,8 @@
 ## 1. Backend: the requeue endpoint
 
-- [x] 1.1 Add `RecategorizeResult` to `src/web_api/schemas.py` (`company_id`, `queued`),
+- [x] 1.1 Add `RecategorizeResult` to `apps/web-api/src/web_api/schemas.py` (`company_id`, `queued`),
       documenting that the count is lines queued, never lines categorized
-- [x] 1.2 Write failing tests in `tests/web_api/test_companies.py` for the eligibility rule:
+- [x] 1.2 Write failing tests in `apps/web-api/tests/test_companies.py` for the eligibility rule:
       `ai_failed` reset, `verified` / `ai_categorized` / `uncategorized` untouched and
       uncounted, and an `entry_fallback` failure reset like any other
 - [x] 1.3 Write failing tests for authorization: management succeeds, `member`/`viewer`
@@ -11,7 +11,7 @@
       `requeued_for_categorization` audit row per line with actor `system` and the status
       transition, and invoice rollups recomputed
 - [x] 1.5 Implement `POST /companies/{company_id}/recategorize` in
-      `src/web_api/routers/companies.py` behind `require_management`, using
+      `apps/web-api/src/web_api/routers/companies.py` behind `require_management`, using
       `get_managed_company` for scope, `record_audit` for the trail, and
       `recompute_invoice_status` for the rollups — all in one transaction
 - [x] 1.6 Verify the whole backend suite passes and the endpoint appears in `/openapi.json`
@@ -33,8 +33,8 @@
 
 ## 3. Frontend: the company menu action
 
-- [x] 3.1 Add `RecategorizeResult` to `frontend/src/lib/types.ts` and a
-      `recategorizeMutation` to `frontend/src/lib/companies.ts`, mirroring
+- [x] 3.1 Add `RecategorizeResult` to `apps/web/src/lib/types.ts` and a
+      `recategorizeMutation` to `apps/web/src/lib/companies.ts`, mirroring
       `recomputeFxMutation`
 - [x] 3.2 Write failing tests in `components/settings/companies-panel.test.tsx`: the action
       is offered to management and absent/disabled without it; the confirmation says lines

@@ -4,7 +4,8 @@ from pathlib import Path
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
-OUT = Path(__file__).resolve().parents[1] / "data" / "invoices" / "sample_invoice.pdf"
+# apps/ai-api/scripts -> repository root, where the shared data/ lives.
+OUT = Path(__file__).resolve().parents[3] / "data" / "invoices" / "sample_invoice.pdf"
 
 
 def main() -> None:

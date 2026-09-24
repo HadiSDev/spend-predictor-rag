@@ -46,7 +46,7 @@
 
 Answered by fetching the six documents and reading them directly. **Five of the
 six are text-layer PDFs**, so this needed no model at all; the sixth is a scan.
-`scripts/doc_baseline.py` produces the table above; the documents themselves
+`apps/web-api/scripts/doc_baseline.py` produces the table above; the documents themselves
 were dumped and read by hand for this section.
 
 **Every one of the six states a totals block.** That was the open question, and

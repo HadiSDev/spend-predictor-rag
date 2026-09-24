@@ -11,7 +11,7 @@ library rather than in either screen.
 
 ## What Changes
 
-- **New `CodeInput` in `frontend/src/components/ui/`** — a segmented one-time-code
+- **New `CodeInput` in `apps/web/src/components/ui/`** — a segmented one-time-code
   field rendering one cell per digit, exported from the `ui/` barrel like every
   other control.
 - **The cell count is a prop, not a constant.** Six is the default because that
@@ -53,11 +53,11 @@ library rather than in either screen.
 
 ## Impact
 
-- **New**: `frontend/src/components/ui/code-input.tsx`, plus its export line in
-  `frontend/src/components/ui/index.ts` and coverage in
-  `frontend/src/components/ui/ui.test.tsx`.
-- **Changed**: `frontend/src/routes/sign-in.tsx` and
-  `frontend/src/components/settings/emails-panel.tsx` swap `Input` for
+- **New**: `apps/web/src/components/ui/code-input.tsx`, plus its export line in
+  `apps/web/src/components/ui/index.ts` and coverage in
+  `apps/web/src/components/ui/ui.test.tsx`.
+- **Changed**: `apps/web/src/routes/sign-in.tsx` and
+  `apps/web/src/components/settings/emails-panel.tsx` swap `Input` for
   `CodeInput`. Both have existing tests (`sign-in.test.tsx`,
   `emails-panel.test.tsx`) that type into the code field and will need to drive
   the new control.

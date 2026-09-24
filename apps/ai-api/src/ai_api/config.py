@@ -11,8 +11,11 @@ from web_api import config as _web_config
 
 load_dotenv()
 
-# repo root = .../spend-predictor-rag (config.py is at src/ai_api/config.py)
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# The repository root, not this app's directory: data/, output/ and chroma_db/
+# are shared runtime state and stay at the top. config.py sits at
+# <root>/apps/ai-api/src/ai_api/config.py, so the hops are
+# ai_api -> src -> ai-api -> apps -> <root>.
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
 
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
 VLLM_MODEL = os.getenv("VLLM_MODEL", "hosted_vllm/google/gemma-4-E4B-it")

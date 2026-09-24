@@ -14,66 +14,23 @@ Two properties carry most of the weight here and are easy to break:
 """
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal
 
 import pytest
 from sqlmodel import Session, select
 
 from ai_api.sync import runner
-from web_api.connectors.base import ErpAccountData, ErpEntryData, ErpInvoiceData
 from web_api.db.models import (
     AuditLog, DocStatus, ErpEntry, Invoice, InvoiceLine, LineOrigin,
 )
 from web_api.db.models.audit_log import SYSTEM_ACTOR
 
-# A chart that actually declares account types — the module default leaves them
-# null, which is what every pre-existing test is pinned against.
-TYPED_ACCOUNTS = [
-    ErpAccountData(erp_account_code="6010", erp_account_name="Cloud Hosting",
-                   erp_account_type="expense"),
-    ErpAccountData(erp_account_code="6020", erp_account_name="Software",
-                   erp_account_type="expense"),
-    ErpAccountData(erp_account_code="2610", erp_account_name="Input VAT",
-                   erp_account_type="asset", with_vat=True),
-    ErpAccountData(erp_account_code="8010", erp_account_name="Trade payables",
-                   erp_account_type="liability"),
-]
-
-
-def _entry(erp_id: str, account: str, debit: float | None = None,
-           credit: float | None = None, description: str = "",
-           voucher: str = "V1") -> ErpEntryData:
-    return ErpEntryData(
-        erp_entry_id=erp_id, voucher_id=voucher, entry_type="purchase_invoice",
-        erp_account_code=account, accounting_date=date(2026, 3, 2),
-        description=description, debit_amount=debit, credit_amount=credit,
-        currency="DKK",
-    )
-
-
-# One voucher, fully posted: net expense, its VAT, and the payable that balances
-# it. Only the first is spend.
-BALANCED_VOUCHER = [
-    _entry("E-1", "6010", debit=800.0, description="Cloud hosting March"),
-    _entry("E-2", "2610", debit=200.0, description="VAT 25%"),
-    _entry("E-3", "8010", credit=1000.0, description="Contoso ApS"),
-]
-
-# The same voucher with its expense split across two accounts.
-SPLIT_VOUCHER = [
-    _entry("E-1", "6010", debit=500.0, description="Cloud hosting March"),
-    _entry("E-2", "6020", debit=300.0, description="Licences"),
-    _entry("E-3", "2610", debit=200.0, description="VAT 25%"),
-    _entry("E-4", "8010", credit=1000.0, description="Contoso ApS"),
-]
-
-# A scan with no lines of its own — the case the stand-ins exist for.
-SCAN_WITHOUT_LINES = ErpInvoiceData(
-    erp_id="INV-1", vendor_erp_id="V-1", vendor_name="Contoso ApS",
-    invoice_number="2026-001", invoice_date=date(2026, 3, 2), currency="DKK",
-    total=1000.0, tax=200.0, voucher_id="V1", file_name="inv-1.pdf",
-    lines=[],
+from ai_api_testkit import (
+    BALANCED_VOUCHER,
+    SCAN_WITHOUT_LINES,
+    SPLIT_VOUCHER,
+    TYPED_ACCOUNTS,
+    entry,
 )
 
 
@@ -157,9 +114,9 @@ def test_an_untouched_standin_line_still_refreshes(engine, make_tenant, scanless
     runner.run_sync()
 
     scanless.entries = [
-        _entry("E-1", "6010", debit=800.0, description="Cloud hosting April"),
-        _entry("E-2", "2610", debit=200.0, description="VAT 25%"),
-        _entry("E-3", "8010", credit=1000.0, description="Contoso ApS"),
+        entry("E-1", "6010", debit=800.0, description="Cloud hosting April"),
+        entry("E-2", "2610", debit=200.0, description="VAT 25%"),
+        entry("E-3", "8010", credit=1000.0, description="Contoso ApS"),
     ]
     runner.run_sync()
 
@@ -216,8 +173,8 @@ def test_a_split_account_voucher_yields_a_line_per_expense_posting(
 def test_a_credit_on_an_expense_account_is_a_negative_line(engine, make_tenant, scanless):
     """A refund credits the account it originally debited, so the line is negative."""
     scanless.entries = [
-        _entry("E-1", "6010", credit=800.0, description="Cloud hosting refund"),
-        _entry("E-2", "8010", debit=800.0, description="Contoso ApS"),
+        entry("E-1", "6010", credit=800.0, description="Cloud hosting refund"),
+        entry("E-2", "8010", debit=800.0, description="Contoso ApS"),
     ]
     tenant = make_tenant("Acme")
 
@@ -230,8 +187,8 @@ def test_a_credit_on_an_expense_account_is_a_negative_line(engine, make_tenant, 
 def test_a_voucher_with_no_expense_posting_yields_no_line(engine, make_tenant, scanless):
     """A transfer between balance accounts spent nothing — no placeholder line."""
     scanless.entries = [
-        _entry("E-1", "8010", debit=1000.0, description="Transfer out"),
-        _entry("E-2", "2610", credit=1000.0, description="Transfer in"),
+        entry("E-1", "8010", debit=1000.0, description="Transfer out"),
+        entry("E-2", "2610", credit=1000.0, description="Transfer in"),
     ]
     tenant = make_tenant("Acme")
 

@@ -8,7 +8,7 @@ from web_api import config as web_config
 from web_api import credentials
 from web_api.db.models import Company, ErpCredential, ErpIntegration, Organization, User
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 # The debug connector's credential fields are all optional, so the minimal

@@ -5,7 +5,7 @@ Lives in `web_api` rather than `ai_api` because the dependency runs one way —
 the document stage use it while leaving the door open for `web_api/fx` to adopt
 `parse_currency` in place of its own narrower `normalize_currency`.
 
-The upstream tests came across with the code (`tests/web_api/parsers/`) and pass
+The upstream tests came across with the code (`apps/web-api/tests/parsers/`) and pass
 unedited; they are the specification, and rewriting them to suit us would move
 the contract we adopted this for.
 """

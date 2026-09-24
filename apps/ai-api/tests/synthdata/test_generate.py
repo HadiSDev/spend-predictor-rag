@@ -1,4 +1,4 @@
-# tests/synthdata/test_generate.py
+# apps/ai-api/tests/synthdata/test_generate.py
 import json
 
 from ai_api.synthdata.generate import generate_dataset

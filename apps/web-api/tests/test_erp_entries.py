@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from web_api.db.models import (
     ErpAccount, ErpEntry, ErpIntegration, Invoice, InvoiceLine, Vendor,
 )
-from .conftest import auth
+from web_api_testkit import auth
 
 
 @pytest.fixture

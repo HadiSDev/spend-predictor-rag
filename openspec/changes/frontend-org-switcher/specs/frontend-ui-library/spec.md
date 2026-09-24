@@ -58,7 +58,7 @@ and optional grouping with group labels.
 
 ### Requirement: Comprehensive component set exported from ui/
 
-The library SHALL provide, and export from `frontend/src/components/ui/`, at least: Button,
+The library SHALL provide, and export from `apps/web/src/components/ui/`, at least: Button,
 IconButton, Input, NumberInput (`react-number-format`), Textarea, Select, Combobox,
 Checkbox, Radio, Switch, Field/Label/Error, Form (`react-hook-form`), Calendar +
 DatePicker (`react-day-picker`), Dialog, AlertDialog, DropdownMenu, Tabs, Tooltip, Popover,
@@ -68,7 +68,7 @@ reusable AppShell (sidebar + topbar).
 
 #### Scenario: Single import surface
 
-- **WHEN** a page imports from `frontend/src/components/ui`
+- **WHEN** a page imports from `apps/web/src/components/ui`
 - **THEN** every listed component is available from the barrel export
 
 #### Scenario: DataTable sorts and paginates

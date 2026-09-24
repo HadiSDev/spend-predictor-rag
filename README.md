@@ -49,7 +49,7 @@ cp .env.example .env
 # 2. Make sure your vLLM server is running (see Prerequisites).
 
 # 3. Run the pipeline:
-uv run main.py
+uv run apps/ai-api/main.py
 
 # 4. Inspect the results:
 cat output/ledger.csv
@@ -95,7 +95,7 @@ and embeddings are faked via dependency injection).
 
 ## Synthetic data & benchmarking
 
-The `spend_predictor.synthdata` subpackage generates labeled synthetic invoice
+The `ai_api.synthdata` subpackage generates labeled synthetic invoice
 fixtures (PDF + structured fields + ERP journal entries + category labels) and
 benchmarks the extraction/categorization pipeline against them using ANLS. Labels
 are chosen programmatically from the chart of accounts and buyer profiles
@@ -110,7 +110,7 @@ font, logo/monogram, and realistic extra fields (addresses, PO number, payment t
 due date, bank/IBAN, notes). The `--live` flag (which requires `uv sync --group live`
 + a running vLLM) is optional — it only swaps in LLM-written line-item descriptions
 for extra realism; all other variation and quality work without it. Templates are
-auto-discovered from `src/spend_predictor/synthdata/render/templates/*.html`, so you
+auto-discovered from `apps/ai-api/src/ai_api/synthdata/render/templates/*.html`, so you
 can drop in your own `.html` template and it joins the rotation automatically.
 
 ### Installation
@@ -132,7 +132,7 @@ uv sync --group live
 ### Generate synthetic invoices
 
 ```bash
-uv run python -m spend_predictor.synthdata.generate --n 100 --seed 7 --out data/synthetic
+uv run python -m ai_api.synthdata.generate --n 100 --seed 7 --out data/synthetic
 ```
 
 **Requires:** by default, NO LLM or vLLM — the generator produces richly varied
@@ -156,9 +156,9 @@ and is **human-gated**: it stages drafts for you to review, and never writes int
 `render/templates/` itself.
 
 ```bash
-uv run python -m spend_predictor.synthdata.templategen --n 5
+uv run python -m ai_api.synthdata.templategen --n 5
 # or drive the search yourself:
-uv run python -m spend_predictor.synthdata.templategen --query "eu vat invoice template" --n 8
+uv run python -m ai_api.synthdata.templategen --query "eu vat invoice template" --n 8
 ```
 
 It searches DuckDuckGo images (no key), drafts a Jinja2 template per image via the
@@ -169,7 +169,7 @@ digits — so spaced or hyphenated numbers may slip through — or embedded imag
 URLs; human review is the real guarantee). Results land in `data/template_drafts/` (gitignored):
 passing drafts as `<name>.html` + `<name>.pdf` preview, failures under
 `_rejected/` with a reason, plus a `report.md`. Review them, then move the good
-`.html` files into `src/spend_predictor/synthdata/render/templates/` — the
+`.html` files into `apps/ai-api/src/ai_api/synthdata/render/templates/` — the
 generator auto-discovers them.
 
 **No real data ever enters a template:** the vision model is instructed to copy
@@ -179,7 +179,7 @@ manual review are the backstops.
 ### Score extraction & categorization accuracy
 
 ```bash
-uv run python -m spend_predictor.synthdata.score --fixtures data/synthetic
+uv run python -m ai_api.synthdata.score --fixtures data/synthetic
 ```
 
 **Requires:** the local vLLM server running — scoring runs the real

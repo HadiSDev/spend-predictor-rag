@@ -1,0 +1,50 @@
+[project]
+name = "ai-api"
+version = "0.2.0"
+description = "AI workflows: PDF InvoiceFlow, sync + categorizer, document extraction, enrichment, suggestions"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "web-api",
+    "anls",
+    "crewai>=1.14.6",
+    "crewai-tools>=1.14.6",
+    "ddgs>=9.14.4",
+    "faker>=40.23.0",
+    "jinja2>=3.1.6",
+    "json-repair>=0.25.3",
+    "pdfplumber>=0.11.0",
+    "pillow>=12.2.0",
+    "pydantic>=2.12.5",
+    "pypdfium2>=5.9.0",
+    "python-dotenv>=1.2.2",
+    "qdrant-client>=1.12.0",
+    "sentence-transformers>=3.0.0",
+    "sqlalchemy>=2.0.51",
+    "sqlmodel>=0.0.22",
+    "weasyprint>=69.0",
+]
+
+[project.scripts]
+invoice-flow = "ai_api.flow:run_all"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "reportlab>=4.0.0",
+]
+live = [
+    "bespokelabs-curator>=0.1.9.post1",
+]
+
+[tool.uv.sources]
+web-api = { workspace = true }
+anls = { git = "https://github.com/shunk031/ANLS" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+pythonpath = ["tests"]

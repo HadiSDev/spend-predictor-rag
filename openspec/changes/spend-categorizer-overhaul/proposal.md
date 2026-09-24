@@ -110,7 +110,7 @@ fees, packaging and professional services.
 new `ai_api/suggestions/` (gap suggester), `web_api/spend_trees/template.py`
 (new leaves, version bump), `web_api/routers/invoice_lines.py` (review filter),
 `web_api/db/models/` + one migration (suggestion rows, vendor enrichment stamp),
-`frontend/src/routes/_authed/settings/spend-trees*`.
+`apps/web/src/routes/_authed/settings/spend-trees*`.
 
 **Data** — no existing categorization is rewritten. The nine `ai_failed` lines
 are requeued through the existing `POST /companies/{id}/recategorize`, which is

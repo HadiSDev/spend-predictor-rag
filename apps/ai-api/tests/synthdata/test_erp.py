@@ -1,4 +1,4 @@
-# tests/synthdata/test_erp.py
+# apps/ai-api/tests/synthdata/test_erp.py
 from ai_api.models import ExtractedInvoice, LineItem
 from ai_api.synthdata.erp import build_journal
 

@@ -1,6 +1,6 @@
 ## 1. The component
 
-- [x] 1.1 Create `frontend/src/components/ui/code-input.tsx` with a
+- [x] 1.1 Create `apps/web/src/components/ui/code-input.tsx` with a
   `CodeInputProps` typed on `value`, `onChange(code: string)`, optional
   `onComplete(code: string)`, `length` (default 6), `disabled`, `aria-invalid`,
   and the remaining input attributes; forward the ref to the real `<input>` so
@@ -27,12 +27,12 @@
   complete code.
 - [x] 1.8 Honour `disabled`: no cell changes and no `onChange` while disabled.
 - [x] 1.9 Export `CodeInput` and `CodeInputProps` from
-  `frontend/src/components/ui/index.ts`.
+  `apps/web/src/components/ui/index.ts`.
 
 ## 2. Component tests
 
 - [x] 2.1 Add a `describe('CodeInput')` block to
-  `frontend/src/components/ui/ui.test.tsx`, following the existing
+  `apps/web/src/components/ui/ui.test.tsx`, following the existing
   `NumberInput` block's shape.
 - [x] 2.2 Cover structure: `length={6}` renders six cells; `length={4}` renders
   four; a value shorter than `length` fills only its own cells.
@@ -52,18 +52,18 @@
 
 ## 3. Adopt on the sign-in screen
 
-- [x] 3.1 In `frontend/src/routes/sign-in.tsx`, replace the `Input` inside the
+- [x] 3.1 In `apps/web/src/routes/sign-in.tsx`, replace the `Input` inside the
   code `FormField` with `CodeInput`, keeping the `FormLabel`, `FormControl`,
   `FormMessage` and the `required` rule; drop the `123456` placeholder and the
   now-redundant `inputMode`/`autoComplete` props.
 - [x] 3.2 Wire `onComplete` to submit the code form, so a pasted code verifies
   without a click; leave the Verify button as the retry path.
-- [x] 3.3 Update `frontend/src/routes/sign-in.test.tsx` to drive the new
+- [x] 3.3 Update `apps/web/src/routes/sign-in.test.tsx` to drive the new
   control, and add a case asserting a completed code submits on its own.
 
 ## 4. Adopt in the Settings emails panel
 
-- [x] 4.1 In `frontend/src/components/settings/emails-panel.tsx`, replace the
+- [x] 4.1 In `apps/web/src/components/settings/emails-panel.tsx`, replace the
   code `Input` with `CodeInput`, carrying the `aria-label="Verification code"`
   across and dropping the `max-w-40` (the field now sizes itself).
 - [x] 4.2 Wire `onComplete` to `handleVerify`, guarded by `busy` so an in-flight
@@ -71,14 +71,14 @@
 - [x] 4.3 Check the code row's `flex-wrap` layout still reads correctly with the
   wider cell row beside three buttons; wrap the buttons to their own line if it
   crowds.
-- [x] 4.4 Update `frontend/src/components/settings/emails-panel.test.tsx` to
+- [x] 4.4 Update `apps/web/src/components/settings/emails-panel.test.tsx` to
   drive the new control.
 
 ## 5. Verify
 
-- [x] 5.1 Run `./node_modules/.bin/vitest run` in `frontend/` and confirm the UI,
+- [x] 5.1 Run `./node_modules/.bin/vitest run` in `apps/web/` and confirm the UI,
   sign-in, and emails-panel suites pass.
-- [x] 5.2 Run `./node_modules/.bin/eslint` in `frontend/` and clear every error
+- [x] 5.2 Run `./node_modules/.bin/eslint` in `apps/web/` and clear every error
   in the touched files. **`prettier --check .` is not a usable gate here**: it
   fails on 138 files on a clean tree, so the added code matches the prevailing
   style of the file it sits in instead. Baseline eslint was 47 errors; the

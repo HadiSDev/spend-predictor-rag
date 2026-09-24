@@ -173,7 +173,7 @@ export function usePrincipal(): Principal {
 
 /**
  * Role gates for management UI. These mirror the authorization dependencies in
- * `src/web_api/deps.py` — `require_org_admin` for the organization profile and
+ * `apps/web-api/src/web_api/deps.py` — `require_org_admin` for the organization profile and
  * `require_management` for company writes. Keep them in step with that file:
  * they are a usability affordance so unauthorized users see read-only views
  * instead of controls that fail on submit, never the enforcement point. Every

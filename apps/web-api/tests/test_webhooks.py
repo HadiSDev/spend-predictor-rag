@@ -1,31 +1,13 @@
 """Inbound Clerk webhook tests: signature, idempotency, and event handlers."""
 from __future__ import annotations
 
-import datetime as dt
 import json
 
 from sqlmodel import Session, select
-from svix.webhooks import Webhook
 
 from web_api.db.models import Company, File, Invoice, Organization, User, WebhookEvent
 
-from .conftest import TEST_WEBHOOK_SECRET, auth
-
-
-def _headers(payload: str, msg_id: str) -> dict:
-    wh = Webhook(TEST_WEBHOOK_SECRET)
-    ts = dt.datetime.now(dt.timezone.utc)
-    return {
-        "svix-id": msg_id,
-        "svix-timestamp": str(int(ts.timestamp())),
-        "svix-signature": wh.sign(msg_id, ts, payload),
-        "content-type": "application/json",
-    }
-
-
-def post_event(client, event_type: str, data: dict, msg_id: str = "msg_1"):
-    payload = json.dumps({"type": event_type, "data": data})
-    return client.post("/api/v1/webhooks/clerk", content=payload, headers=_headers(payload, msg_id))
+from web_api_testkit import auth, post_event, svix_headers
 
 
 # -- Signature (7.1) ----------------------------------------------------------
@@ -43,7 +25,7 @@ def test_missing_headers_rejected(client):
 
 def test_tampered_body_rejected(client):
     payload = json.dumps({"type": "organization.created", "data": {"id": "x"}})
-    headers = _headers(payload, "m2")
+    headers = svix_headers(payload, "m2")
     r = client.post("/api/v1/webhooks/clerk", content=payload + " ", headers=headers)  # body changed post-sign
     assert r.status_code == 400
 

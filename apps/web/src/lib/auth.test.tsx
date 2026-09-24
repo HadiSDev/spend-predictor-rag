@@ -132,7 +132,7 @@ describe('role gates', () => {
     }
   }
 
-  // Mirrors require_org_admin in src/web_api/deps.py.
+  // Mirrors require_org_admin in apps/web-api/src/web_api/deps.py.
   it.each([
     ['admin', true],
     ['moderator', false],
@@ -142,7 +142,7 @@ describe('role gates', () => {
     expect(canManageOrganization(principal({ role }))).toBe(expected)
   })
 
-  // Mirrors require_management in src/web_api/deps.py.
+  // Mirrors require_management in apps/web-api/src/web_api/deps.py.
   it.each([
     ['admin', true],
     ['moderator', true],

@@ -15,8 +15,15 @@ Two pipelines coexist:
    from synthetic data or ERP connectors. Same categorization core, but outputs
    to PostgreSQL for aggregation, redundancy detection, and savings suggestions.
 
-The code is split into two packages under `src/` (plus the standalone
-`mock_erp/` server):
+Every runnable app lives under `apps/`, and the three Python ones are members of
+one **uv workspace** (root `pyproject.toml` is virtual: one `uv.lock`, one
+`.venv`). Import names are unchanged; each app has its own `pyproject.toml`,
+`src/` layout and `tests/`:
+
+- **`apps/web`** — the frontend (TanStack Start, **bun**).
+- **`apps/web-api`** → `web_api` (below).
+- **`apps/ai-api`** → `ai_api` (below).
+- **`apps/mock-erp`** → `mock_erp`, the standalone mock ERP server.
 
 - **`web_api/`** — the **business domain**: SQLModel ORM + DB session + Alembic,
   ERP connectors, the Streamlit dashboard, and the Clerk-authenticated FastAPI
@@ -26,13 +33,22 @@ The code is split into two packages under `src/` (plus the standalone
   redundancy detection, and the recommender.
 
 Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
-(ORM models, DB session, connectors); `web_api` never imports `ai_api`.
+(ORM models, DB session, connectors); `web_api` never imports `ai_api`. **This is
+enforced by packaging**: `ai-api` declares `web-api` as a workspace dependency,
+and nothing on the web-api side declares `ai-api`, so an AI import from the
+domain fails in a web-api-only install. Each manifest lists only what its own
+code imports — web-api carries no CrewAI, sentence-transformers or Qdrant.
 
 ## Environment
 
 - Managed with Astral `uv`; **Python 3.12**.
-- Install: `uv sync`
-- Run PDF pipeline: `uv run main.py`
+- Install: `uv sync` (at the root — installs every workspace member, editable).
+  One app alone, e.g. to prove the dependency direction:
+  `UV_PROJECT_ENVIRONMENT=/tmp/venv uv sync --package web-api --no-default-groups --group dev`.
+  **The members sit in the root's `apps` group, never in `dev`**:
+  `--package X --group dev` unions every `dev` group in the workspace, so members
+  listed there would pull ai-api into a web-api-only install.
+- Run PDF pipeline: `uv run apps/ai-api/main.py` (or `uv run invoice-flow`)
 - Run sync pipeline: `python -m ai_api.sync.runner` (syncs **every connected
   `ErpIntegration`**; see below)
 - Run document processing: `python -m ai_api.documents.runner` (reads each
@@ -41,19 +57,32 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
 - Describe suppliers: `python -m ai_api.enrichment.runner` (fills
   `Vendor.description` once per supplier; needs `VENDOR_ENRICHMENT_ENABLED`)
 - Propose missing categories: `python -m ai_api.suggestions.runner`
-- Run web API: `uvicorn web_api.app:app --reload`
-- Run dashboard: `streamlit run src/web_api/dashboard/app.py`
-- Test: `uv run pytest`
-- Migrate DB: `uv run alembic upgrade head`. The chain starts from **one
+- Run web API: `uv run uvicorn web_api.app:app --reload --reload-dir apps/web-api/src`
+- Run frontend: `cd apps/web && bun run dev` (bun only — `bun.lock` is committed)
+- Run dashboard: `streamlit run apps/web-api/src/web_api/dashboard/app.py`
+- Test: `uv run pytest` at the root runs every app's suite; inside `apps/<app>`
+  it runs only that app's. **`apps/<app>/tests/` is deliberately not a package**
+  (no `__init__.py`) and pytest runs in `importlib` mode: two top-level packages
+  named `tests` collide in one session. A helper a test imports by name lives in
+  that app's uniquely named `web_api_testkit.py` / `ai_api_testkit.py`, which the
+  pytest `pythonpath` exposes — never `from .conftest import …`. The connector
+  registry is process-global, so a test that registers a connector uses its own
+  `erp_type`, never another suite's (`"fake"` is `ai_api_testkit`'s).
+- Migrate DB: `uv run alembic -c apps/web-api/alembic.ini upgrade head`. The chain starts from **one
   squashed baseline** (`0001_baseline_schema`); the original 20 migrations never created
   a base table, so `upgrade` from empty had in fact never worked — the schema was
   built out-of-band by `create_all()`. A database that predates the squash is
-  brought across once with `uv run alembic stamp 0001_baseline_schema --purge`
+  brought across once with
+  `uv run alembic -c apps/web-api/alembic.ini stamp 0001_baseline_schema --purge`
   (`--purge` because plain `stamp` first resolves the *current* revision, whose
-  script was deleted). `tests/web_api/test_migrations.py` runs the chain from
+  script was deleted). `apps/web-api/tests/test_migrations.py` runs the chain from
   base against a throwaway PostgreSQL database, so this cannot silently rot
   again; it skips explicitly when no PostgreSQL is reachable.
-- Infra: `docker compose up` (Qdrant on :6333, PostgreSQL on :5432)
+- Infra: `docker compose up` (Qdrant on :6333, PostgreSQL on :5432, mock ERP
+  built from `apps/mock-erp` alone)
+- **Shared runtime data stays at the repo root**: `data/`, `output/`,
+  `chroma_db/`. `ai_api.config.PROJECT_ROOT` is `parents[4]` of `config.py` —
+  the repository, not `apps/ai-api` — and a test pins it.
 
 ## Web API auth (Clerk)
 
@@ -67,7 +96,7 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   yet valid (iat)"* whenever the local clock runs behind — an intermittent 401
   that succeeds on retry, and a confusing one because nothing is wrong with the
   token. 5s matches Clerk's own backend SDK. The leeway widens `exp` by the same
-  amount, so it stays small; `tests/web_api/test_auth.py` pins both halves —
+  amount, so it stays small; `apps/web-api/tests/test_auth.py` pins both halves —
   skewed token accepted, genuinely expired token still rejected.
 - API docs use **Scalar** at `/scalar` (built-in Swagger/ReDoc disabled;
   OpenAPI JSON at `/openapi.json`).
@@ -261,7 +290,7 @@ Dependency direction is one-way: **`ai_api` imports the domain from `web_api`**
   never updated, so on the dev ledger 26 of 40 lines were categorized on a
   supplier and an amount alone — and the model said so, accurately, in the
   rationale it was then blamed for. **A prompt input is pinned by a test that
-  runs through the runner** (`tests/ai_api/test_sync_runner.py`), asserting on
+  runs through the runner** (`apps/ai-api/tests/test_sync_runner.py`), asserting on
   the *facts half* of the prompt: every test used to build its `LineContext` by
   hand, and one mirrored the runner's mapping inside the test, so nothing could
   disagree with the bug.
@@ -926,7 +955,7 @@ deliberate, exactly as `?include_inactive` reaches them in the company list.
   connector's identity is declared: the frontend renders its picker from the
   catalog and knows no connector by name, so registering one is the whole of the
   work needed for it to appear, with a lettered fallback tile when we have no
-  artwork (`frontend/src/assets/erp/`, `erp-brand-mark.tsx`).
+  artwork (`apps/web/src/assets/erp/`, `erp-brand-mark.tsx`).
 - **Billy** (`connectors/billy.py`, `erp_type = "billy"`) is the first real ERP.
   Billy API v2, authenticated with a customer's revocable `X-Access-Token`
   (stored encrypted like any credential — **never** an env var); the
@@ -958,8 +987,8 @@ deliberate, exactly as `?include_inactive` reaches them in the company list.
   record for the download URL and the media type. Worth it: a good share of
   Billy attachments are phone photos of a receipt, and the runner's `scan.pdf`
   placeholder would be an outright lie about what the customer downloads.
-  Tests run against scrubbed captures in `tests/fixtures/billy/` and never touch
-  the network; `scripts/billy_fixtures.py` re-captures them and is opt-in.
+  Tests run against scrubbed captures in `apps/web-api/tests/fixtures/billy/` and never touch
+  the network; `apps/web-api/scripts/billy_fixtures.py` re-captures them and is opt-in.
 - Connecting Billy needs `WEB_API_CREDENTIAL_ENC_KEY` set (unlike the Debug ERP,
   whose fields all have defaults) and outbound access to
   `api.billysbilling.com` plus the S3 host its documents live on.
@@ -985,58 +1014,64 @@ deliberate, exactly as `?include_inactive` reaches them in the company list.
 ## Layout
 
 ```text
-src/
-├── web_api/                  BUSINESS DOMAIN + customer API
-│   ├── config.py             domain config: DATABASE_URL + Clerk settings
-│   ├── app.py                FastAPI app factory (uvicorn web_api.app:app)
-│   ├── auth.py               Clerk JWT verification + JWKS cache
-│   ├── deps.py               auth dependency chain + JIT provisioning + tenant scope
-│   ├── schemas.py            Pydantic response models
-│   ├── audit.py              generic AuditLog helpers (diff + append)
-│   ├── documents.py          where an invoice's scan lives (route + AI stage share it)
-│   ├── rollup.py             Invoice.status rollup from its lines
-│   ├── verified.py           which fields a human settled (sync reads it)
-│   ├── reconcile.py          do the lines add up? (API + AI stage share it)
-│   ├── spend_trees/          org-owned taxonomies: default template, the only
-│   │                         SpendCategory writer, CSV import, reassignment
-│   ├── fx/                   historical FX: rate provider + cache, convert,
-│   │                         recompute, backfill CLI
-│   ├── routers/              companies, invoices, invoice-lines (verify + audit),
-│   │                         spend-trees
-│   ├── connectors/           ERP connector interface, shared HTTP base,
-│   │                         pagination strategies, Billy + Debug ERP
-│   ├── dashboard/app.py      Streamlit dashboard (stub)
-│   └── db/
-│       ├── models/           SQLModel ORM (one file per entity)
-│       ├── session.py        engine + session helpers
-│       └── migrations/       Alembic
+pyproject.toml                virtual uv workspace root (members = apps/*-api, apps/mock-erp)
+data/ output/ chroma_db/      shared runtime data (ai_api.config.PROJECT_ROOT)
+apps/
+├── web/                      FRONTEND (TanStack Start, bun)
+├── web-api/                  pyproject, alembic.ini, scripts/, tests/
+│   └── src/web_api/          BUSINESS DOMAIN + customer API
+│       ├── config.py             domain config: DATABASE_URL + Clerk settings
+│       ├── app.py                FastAPI app factory (uvicorn web_api.app:app)
+│       ├── auth.py               Clerk JWT verification + JWKS cache
+│       ├── deps.py               auth dependency chain + JIT provisioning + tenant scope
+│       ├── schemas.py            Pydantic response models
+│       ├── audit.py              generic AuditLog helpers (diff + append)
+│       ├── documents.py          where an invoice's scan lives (route + AI stage share it)
+│       ├── rollup.py             Invoice.status rollup from its lines
+│       ├── verified.py           which fields a human settled (sync reads it)
+│       ├── reconcile.py          do the lines add up? (API + AI stage share it)
+│       ├── spend_trees/          org-owned taxonomies: default template, the only
+│       │                         SpendCategory writer, CSV import, reassignment
+│       ├── fx/                   historical FX: rate provider + cache, convert,
+│       │                         recompute, backfill CLI
+│       ├── routers/              companies, invoices, invoice-lines (verify + audit),
+│       │                         spend-trees
+│       ├── connectors/           ERP connector interface, shared HTTP base,
+│       │                         pagination strategies, Billy + Debug ERP
+│       ├── dashboard/app.py      Streamlit dashboard (stub)
+│       └── db/
+│           ├── models/           SQLModel ORM (one file per entity)
+│           ├── session.py        engine + session helpers
+│           └── migrations/       Alembic
 │
-└── ai_api/                   AI WORKFLOWS (imports domain from web_api)
-    ├── config.py             AI config: LLM factory + vLLM + Qdrant + paths
-    ├── models.py             Pydantic schemas (invoice extraction, categorization)
-    ├── flow.py               InvoiceFlow (PDF pipeline)
-    ├── agents.py             CrewAI agent factories
-    ├── grounding.py          categorization guardrail
-    ├── web_context.py        buyer + product web context
-    ├── ledger.py             CSV output (PDF pipeline)
-    ├── pdf_loader.py         PDF text extraction
-    ├── parsing.py            LLM JSON repair
-    ├── rag/indexer.py        Qdrant vector store (CoA CSV + SpendTree nodes)
-    ├── synthdata/            synthetic invoice generator
-    ├── persistence/          ai_api-owned store: line_ground_truth (synthetic
-    │                         gt_*), categorization_cache
-    ├── sync/runner.py        pipeline orchestrator (discover→connect→fetch→persist→categorize)
-    ├── sync/categorizer.py   the candidate set: a tree's leaves, optionally
-    │                         narrowed by retrieval to a hit's neighbourhood
-    ├── sync/llm_categorizer.py  the decision: one numbered candidate, chosen by index
-    ├── sync/cache.py         answer-cache keys (question digest + candidate-set hash)
-    ├── enrichment/           describe a supplier once, on the global vendor row
-    ├── suggestions/          categories a tree is missing, proposed with evidence
-    ├── documents/            document→invoice lines stage: runner (discover→claim→
-    │                         fetch→extract→reconcile→replace), extractor, reconcile
-    ├── aggregation/engine.py SQL rollups (stub)
-    ├── redundancy/detector.py vendor overlap detection (stub)
-    └── procurement_agent/recommender.py  savings suggestions (stub)
-
-mock_erp/                     standalone mock ERP API server (unchanged)
+├── ai-api/                   pyproject, main.py, scripts/, tests/
+│   └── src/ai_api/           AI WORKFLOWS (imports domain from web_api)
+│       ├── config.py             AI config: LLM factory + vLLM + Qdrant + paths
+│       ├── models.py             Pydantic schemas (invoice extraction, categorization)
+│       ├── flow.py               InvoiceFlow (PDF pipeline)
+│       ├── agents.py             CrewAI agent factories
+│       ├── grounding.py          categorization guardrail
+│       ├── web_context.py        buyer + product web context
+│       ├── ledger.py             CSV output (PDF pipeline)
+│       ├── pdf_loader.py         PDF text extraction
+│       ├── parsing.py            LLM JSON repair
+│       ├── rag/indexer.py        Qdrant vector store (CoA CSV + SpendTree nodes)
+│       ├── synthdata/            synthetic invoice generator
+│       ├── persistence/          ai_api-owned store: line_ground_truth (synthetic
+│                             gt_*), categorization_cache
+│       ├── sync/runner.py        pipeline orchestrator (discover→connect→fetch→persist→categorize)
+│       ├── sync/categorizer.py   the candidate set: a tree's leaves, optionally
+│                             narrowed by retrieval to a hit's neighbourhood
+│       ├── sync/llm_categorizer.py  the decision: one numbered candidate, chosen by index
+│       ├── sync/cache.py         answer-cache keys (question digest + candidate-set hash)
+│       ├── enrichment/           describe a supplier once, on the global vendor row
+│       ├── suggestions/          categories a tree is missing, proposed with evidence
+│       ├── documents/            document→invoice lines stage: runner (discover→claim→
+│                             fetch→extract→reconcile→replace), extractor, reconcile
+│       ├── aggregation/engine.py SQL rollups (stub)
+│       ├── redundancy/detector.py vendor overlap detection (stub)
+│       └── procurement_agent/recommender.py  savings suggestions (stub)
+│
+└── mock-erp/                 pyproject, Dockerfile, tests/
+    └── src/mock_erp/         standalone mock ERP API server
 ```

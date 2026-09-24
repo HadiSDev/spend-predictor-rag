@@ -1,4 +1,4 @@
-# tests/synthdata/test_catalog.py
+# apps/ai-api/tests/synthdata/test_catalog.py
 """Tests for the deterministic item catalog."""
 from faker import Faker
 

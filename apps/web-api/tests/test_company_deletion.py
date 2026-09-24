@@ -34,7 +34,7 @@ from web_api.db.models import (
     Vendor,
 )
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 def _delete(client, company_id: str, *, token: str = "tok_sysadmin", confirm: bool = False):

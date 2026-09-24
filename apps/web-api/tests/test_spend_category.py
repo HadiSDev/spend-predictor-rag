@@ -3,7 +3,7 @@
 The node is stored as both an adjacency list (``parent_id``/``depth``/``name``)
 and a materialized path (``level_1..level_4``). These tests pin the *shape*; the
 invariant that the two agree after a rename or move is the service's job and is
-tested in ``tests/web_api/test_spend_tree_service.py``.
+tested in ``apps/web-api/tests/test_spend_tree_service.py``.
 """
 from __future__ import annotations
 

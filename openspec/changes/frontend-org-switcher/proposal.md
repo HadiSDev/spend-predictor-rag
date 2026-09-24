@@ -13,7 +13,7 @@ library, rather than inlined into the switcher.
 
 ## What Changes
 
-- **New `Combobox` primitive** in `frontend/src/components/ui/`, built on Base UI's
+- **New `Combobox` primitive** in `apps/web/src/components/ui/`, built on Base UI's
   headless `combobox` (already present in `@base-ui-components/react@1.0.0-rc.0`)
   and styled with the ERPSAA tokens like the rest of the library. Generic over the
   item type, with text filtering, keyboard navigation, controlled/uncontrolled
@@ -56,11 +56,11 @@ _None._ Both changes extend existing frontend capabilities.
 
 ## Impact
 
-- **Code**: `frontend/src/components/ui/combobox.tsx` (new),
-  `frontend/src/components/ui/index.ts`, `frontend/src/components/ui/ui.test.tsx`,
-  `frontend/src/routes/ui.tsx`, `frontend/src/components/org-switcher.tsx` (new),
-  `frontend/src/routes/_authed.tsx`, `frontend/src/routes/_authed/index.tsx`
-  (shell wiring), `frontend/src/lib/auth.tsx` (principal refresh on switch).
+- **Code**: `apps/web/src/components/ui/combobox.tsx` (new),
+  `apps/web/src/components/ui/index.ts`, `apps/web/src/components/ui/ui.test.tsx`,
+  `apps/web/src/routes/ui.tsx`, `apps/web/src/components/org-switcher.tsx` (new),
+  `apps/web/src/routes/_authed.tsx`, `apps/web/src/routes/_authed/index.tsx`
+  (shell wiring), `apps/web/src/lib/auth.tsx` (principal refresh on switch).
 - **Dependencies**: none added — Base UI's `combobox` ships in the installed
   version.
 - **Backend**: unaffected. Tenant scoping, org suspension checks, and JIT

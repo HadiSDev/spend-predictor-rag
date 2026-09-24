@@ -1,6 +1,6 @@
 """One-request voucher detail endpoint: postings + invoice + document.
 
-Uses `voucher_seed` (tests/web_api/conftest.py), which extends `seed` with a
+Uses `voucher_seed` (apps/web-api/tests/conftest.py), which extends `seed` with a
 connected ERP integration, one account, a `File`-linked Org A invoice, and
 three postings on voucher "4821" (a purchase-invoice entry, a payment entry,
 and — separately — a lone journal entry with no voucher at all).
@@ -14,7 +14,7 @@ from sqlmodel import Session
 from web_api.audit import record_audit
 from web_api.db.models import AuditLog, ErpAccount, ErpEntry
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 # -- The detail total must agree with the voucher-groups total ---------------

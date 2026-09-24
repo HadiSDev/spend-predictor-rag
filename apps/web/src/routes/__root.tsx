@@ -49,7 +49,7 @@ function ConfigError() {
           <h1 className="font-display text-lg font-semibold">Configuration required</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             <code>VITE_CLERK_PUBLISHABLE_KEY</code> is not set. Copy{' '}
-            <code>frontend/.env.example</code> to <code>.env</code> and set your Clerk
+            <code>apps/web/.env.example</code> to <code>.env</code> and set your Clerk
             publishable key, then restart the dev server.
           </p>
         </div>

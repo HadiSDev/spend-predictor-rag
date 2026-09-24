@@ -1,8 +1,7 @@
 services:
   mock-erp-api:
     build:
-      context: .
-      dockerfile: mock_erp/Dockerfile
+      context: apps/mock-erp
     ports:
       - "8000:8000"
     environment:

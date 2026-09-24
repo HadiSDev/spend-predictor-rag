@@ -5,7 +5,7 @@ from sqlmodel import Session
 
 from web_api.db.models import ErpAccount, ErpEntry, ErpIntegration, File, Invoice
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 def test_document_404s_when_no_file_is_attached(client, seed):

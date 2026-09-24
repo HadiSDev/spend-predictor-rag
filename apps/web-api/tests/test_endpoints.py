@@ -1,7 +1,7 @@
 """Endpoint tests: org scoping, filters, pagination, cross-tenant isolation."""
 from __future__ import annotations
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 # -- Companies ---------------------------------------------------------------

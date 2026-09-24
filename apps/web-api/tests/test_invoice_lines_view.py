@@ -17,7 +17,7 @@ from sqlmodel import Session, select
 
 from web_api.db.models import DocStatus, Invoice, InvoiceLine, LineOrigin
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 # -- Voucher payloads carry lines --------------------------------------------

@@ -3,6 +3,12 @@ from pathlib import Path
 from ai_api import config
 
 
+def test_project_root_is_the_repository_root():
+    # Not apps/ai-api: shared data lives at the top of the repository.
+    assert (config.PROJECT_ROOT / "apps" / "ai-api").is_dir()
+    assert (config.PROJECT_ROOT / "data").is_dir()
+
+
 def test_default_paths_resolve_under_project_root():
     root = config.PROJECT_ROOT
     assert Path(config.CHART_OF_ACCOUNTS_PATH) == root / "data" / "chart_of_accounts.csv"

@@ -142,7 +142,7 @@ def run_sync(company_id: str, erp_type: str, config: dict) -> SyncSummary:
 ## Project Structure
 
 ```
-src/web_api/
+apps/web-api/src/web_api/
 ├── connectors/
 │   ├── __init__.py          ← get_connector() factory
 │   ├── base.py              ← ErpConnector ABC, DTOs, error classes

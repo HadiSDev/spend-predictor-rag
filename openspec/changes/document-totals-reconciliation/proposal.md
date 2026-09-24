@@ -118,7 +118,7 @@ fields), `ai_api/documents/reconcile.py` and `web_api/reconcile.py` (the split
 rule, shared so the stage and the API cannot disagree), `ai_api/documents/runner.py`
 (accept-and-flag), `ai_api/documents/replace.py` (charge lines),
 `web_api/db/models/invoice.py` + `invoice_line.py` + one migration,
-`web_api/schemas.py`, `frontend/src/components/entries/`.
+`web_api/schemas.py`, `apps/web/src/components/entries/`.
 
 **Data** — no existing line is rewritten. The six `failed` invoices are re-run
 through `POST /invoices/{id}/reprocess`, which resets the attempt count for

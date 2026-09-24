@@ -7,6 +7,84 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
+[manifest]
+members = [
+    "ai-api",
+    "mock-erp",
+    "web-api",
+]
+
+[manifest.dependency-groups]
+apps = [
+    { name = "ai-api", editable = "apps/ai-api" },
+    { name = "mock-erp", editable = "apps/mock-erp" },
+    { name = "web-api", editable = "apps/web-api" },
+]
+dev = [{ name = "pytest", specifier = ">=8.0.0" }]
+
+[[package]]
+name = "ai-api"
+version = "0.2.0"
+source = { editable = "apps/ai-api" }
+dependencies = [
+    { name = "anls" },
+    { name = "crewai" },
+    { name = "crewai-tools" },
+    { name = "ddgs" },
+    { name = "faker" },
+    { name = "jinja2" },
+    { name = "json-repair" },
+    { name = "pdfplumber" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pypdfium2" },
+    { name = "python-dotenv" },
+    { name = "qdrant-client" },
+    { name = "sentence-transformers" },
+    { name = "sqlalchemy" },
+    { name = "sqlmodel" },
+    { name = "weasyprint" },
+    { name = "web-api" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "reportlab" },
+]
+live = [
+    { name = "bespokelabs-curator" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anls", git = "https://github.com/shunk031/ANLS" },
+    { name = "crewai", specifier = ">=1.14.6" },
+    { name = "crewai-tools", specifier = ">=1.14.6" },
+    { name = "ddgs", specifier = ">=9.14.4" },
+    { name = "faker", specifier = ">=40.23.0" },
+    { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "json-repair", specifier = ">=0.25.3" },
+    { name = "pdfplumber", specifier = ">=0.11.0" },
+    { name = "pillow", specifier = ">=12.2.0" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pypdfium2", specifier = ">=5.9.0" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "qdrant-client", specifier = ">=1.12.0" },
+    { name = "sentence-transformers", specifier = ">=3.0.0" },
+    { name = "sqlalchemy", specifier = ">=2.0.51" },
+    { name = "sqlmodel", specifier = ">=0.0.22" },
+    { name = "weasyprint", specifier = ">=69.0" },
+    { name = "web-api", editable = "apps/web-api" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0.0" },
+    { name = "reportlab", specifier = ">=4.0.0" },
+]
+live = [{ name = "bespokelabs-curator", specifier = ">=0.1.9.post1" }]
+
 [[package]]
 name = "aiofiles"
 version = "24.1.0"
@@ -1590,6 +1668,39 @@ wheels = [
 ]
 
 [[package]]
+name = "mock-erp"
+version = "0.2.0"
+source = { editable = "apps/mock-erp" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "jinja2" },
+    { name = "pydantic" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "weasyprint" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
+    { name = "weasyprint", specifier = ">=69.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "pytest", specifier = ">=8.0.0" },
+]
+
+[[package]]
 name = "mpmath"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2877,79 +2988,6 @@ wheels = [
 ]
 
 [[package]]
-name = "spend-predictor-rag"
-version = "0.2.0"
-source = { editable = "." }
-dependencies = [
-    { name = "alembic" },
-    { name = "anls" },
-    { name = "crewai" },
-    { name = "crewai-tools" },
-    { name = "ddgs" },
-    { name = "faker" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "jinja2" },
-    { name = "json-repair" },
-    { name = "pdfplumber" },
-    { name = "psycopg2-binary" },
-    { name = "pydantic" },
-    { name = "pyjwt", extra = ["crypto"] },
-    { name = "python-dotenv" },
-    { name = "qdrant-client" },
-    { name = "scalar-fastapi" },
-    { name = "sentence-transformers" },
-    { name = "sqlmodel" },
-    { name = "streamlit" },
-    { name = "svix" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "weasyprint" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "reportlab" },
-]
-live = [
-    { name = "bespokelabs-curator" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "alembic", specifier = ">=1.13.0" },
-    { name = "anls", git = "https://github.com/shunk031/ANLS" },
-    { name = "crewai", specifier = ">=1.14.6" },
-    { name = "crewai-tools", specifier = ">=1.14.6" },
-    { name = "ddgs", specifier = ">=9.14.4" },
-    { name = "faker", specifier = ">=40.23.0" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "jinja2", specifier = ">=3.1.6" },
-    { name = "json-repair", specifier = ">=0.25.3" },
-    { name = "pdfplumber", specifier = ">=0.11.0" },
-    { name = "psycopg2-binary", specifier = ">=2.9.0" },
-    { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.9.0" },
-    { name = "python-dotenv", specifier = ">=1.2.2" },
-    { name = "qdrant-client", specifier = ">=1.12.0" },
-    { name = "scalar-fastapi", specifier = ">=1.8.2" },
-    { name = "sentence-transformers", specifier = ">=3.0.0" },
-    { name = "sqlmodel", specifier = ">=0.0.22" },
-    { name = "streamlit", specifier = ">=1.30.0" },
-    { name = "svix", specifier = ">=1.96.1" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
-    { name = "weasyprint", specifier = ">=69.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.0.0" },
-    { name = "reportlab", specifier = ">=4.0.0" },
-]
-live = [{ name = "bespokelabs-curator", specifier = ">=0.1.9.post1" }]
-
-[[package]]
 name = "sqlalchemy"
 version = "2.0.51"
 source = { registry = "https://pypi.org/simple" }
@@ -3491,6 +3529,59 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/59/53/dcc3885c2f7a47faa45f6b8b801412f5f9e055173a52801ef01c09943c5a/weasyprint-69.0.tar.gz", hash = "sha256:a7a32f39ca16bd82ef11de99c92ea4b5f14951c9033af035e451ce4f4ee0a88c", size = 1549834, upload-time = "2026-06-02T14:42:17.765Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/93/cb/208525c6bd5033d7b2589b55e07bec23d9c61bb00703cbaf20ef52c3811f/weasyprint-69.0-py3-none-any.whl", hash = "sha256:475951cfd917014de6d4d005caff48c6aa867e7e42b80cd5b16a0484a1609ee6", size = 322872, upload-time = "2026-06-02T14:42:15.871Z" },
+]
+
+[[package]]
+name = "web-api"
+version = "0.2.0"
+source = { editable = "apps/web-api" }
+dependencies = [
+    { name = "alembic" },
+    { name = "cryptography" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "psycopg2-binary" },
+    { name = "pydantic" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "python-dotenv" },
+    { name = "regex" },
+    { name = "scalar-fastapi" },
+    { name = "sqlalchemy" },
+    { name = "sqlmodel" },
+    { name = "streamlit" },
+    { name = "svix" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mock-erp" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alembic", specifier = ">=1.13.0" },
+    { name = "cryptography", specifier = ">=48.0.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "psycopg2-binary", specifier = ">=2.9.0" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.9.0" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "regex", specifier = ">=2026.1.15" },
+    { name = "scalar-fastapi", specifier = ">=1.8.2" },
+    { name = "sqlalchemy", specifier = ">=2.0.51" },
+    { name = "sqlmodel", specifier = ">=0.0.22" },
+    { name = "streamlit", specifier = ">=1.30.0" },
+    { name = "svix", specifier = ">=1.96.1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mock-erp", editable = "apps/mock-erp" },
+    { name = "pytest", specifier = ">=8.0.0" },
 ]
 
 [[package]]

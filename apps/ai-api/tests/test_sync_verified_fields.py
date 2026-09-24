@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from ai_api.sync import runner
 from web_api.db.models import AuditLog, Invoice, InvoiceLine, LineOrigin, LineStatus
 
-from .conftest import INVOICE
+from ai_api_testkit import INVOICE
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def synced(engine, make_tenant):
 
 def _restate(**changes):
     """Script the ERP to restate the invoice with different figures."""
-    from .conftest import FakeConnector
+    from ai_api_testkit import FakeConnector
 
     FakeConnector.scan = INVOICE.model_copy(update=changes)
 

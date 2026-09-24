@@ -20,7 +20,7 @@ from web_api.db.models import (
 )
 from web_api.spend_trees import service
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 @pytest.fixture()

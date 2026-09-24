@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 
 from web_api.db.models import AuditLog, ErpEntry, Invoice, InvoiceLine
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 def _line(engine, line_id: str) -> InvoiceLine:

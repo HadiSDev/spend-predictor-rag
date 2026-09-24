@@ -1,4 +1,4 @@
-# src/ai_api/synthdata/sampler.py
+# apps/ai-api/src/ai_api/synthdata/sampler.py
 """Seeded sampler that builds InvoicePlans (all ground-truth labels, no LLM)."""
 from __future__ import annotations
 

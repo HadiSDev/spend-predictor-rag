@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from web_api.db.models import AuditLog, Invoice, InvoiceLine, User
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 def _user_id(engine, clerk_user_id: str) -> str:

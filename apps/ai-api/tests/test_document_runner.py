@@ -31,7 +31,7 @@ from web_api.db.models import (
     LineStatus,
 )
 
-from .test_sync_standin_lines import BALANCED_VOUCHER, SCAN_WITHOUT_LINES, TYPED_ACCOUNTS
+from ai_api_testkit import BALANCED_VOUCHER, SCAN_WITHOUT_LINES, TYPED_ACCOUNTS
 
 
 @pytest.fixture(autouse=True)

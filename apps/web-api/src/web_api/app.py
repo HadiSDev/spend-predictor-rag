@@ -1,8 +1,8 @@
 """FastAPI application factory for the Clerk-authenticated web API.
 
 Run either way:
-    uvicorn web_api.app:app --reload --reload-dir src
-    uv run src/web_api/app.py            # launches uvicorn (dev, reloads src/)
+    uvicorn web_api.app:app --reload --reload-dir apps/web-api/src
+    uv run apps/web-api/src/web_api/app.py   # launches uvicorn (dev, reloads apps/web-api/src/)
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse
 from scalar_fastapi import get_scalar_api_reference
 
 # Absolute imports (not `from . import …`) so this module also works when run
-# as a file (`python src/web_api/app.py`), where it isn't part of a package.
+# as a file (`python apps/web-api/src/web_api/app.py`), where it isn't part of a package.
 from web_api import config
 from web_api.routers import (
     companies,
@@ -85,7 +85,7 @@ if __name__ == "__main__":
 
     import uvicorn
 
-    # Watch only src/ so the reloader never touches data dirs like pgdata/
+    # Watch only this app's src/ so the reloader never touches data dirs like pgdata/
     # (which are owned by the Postgres container and raise permission errors).
     src_dir = str(pathlib.Path(__file__).resolve().parents[1])
     uvicorn.run(

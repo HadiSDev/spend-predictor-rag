@@ -33,7 +33,7 @@ from ai_api.models import LineItem
 from web_api.db.models import DocStatus, Invoice, InvoiceLine
 from web_api.connectors.base import DocumentPayload
 
-from .test_sync_standin_lines import BALANCED_VOUCHER, SCAN_WITHOUT_LINES, TYPED_ACCOUNTS
+from ai_api_testkit import BALANCED_VOUCHER, SCAN_WITHOUT_LINES, TYPED_ACCOUNTS
 from ai_api.sync import runner as sync_runner
 
 

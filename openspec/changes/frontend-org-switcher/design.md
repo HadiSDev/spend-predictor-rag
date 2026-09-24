@@ -7,9 +7,9 @@ frontend concept: `web_api` reads the `orgId` claim from the Clerk session token
 and scopes every query to that organization, JIT-provisioning the principal on
 `GET /users/me`. Whatever organization is active in Clerk *is* the tenant.
 
-Today `frontend/src/routes/_authed.tsx` resolves a "pending" session (signed in,
+Today `apps/web/src/routes/_authed.tsx` resolves a "pending" session (signed in,
 no active org) by calling `setActive` on the **first** membership and never
-revisits the choice. `frontend/src/lib/auth.tsx` loads the principal once into a
+revisits the choice. `apps/web/src/lib/auth.tsx` loads the principal once into a
 context. There is no UI to change organizations, and no searchable select in the
 library — `select.tsx` wraps Base UI's `Select`, which has no text filtering.
 
@@ -50,7 +50,7 @@ Constraints:
 
 ### 1. Wrap Base UI's `Combobox` compound parts, mirroring `select.tsx`
 
-`frontend/src/components/ui/combobox.tsx` re-exports styled parts:
+`apps/web/src/components/ui/combobox.tsx` re-exports styled parts:
 `Combobox` (Root), `ComboboxInput`, `ComboboxTrigger`, `ComboboxValue`,
 `ComboboxContent` (Portal + Positioner + Popup, as `SelectContent` does),
 `ComboboxList`, `ComboboxItem`, `ComboboxEmpty`, `ComboboxStatus`,
@@ -79,7 +79,7 @@ without forking.
 overridable per call via `filter` (or `filteredItems` for caller-owned filtering).
 No custom filter code in the library.
 
-### 2. `OrgSwitcher` lives in `frontend/src/components/org-switcher.tsx`
+### 2. `OrgSwitcher` lives in `apps/web/src/components/org-switcher.tsx`
 
 App-specific, not part of the design system (which stays domain-free, like
 `components/dashboard/`). It reads memberships from
@@ -133,7 +133,7 @@ behaviour and gains nothing from the switcher.
 
 ### 5. Testing
 
-- Combobox: extend `frontend/src/components/ui/ui.test.tsx` (vitest + RTL,
+- Combobox: extend `apps/web/src/components/ui/ui.test.tsx` (vitest + RTL,
   jsdom) — filtering narrows options, selection reports the value and closes,
   keyboard select/Escape, empty state, label association.
 - OrgSwitcher: a component test mocking `useOrganizationList`/`useAuth` covering
@@ -167,7 +167,7 @@ behaviour and gains nothing from the switcher.
 ## Migration Plan
 
 Purely additive frontend change: no schema, API, or configuration changes, and
-nothing to migrate. `pnpm build` + `pnpm test` in `frontend/` gate it; rollback is
+nothing to migrate. `pnpm build` + `pnpm test` in `apps/web/` gate it; rollback is
 reverting the commit. The switcher degrades to today's behaviour (a static
 organization label) for single-membership users, which is every user until
 multi-org accounts exist.

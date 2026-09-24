@@ -19,7 +19,7 @@ from sqlmodel import Session
 from web_api import config
 from web_api.db.models import InvoiceLine
 
-from .conftest import auth
+from web_api_testkit import auth
 
 
 @pytest.fixture()

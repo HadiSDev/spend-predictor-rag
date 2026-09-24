@@ -143,7 +143,10 @@ def sqlite_engine(monkeypatch):
     )
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(runner, "engine", engine)
-    register_connector("fake", _FakeConnector)
+    # Its own erp_type, never "fake": the connector registry is process-global,
+    # and "fake" belongs to ai_api_testkit's scriptable connector. Re-registering
+    # that name here swapped the connector under every test that ran afterwards.
+    register_connector("fake-entry-first", _FakeConnector)
 
     with Session(engine) as s:
         org = Organization(name="Test Org", clerk_org_id="clerk_test")
@@ -157,7 +160,7 @@ def sqlite_engine(monkeypatch):
         company = Company(organization_id=org.id, name="Test Company", spend_tree_id=tree.id)
         s.add(company)
         s.commit()
-        s.add(ErpIntegration(company_id=company.id, erp_type="fake",
+        s.add(ErpIntegration(company_id=company.id, erp_type="fake-entry-first",
                              connected_at=datetime.now(timezone.utc)))
         s.commit()
     return engine

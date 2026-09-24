@@ -175,7 +175,7 @@ mock-erp:
 ## Project Structure
 
 ```
-mock_erp/
+apps/mock-erp/src/mock_erp/
 ├── __init__.py
 ├── main.py              ← FastAPI app, startup, reset endpoint
 ├── models.py            ← Pydantic response models

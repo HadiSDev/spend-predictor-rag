@@ -29,7 +29,7 @@ import sqlalchemy as sa
 
 # Kept under 32 characters: `alembic_version.version_num` is varchar(32), so a
 # longer id fails the upgrade at the very last statement, after all its DDL has
-# run. tests/web_api/test_migrations.py is what catches that.
+# run. apps/web-api/tests/test_migrations.py is what catches that.
 revision = '0005_invoice_corrections'
 down_revision = '0004_org_spend_trees'
 branch_labels = None
