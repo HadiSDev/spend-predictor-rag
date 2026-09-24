@@ -902,29 +902,39 @@ nullable `fx_rate_date`.
 
 ### Requirement: InvoiceLine records where it came from
 
-`InvoiceLine` SHALL carry a non-null `origin` of `erp`, `document_ai`, or
-`entry_fallback`, recording which source produced the line.
+`InvoiceLine` SHALL carry a non-null `origin` of `erp`, `document_ai`,
+`entry_fallback`, or `human`, recording which source produced the line.
 
 - `erp` — the ERP supplied the line itself (a bill line on the voucher).
 - `document_ai` — our AI extracted the line from the invoice's attached document.
 - `entry_fallback` — no document extraction was available, so the line stands in
   for one expense posting on the voucher.
-- Precedence between sources SHALL be `document_ai` > `erp` > `entry_fallback`.
-  The document is the only source that knows what was actually bought; the ERP's
+- `human` — a reviewer added the line by hand, typically splitting a stand-in
+  line into what was actually bought.
+- Precedence between sources SHALL be `human` > `document_ai` > `erp` >
+  `entry_fallback`. A person who read the document outranks a model that read it;
+  the document is the only source that knows what was actually bought; the ERP's
   own lines are its statement of the same voucher; a posting is the last resort.
 - `origin` SHALL be a property of the line and SHALL NOT be inferred from its
   values at read time. A stand-in line and an extracted line can carry identical
   descriptions and amounts, and the difference — whether anyone has read the
   document — is exactly what a reader needs to know.
-- An invoice SHALL NOT hold lines of more than one origin at a time. Two origins
-  describe the same spend twice and its total would be double-counted.
+- An invoice SHALL NOT hold lines of more than one **automated** origin at a
+  time. Two automated origins describe the same spend twice and its total would
+  be double-counted. `human` lines are the exception: a reviewer splitting a
+  stand-in adds `human` lines beside the ones they have not yet replaced, and the
+  reconciliation warning — not a storage rule — is what tells them the total no
+  longer adds up.
+- A `human` line SHALL NOT be refreshed or removed by a sync or a document
+  extraction. Neither source has any statement about a line it did not produce.
 - Existing rows SHALL be backfilled to `erp`, which is what every line written
   before this change was.
 
 #### Scenario: A line states its source
 
 - **WHEN** a line is read back
-- **THEN** it carries an `origin` of `erp`, `document_ai` or `entry_fallback`
+- **THEN** it carries an `origin` of `erp`, `document_ai`, `entry_fallback` or
+  `human`
 
 #### Scenario: A stand-in and an extracted line are distinguishable
 
@@ -932,10 +942,15 @@ nullable `fx_rate_date`.
   amount
 - **THEN** they are still told apart by `origin`
 
-#### Scenario: One origin per invoice
+#### Scenario: One automated origin per invoice
 
 - **WHEN** an invoice's lines are listed
-- **THEN** every line shares the same `origin`
+- **THEN** every line that is not `human` shares the same `origin`
+
+#### Scenario: A human line outlives a re-sync
+
+- **WHEN** an invoice carrying a `human` line is re-synced
+- **THEN** the `human` line is present and unchanged
 
 ### Requirement: InvoiceLine records its position on the invoice
 
@@ -1176,3 +1191,123 @@ on which one wrote it.
 
 - **WHEN** a company is deleted
 - **THEN** it is absent, not present with `is_active = false`
+
+### Requirement: Invoice carries invoice-scoped supplier overrides
+
+`Invoice` SHALL carry nullable `supplier_name`, `supplier_country_code` and
+`supplier_vat_number` columns holding a human's correction of the supplier for
+that invoice alone.
+
+- They SHALL be null in the ordinary case, meaning "no correction — use the
+  linked `Vendor`". Null SHALL NOT be conflated with an empty correction.
+- They SHALL NOT be written by any connector, sync or extraction. Only a human
+  correction sets them.
+- Writing them SHALL NOT modify the linked `Vendor` row, which is a **global**
+  catalog shared across organizations.
+- `supplier_country_code` SHALL be an ISO 3166-1 alpha-2 code, the same
+  vocabulary `Vendor.country_code` uses.
+
+#### Scenario: An override does not touch the vendor
+
+- **WHEN** an invoice's `supplier_country_code` is set
+- **THEN** the linked `Vendor.country_code` is unchanged and every other invoice
+  referencing that vendor still resolves the catalog value
+
+#### Scenario: No correction means no override
+
+- **WHEN** an invoice has never been corrected
+- **THEN** all three override columns are null
+
+### Requirement: Invoice and InvoiceLine record which fields a human verified
+
+`Invoice` and `InvoiceLine` SHALL each carry a `verified_fields` column listing
+the field names a human settled, and `Invoice` SHALL additionally carry
+`verified_at` and `verified_by`.
+
+- `verified_fields` SHALL default to an empty list, which means "nothing settled"
+  — distinct from a null that would be ambiguous.
+- A field SHALL be added to the list when a human's verify or correction sets it,
+  and SHALL persist across later automated writes.
+- `verified_by` SHALL hold the acting user's id; `system` SHALL never appear
+  there — an automated write is not a verification.
+- The list SHALL be per field, not per row, so an invoice can hold one settled
+  field and a dozen unsettled ones.
+- These columns record the fact of verification. The values themselves stay in
+  their own columns, and their prior values stay in `AuditLog`.
+
+#### Scenario: A correction records the field
+
+- **WHEN** a manager verifies an invoice correcting only its tax
+- **THEN** `verified_fields` contains `tax` and no other field
+
+#### Scenario: An unverified row lists nothing
+
+- **WHEN** an invoice has never been verified
+- **THEN** its `verified_fields` is an empty list and `verified_at` is null
+
+#### Scenario: Verification is attributed to a user
+
+- **WHEN** an invoice is verified
+- **THEN** `verified_by` is the acting user's id, never `system`
+
+### Requirement: An invoice SHALL record what its document stated, beside what the ERP posted
+
+`Invoice` SHALL carry `document_total`, `document_tax` and `document_subtotal` —
+the figures printed on the scan — **beside** `total` and `tax`, which the ERP
+posted and which extraction never rewrites.
+
+`document_subtotal` is required by the **read** side. `InvoiceDetailRead` has to
+reproduce the verdict the extraction stage reached, and without the document's
+net figure it would report a gross-printed / net-posted invoice as disagreeing
+where the stage said it agreed — the exact drift that keeping one copy of the
+rule exists to prevent.
+
+The same rule `document_invoice_number` already follows, and for the same reason.
+The two figures come from different systems with different conventions: a German
+supplier prints a gross total and a Danish bookkeeper posts the net one, and both
+are correct. Overwriting either destroys the only evidence of the other, and when
+they genuinely disagree — a typo, a credit applied on one side, a partial posting
+— the disagreement is exactly what a reviewer needs.
+
+Both SHALL be nullable, and null SHALL mean "the document stated none",
+distinguishable from a stated zero.
+
+#### Scenario: Both figures are kept
+
+- **WHEN** a document states a total of 104,85 and the ERP posted 83,88
+- **THEN** the invoice carries both, and neither is derived from or overwritten
+  by the other
+
+#### Scenario: Extraction never rewrites the posted total
+
+- **WHEN** extraction reads a total differing from the ERP's
+- **THEN** `total` and `tax` are unchanged
+
+#### Scenario: A document stating no total records null
+
+- **WHEN** a document prints no totals block
+- **THEN** `document_total` and `document_tax` are null rather than zero
+
+### Requirement: A line SHALL record the tax and discount figures its document printed
+
+`InvoiceLine` SHALL carry `subtotal`, `tax_rate`, `tax_amount` and `discount`,
+each nullable, holding what the document printed for that line.
+
+They exist so gross-versus-net is read rather than inferred. A line's `amount`
+stays the figure the document printed for it, whichever convention that follows;
+these say which convention it was, when the document said.
+
+Null is the ordinary case and SHALL never be defaulted: a posting-derived
+stand-in line has no document behind it at all, and a receipt prints one number
+per line.
+
+#### Scenario: A line carries what was printed
+
+- **WHEN** a document line prints a net amount, a VAT rate and a gross amount
+- **THEN** the line records all three
+
+#### Scenario: A stand-in line carries none of them
+
+- **WHEN** a line is written from a posting rather than a document
+- **THEN** its tax and discount fields are null
+

@@ -374,6 +374,8 @@ The sync runner SHALL build its categorization candidate set from the persisted 
 
 The built-in taxonomy SHALL survive only as the seed definition of the platform's default tree template. Two companies assigned different trees SHALL be categorized against different candidate sets within the same run.
 
+The candidate set MAY be **narrowed within that tree** by retrieval before it is offered to the model — see `spend-categorization-model`. Narrowing SHALL only ever remove nodes of the company's own tree; it SHALL NOT introduce a node from anywhere else, and when retrieval is unavailable the full leaf set of the assigned tree SHALL be offered instead.
+
 #### Scenario: Candidates are the assigned tree's nodes
 
 - **WHEN** an integration for a company assigned tree `T` is synced
@@ -388,6 +390,11 @@ The built-in taxonomy SHALL survive only as the seed definition of the platform'
 
 - **WHEN** one run syncs two integrations whose companies are assigned different trees
 - **THEN** each integration's lines are categorized against its own company's tree only
+
+#### Scenario: Narrowing never leaves the assigned tree
+
+- **WHEN** retrieval narrows the candidates for a line
+- **THEN** every candidate offered is a node of that company's assigned tree
 
 ### Requirement: A company with no usable tree fails categorization loudly, not silently
 
@@ -470,3 +477,90 @@ overwrite as actor `system`.
 - **WHEN** a sync re-persists a stand-in line no human has corrected and the
   posting's memo has changed
 - **THEN** the line's `item_name` is updated to the new memo
+
+### Requirement: The runner does not overwrite human-verified fields
+
+`_persist_invoices` SHALL refresh an invoice and its ERP lines from the connector
+exactly as it does today, except for the fields a human has verified, which it
+SHALL leave untouched.
+
+- The check SHALL be per field, not per row: an invoice with a verified `total`
+  SHALL still have its `invoice_date`, `raw_json` and every other unverified
+  field refreshed.
+- The same rule SHALL apply to `InvoiceLine` rows the connector states.
+- A line whose origin is `human` SHALL never be refreshed or removed by a sync —
+  the connector has no statement about a line it did not produce.
+- Skipping a verified field SHALL NOT change what the run reports as synced, and
+  SHALL NOT prevent the watermark advancing.
+
+#### Scenario: A verified total survives a re-sync
+
+- **WHEN** an invoice with a verified `total` is re-synced and the ERP now states
+  a different total
+- **THEN** the stored total is unchanged and the invoice's other fields are
+  refreshed from the ERP
+
+#### Scenario: An unverified field is still refreshed
+
+- **WHEN** an invoice with a verified `total` is re-synced with a new
+  `invoice_date`
+- **THEN** the stored date is the ERP's new value
+
+#### Scenario: A human line is untouched
+
+- **WHEN** an invoice carrying a human-added line is re-synced
+- **THEN** the human line is present and unchanged after the run
+
+### Requirement: A hard reset is the one way to restore the ERP's values
+
+The sync runner SHALL accept a `--hard-reset` flag which overwrites
+human-verified fields with the ERP's values.
+
+- It SHALL be opt-in and SHALL never be implied by `--since`,
+  `--integration-id`, or any other flag.
+- Each overwritten field SHALL be recorded in an `AuditLog` entry with actor
+  `system`, so the human's value stays recoverable.
+- It SHALL clear the affected rows' verified-field record for the fields it
+  overwrote, so the row does not claim to be verified at a value it no longer
+  holds.
+- It SHALL NOT delete human-added lines.
+
+#### Scenario: A hard reset overwrites and audits
+
+- **WHEN** the runner runs with `--hard-reset` over an invoice with a verified,
+  corrected total
+- **THEN** the ERP's total is stored, an audit entry with actor `system` records
+  the overwrite, and `total` is no longer listed as verified
+
+#### Scenario: Hard reset is never the default
+
+- **WHEN** the runner runs without `--hard-reset`
+- **THEN** verified fields are preserved
+
+#### Scenario: Human lines outlive a hard reset
+
+- **WHEN** the runner runs with `--hard-reset` over an invoice with a human-added
+  line
+- **THEN** the human line is still present
+
+### Requirement: The runner SHALL carry every line field the categorizer reads, and a test SHALL pin the mapping
+
+The runner's `InvoiceLine` → categorization-context mapping SHALL carry the line's **item name** as the primary statement of what was bought, its description as supplementary detail, its native account code and that account's name, its invoice's supplier and currency, and its amount.
+
+A test SHALL exercise that mapping **through the runner**, from a persisted `InvoiceLine` to the text the model is shown. Every existing categorizer test constructs the context by hand, which is exactly why the field could be renamed out from under the runner without a single test turning red: the line kept its text, the prompt lost it, and the model correctly reported that it had been told nothing.
+
+#### Scenario: A persisted line's name reaches the prompt
+
+- **WHEN** the runner categorizes a persisted line whose `item_name` is "DJI Osmo Nano actionkamera 128GB" and whose `description` is null
+- **THEN** the prompt the model receives contains that item name
+
+#### Scenario: The mapping is asserted, not mirrored
+
+- **WHEN** a field the categorizer reads is renamed on `InvoiceLine`
+- **THEN** the runner mapping test fails
+
+#### Scenario: The account's name travels with its code
+
+- **WHEN** a line was posted to an account whose ERP name is "Edb-udgifter / software"
+- **THEN** the prompt states that name and not only the bare account code
+

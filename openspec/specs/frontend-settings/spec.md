@@ -824,3 +824,95 @@ a system admin, alongside the existing deactivate action.
 
 - **WHEN** the server refuses the deletion
 - **THEN** the dialog stays open showing the reason
+
+### Requirement: Failed lines can be requeued from the company row menu
+
+The Companies section's row menu SHALL offer a **Recategorize failed lines** action,
+alongside *Recompute currency figures*, calling
+`POST /api/v1/companies/{id}/recategorize`.
+
+The two actions are deliberately siblings: both are company-scoped maintenance a customer
+runs after something upstream changed, both report a count rather than changing what is on
+screen, and both are management-gated.
+
+- The action SHALL be hidden or disabled for a caller without management rights, following
+  the section's existing role gating. A control that is present but will always fail claims
+  a permission that will never be granted.
+- The action SHALL confirm before running, stating that it queues lines rather than
+  categorizing them, and SHALL report the number queued when it completes.
+- The action SHALL surface a failure as a failure, and SHALL NOT report success when the
+  request fails — the section's existing save-and-feedback rule.
+
+#### Scenario: The action is offered
+
+- **WHEN** a management user opens a company's row menu
+- **THEN** a "Recategorize failed lines" action is offered
+
+#### Scenario: A read-only user is not offered it
+
+- **WHEN** a user without management rights opens a company's row menu
+- **THEN** the action is absent or disabled
+
+#### Scenario: The confirmation says what will happen
+
+- **WHEN** the user activates the action
+- **THEN** they are asked to confirm, and told that the lines are queued for the next sync
+  rather than categorized now
+
+#### Scenario: The result reports the count
+
+- **WHEN** the request succeeds
+- **THEN** the number of lines queued is reported to the user
+
+#### Scenario: Nothing to requeue is stated plainly
+
+- **WHEN** the request succeeds with a queued count of zero
+- **THEN** the user is told no failed lines were found, not that work was done
+
+#### Scenario: A failure is not reported as success
+
+- **WHEN** the request fails
+- **THEN** the error is surfaced and no success message is shown
+
+### Requirement: A tree's suggested categories SHALL be reviewable where the tree is edited
+
+The spend-tree editor in Settings SHALL surface the pending gap suggestions for the tree being edited, each showing the proposed name, the parent it would be added under, the reason given, and the lines that evidence it.
+
+They belong beside the tree rather than in a notifications area because accepting one is a tree edit: the reviewer needs the tree in front of them to judge whether the proposal duplicates a node they already have, and to see where it would land.
+
+#### Scenario: Suggestions appear with the tree
+
+- **WHEN** a manager opens a tree that has pending suggestions
+- **THEN** the suggestions are visible alongside its nodes, each naming its proposed parent
+
+#### Scenario: The evidence is reachable
+
+- **WHEN** a manager opens a suggestion
+- **THEN** the lines that evidence it are listed and each links to that line
+
+#### Scenario: A tree with no suggestions shows no empty apparatus
+
+- **WHEN** a tree has no pending suggestions
+- **THEN** the editor shows the tree as it does today, with no empty suggestions panel
+
+### Requirement: Accepting a suggestion SHALL show its result in the tree, and dismissing SHALL be undoable in the same session
+
+Accepting a suggestion SHALL create the node and show it in the tree immediately, in the position it was proposed for, so the reviewer sees the consequence where they caused it. Dismissing SHALL remove the suggestion from the list and SHALL offer an undo for the remainder of that session.
+
+Accept and dismiss SHALL be available only to a role that may edit the tree. A read-only role SHALL see the suggestions as evidence and SHALL NOT be shown disabled accept controls, which claim a permission that will never be granted.
+
+#### Scenario: An accepted suggestion becomes a visible node
+
+- **WHEN** a manager accepts a suggestion
+- **THEN** the new node appears under the named parent in the tree without a reload
+
+#### Scenario: A dismissal can be taken back
+
+- **WHEN** a manager dismisses a suggestion
+- **THEN** an undo is offered and taking it restores the suggestion to the pending list
+
+#### Scenario: A viewer sees evidence, not controls
+
+- **WHEN** a `viewer` opens a tree with pending suggestions
+- **THEN** the suggestions and their evidence are readable and no accept or dismiss control is rendered
+

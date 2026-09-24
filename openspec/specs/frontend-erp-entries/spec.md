@@ -270,12 +270,11 @@ The Entries page's filter and pagination state SHALL live in the route's search 
 
 Activating a voucher row, or a line within it, SHALL open the URL-addressable voucher panel beside the table, which SHALL carry a **Lines** tab and a **Postings** tab in addition to its existing tabs, with the table remaining in place behind it. The panel SHALL be dismissable by escape, by its close control, and by activating outside it.
 
-- The **Lines** tab SHALL present the voucher's invoice lines **one at a time**
-  as a paged card, with Previous / Next navigation and a position indicator, and
-  SHALL be where a line's category is corrected. It is the tab that opens when a
-  line is activated from the expanded table, and it SHALL open on the line that
-  was activated rather than on the first. The paging behaviour is specified in
-  `frontend-line-paging`.
+- The **Lines** tab SHALL list the voucher's invoice lines with their
+  categorization, and SHALL be where a line's category **and its description,
+  quantity, unit, unit price and amount** are corrected. It is the tab that opens
+  when a line is activated from the expanded table. It SHALL also be where a line
+  is added to the invoice or deleted from it.
 - The **Postings** tab SHALL list every `ErpEntry` of the voucher — expense,
   VAT, liability, asset and income alike — each with its account code and name,
   entry type, accounting date, description, debit, credit, status, any error
@@ -283,7 +282,9 @@ Activating a voucher row, or a line within it, SHALL open the URL-addressable vo
   type: a balanced voucher's postings sum to zero, which is what a general
   ledger shows.
 - Postings SHALL be presented as flat evidence text, never as disabled inputs.
-  They are ERP-posted values and nothing about them is correctable here.
+  They are ERP-posted values and nothing about them is correctable here. This
+  applies to postings only: an invoice header and its lines are the pipeline's
+  reading of the document and are corrected on their own tabs.
 - The tab SHALL be carried in the URL like the panel's other tabs, so a link to
   a voucher's postings opens on the postings.
 - A failed posting SHALL show its status and error message.
@@ -291,8 +292,8 @@ Activating a voucher row, or a line within it, SHALL open the URL-addressable vo
 #### Scenario: Detail opens for a line
 
 - **WHEN** the user activates one line inside an expanded voucher
-- **THEN** the voucher panel opens on its Lines tab showing that line as the
-  paged card, and the table stays rendered behind it
+- **THEN** the voucher panel opens on its Lines tab with that line in view, and
+  the table stays rendered behind it
 
 #### Scenario: Postings are one tab away
 
@@ -310,6 +311,12 @@ Activating a voucher row, or a line within it, SHALL open the URL-addressable vo
 
 - **WHEN** the Postings tab is rendered
 - **THEN** its values are text, with no disabled inputs
+
+#### Scenario: Lines are editable
+
+- **WHEN** a manager opens the Lines tab
+- **THEN** each line's description, quantity, unit, unit price and amount are
+  focusable inputs alongside its category selector
 
 #### Scenario: The open tab is linkable
 
@@ -708,3 +715,250 @@ invoice's number, and the ERP's as-posted number as metadata.
 - **WHEN** an invoice has a null `document_invoice_number` and a posted one
 - **THEN** the editable field is empty and the posted number appears only as
   metadata
+
+### Requirement: The header editor is shown for every invoice
+
+The Details tab SHALL render the invoice header as editable inputs regardless of
+the invoice's `source`, for a caller with a management role.
+
+- The editable fields SHALL be invoice number, invoice date, currency, total, tax
+  and the supplier (name, country, VAT number), plus which vendor the invoice
+  points at.
+- A caller without a management role SHALL see the same values as flat text on a
+  tinted surface, never as disabled inputs.
+- The provenance badge SHALL remain, because where a value came from still tells
+  the reviewer how much to trust it — it no longer decides whether it can be
+  corrected.
+- The editor SHALL keep its existing dirty-state discipline: Save and Cancel are
+  disabled until a value moves, the saved baseline updates on success without
+  waiting for a refetch, and unsaved edits are reported up so the drawer can
+  guard dismissal.
+
+#### Scenario: An ERP invoice's header is editable
+
+- **WHEN** a manager opens the Details tab of an invoice with source `erp`
+- **THEN** the header fields are focusable inputs and Save is available once a
+  value changes
+
+#### Scenario: A viewer sees evidence, not inputs
+
+- **WHEN** a `viewer` opens the Details tab
+- **THEN** the header values are rendered as text with no inputs at all
+
+#### Scenario: Provenance is still shown
+
+- **WHEN** the Details tab is rendered for an ERP-sourced invoice
+- **THEN** the provenance badge reads that the header was posted by the ERP
+
+### Requirement: The supplier is chosen, and its details annotated
+
+The header editor SHALL let a reviewer pick which vendor the invoice points at
+from the organization's referenced suppliers, and separately correct the
+supplier's name, country and VAT number for this invoice alone.
+
+- The vendor picker SHALL be a searchable selector over `GET /vendors`, not a
+  free-text field, so the invoice points at a real catalog row.
+- The country SHALL be chosen from the existing country list rather than typed.
+- The editor SHALL make clear that name/country/VAT corrections apply to this
+  invoice and do not change the supplier for anyone else.
+- A field carrying an override SHALL be visibly marked as corrected, with the
+  catalog's value reachable, so a reader can tell the two apart.
+
+#### Scenario: Picking a different supplier
+
+- **WHEN** a manager searches the vendor picker and selects another supplier
+- **THEN** the invoice is saved pointing at that vendor
+
+#### Scenario: An override is marked
+
+- **WHEN** an invoice carries a supplier country override
+- **THEN** the field is marked as corrected and the catalog's value is reachable
+
+#### Scenario: The scope of an override is stated
+
+- **WHEN** the supplier detail fields are rendered
+- **THEN** the editor states that the correction applies to this invoice only
+
+### Requirement: A line can be added or removed from the voucher panel
+
+The Lines tab SHALL offer adding a line and deleting one, for a management role.
+
+- Adding SHALL append an empty line the reviewer then fills in, marked as
+  human-added.
+- Deleting SHALL require an explicit confirmation naming what is being deleted,
+  since a line carries a categorization a human may have verified.
+- After either, the panel SHALL reflect the new line set and the voucher's
+  reconciliation state without a manual reload.
+- A human-added line SHALL be marked in the same way a provisional line is —
+  text plus a mark, never colour alone.
+
+#### Scenario: Splitting a stand-in line
+
+- **WHEN** a manager adds two lines and deletes the stand-in
+- **THEN** the tab shows the two new lines, each marked as human-added, and the
+  stand-in is gone
+
+#### Scenario: Deleting asks first
+
+- **WHEN** a manager activates delete on a line
+- **THEN** a confirmation naming the line is shown before anything is sent
+
+#### Scenario: A viewer has neither control
+
+- **WHEN** a `viewer` opens the Lines tab
+- **THEN** neither the add nor the delete control is rendered
+
+### Requirement: A voucher whose lines do not sum to its total says so
+
+The voucher panel SHALL show a persistent warning carrying the delta whenever the
+server reports an invoice's lines as not reconciled, and SHALL NOT block saving.
+
+- The warning SHALL name both figures — the lines' sum and the invoice total —
+  and the signed difference, so the reviewer can see which way it is out.
+- It SHALL appear on the Lines tab, where the correction is made, and SHALL be
+  visible from the panel header so it is not missed by a reviewer on another tab.
+- It SHALL disappear as soon as the corrections bring the lines back within
+  tolerance.
+
+#### Scenario: A mismatch is warned, not blocked
+
+- **WHEN** a manager corrects one line so the lines no longer sum to the total
+- **THEN** the save succeeds and a warning shows the lines' sum, the total and
+  the difference
+
+#### Scenario: The warning clears
+
+- **WHEN** the remaining lines are corrected so they sum to the total
+- **THEN** the warning is gone
+
+#### Scenario: The warning is visible from another tab
+
+- **WHEN** a voucher's lines do not reconcile and the panel is on the Details tab
+- **THEN** the mismatch is indicated in the panel header
+
+### Requirement: An invoice header can be verified from the panel
+
+The Details tab SHALL offer a verify action that marks the header as reviewed,
+distinct from saving a correction.
+
+- Verifying SHALL be available whether or not the reviewer changed anything —
+  accepting the parsed values is itself the signal the AI needs.
+- The panel SHALL show that the header is verified, by whom and when.
+- The action SHALL be management-gated and absent for a read-only role.
+
+#### Scenario: Accepting the parse
+
+- **WHEN** a manager activates verify without editing anything
+- **THEN** the header is marked verified and shows the verifier and time
+
+#### Scenario: Verify after correcting
+
+- **WHEN** a manager corrects the total and then verifies
+- **THEN** both the correction and the verification are applied
+
+#### Scenario: A viewer cannot verify
+
+- **WHEN** a `viewer` opens the Details tab
+- **THEN** no verify control is rendered
+
+### Requirement: A line's categorization status is a column of its own
+
+The expanded line table and the voucher drawer's Lines tab SHALL show each line's
+categorization status as its own labelled column, from the payload's `status`.
+
+The Spend category column SHALL NOT carry this meaning. An empty category renders `—` for
+a line nobody has categorized yet, a line the AI failed on, and a line whose company has no
+spend tree — three different situations that a reader currently cannot tell apart, and the
+middle one is the only one that is a failure.
+
+- The four statuses SHALL be presented with distinct, human-readable labels rather than the
+  raw enum values: `uncategorized`, `ai_failed`, `ai_categorized`, `verified`.
+- `ai_failed` SHALL be the only status presented as a problem. `uncategorized` is a backlog
+  and `verified` is the goal, so styling either as an error would make the signal useless.
+- The status SHALL come from the payload's `status` field and SHALL NOT be inferred from
+  whether the category levels are populated — an `ai_failed` line and an `uncategorized`
+  line both have null levels.
+- The status SHALL be conveyed by its label, not by colour alone.
+
+#### Scenario: A failed line is distinguishable from an uncategorized one
+
+- **WHEN** one line has `status = ai_failed` and another has `status = uncategorized`
+- **THEN** the two rows show different status labels, though both show `—` for category
+
+#### Scenario: The failure reads as a failure
+
+- **WHEN** a line with `status = ai_failed` is rendered
+- **THEN** its status is presented as a problem state, distinct in styling from the other
+  three
+
+#### Scenario: A backlog line is not an error
+
+- **WHEN** a line with `status = uncategorized` is rendered
+- **THEN** nothing on the row is presented as a failure
+
+#### Scenario: The status survives a missing category
+
+- **WHEN** a line with `status = ai_categorized` has its `spend_category_id` cleared and
+  its levels retained
+- **THEN** the status column still reads as AI-categorized
+
+#### Scenario: The label carries the meaning without colour
+
+- **WHEN** the status is rendered
+- **THEN** its text alone identifies which of the four states the line is in
+
+### Requirement: A stale category is shown beside the status, not as one
+
+A line whose `category_stale` is true SHALL be marked in the status column, distinctly from
+its `status` value and without replacing it.
+
+`category_stale` is computed, not stored, and is orthogonal to the lifecycle: a line can be
+`verified` and stale at once, meaning a human categorized it and the taxonomy later moved.
+Presenting it as a fifth status would erase whichever real status the line holds.
+
+#### Scenario: A stale verified line shows both facts
+
+- **WHEN** a line has `status = verified` and `category_stale = true`
+- **THEN** the row shows that it is verified **and** that its category needs review
+
+#### Scenario: Stale is not a status
+
+- **WHEN** a stale line is rendered
+- **THEN** its `status` value is still shown, not replaced by the stale marker
+
+### Requirement: The voucher panel SHALL show both totals when they disagree
+
+Where an invoice's document total and its posted total differ, the panel SHALL
+show **both**, labelled by source, rather than one of them.
+
+Showing only the posted figure hides that the supplier billed something else;
+showing only the document's contradicts the ledger the rest of the page is built
+from. The disagreement is the finding, and a reviewer resolves it by seeing both
+next to the scan — which the panel already displays.
+
+Where they agree, or where the document stated no total, the panel SHALL show the
+posted total alone. A second figure that always matches teaches the reader to
+stop looking at it.
+
+#### Scenario: A disagreement shows both figures
+
+- **WHEN** an invoice's document total is 104,85 and its posted total is 90,00
+- **THEN** the panel shows both, each labelled with where it came from
+
+#### Scenario: Agreement shows one figure
+
+- **WHEN** the two totals agree
+- **THEN** only the posted total is shown
+
+#### Scenario: An unread document shows one figure
+
+- **WHEN** the document stated no total
+- **THEN** only the posted total is shown, and nothing implies a comparison was
+  made
+
+#### Scenario: A charge line reads as an ordinary line
+
+- **WHEN** a shipping charge was extracted as a line
+- **THEN** it appears in the Lines tab like any other line, with its own category
+  and its own controls
+

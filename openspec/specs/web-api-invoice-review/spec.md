@@ -314,3 +314,234 @@ field, on the same terms as `description`.
 - **WHEN** a converted invoice's `document_invoice_number` is corrected
 - **THEN** its `base_total`, `base_tax`, `fx_rate` and `fx_rate_date` are
   unchanged
+
+### Requirement: Invoice header corrections are not gated on provenance
+
+`PATCH /api/v1/invoices/{id}` SHALL accept an invoice whose `source` is `erp`,
+and SHALL NOT respond `409 Conflict` on the grounds of provenance.
+
+- The accepted body SHALL be `invoice_number`, `invoice_date`, `currency`,
+  `total`, `tax`, `vendor_id`, `supplier_name`, `supplier_country_code` and
+  `supplier_vat_number`. Omitted fields SHALL be left untouched; an explicit
+  `null` SHALL clear the field.
+- The endpoint SHALL remain management-gated.
+- A `vendor_id` naming a vendor that does not exist SHALL be rejected `422` with
+  nothing written.
+- Changing `currency`, `total` or `tax` SHALL continue to clear the invoice's
+  stored base amounts, rate and rate date, and the cleared fields SHALL appear in
+  the same audit diff.
+
+#### Scenario: An ERP invoice's total is corrected
+
+- **WHEN** a manager PATCHes the total of an invoice with `source` `erp`
+- **THEN** the response is `200` and the stored total is the corrected value
+
+#### Scenario: A supplier override is stored on the invoice
+
+- **WHEN** a manager PATCHes `supplier_country_code`
+- **THEN** the invoice stores the override and the linked `Vendor` row is
+  unchanged
+
+#### Scenario: An unknown vendor is refused
+
+- **WHEN** a manager PATCHes a `vendor_id` that names no vendor
+- **THEN** the response is `422` and the invoice is unchanged
+
+#### Scenario: A member cannot correct
+
+- **WHEN** a `member` PATCHes an invoice
+- **THEN** the response is `403` and nothing is written
+
+### Requirement: An invoice header can be verified
+
+`POST /api/v1/invoices/{id}/verify` SHALL apply any supplied corrections, mark
+the header verified, append an audit entry, and commit in one transaction.
+
+- The body SHALL accept the same fields `PATCH /invoices/{id}` accepts, and SHALL
+  be optional — an absent body accepts the parsed values as they stand.
+- The response SHALL be the updated invoice, carrying its verified field list,
+  verifier and verification time.
+- The audit action SHALL be `edit` when a value moved and `verify` otherwise.
+- The endpoint SHALL be management-gated and SHALL respond `404` for an invoice
+  outside the caller's scope.
+
+#### Scenario: Verifying without corrections
+
+- **WHEN** a manager POSTs verify with no body
+- **THEN** the response is `200`, the invoice is marked verified, and the audit
+  action is `verify`
+
+#### Scenario: Verifying with a correction
+
+- **WHEN** a manager POSTs verify correcting the invoice date
+- **THEN** the date is stored, the audit action is `edit`, and `invoice_date` is
+  listed among the invoice's verified fields
+
+#### Scenario: Another tenant's invoice is invisible
+
+- **WHEN** a manager POSTs verify for an invoice belonging to another
+  organization
+- **THEN** the response is `404` and nothing is written
+
+### Requirement: Line fields can be corrected, added and deleted
+
+The API SHALL expose line-level correction alongside the existing verification of
+a line's category.
+
+- `PATCH /api/v1/invoice-lines/{id}` SHALL accept `description`, `quantity`,
+  `unit`, `unit_price` and `amount`, apply them in place, and audit the diff. It
+  SHALL reject `native_account_code` and any categorization field — a category is
+  corrected through verify, which resolves it against the company's tree.
+- `POST /api/v1/invoices/{id}/lines` SHALL create a line with those same fields
+  plus an optional `sequence`, defaulting to after the invoice's last line, with
+  origin `human` and status `uncategorized`.
+- `DELETE /api/v1/invoice-lines/{id}` SHALL delete the line, audit the deletion
+  with the line's values, and NULL `source_invoice_line_id` on every referencing
+  `ErpEntry`.
+- All three SHALL be management-gated, SHALL recompute the invoice status rollup
+  in the same transaction, and SHALL respond `404` outside the caller's scope.
+- Correcting a line's `amount` SHALL clear that line's base amount, rate and rate
+  date, and the cleared fields SHALL appear in the same audit diff.
+
+#### Scenario: A line description is corrected
+
+- **WHEN** a manager PATCHes a line's description
+- **THEN** the response is `200`, the description is stored, and the audit entry
+  carries the diff
+
+#### Scenario: A category cannot be smuggled through PATCH
+
+- **WHEN** a PATCH names `level_2` or `spend_category_id`
+- **THEN** the response is `422` and the line is unchanged
+
+#### Scenario: A line is added at the end
+
+- **WHEN** a manager POSTs a line to an invoice that already has three lines and
+  sends no `sequence`
+- **THEN** the new line is created with sequence after the last, origin `human`,
+  status `uncategorized`
+
+#### Scenario: A deleted line's postings survive
+
+- **WHEN** a manager deletes a line referenced by a posting
+- **THEN** the line is gone, the posting remains with `source_invoice_line_id`
+  NULL, and the deletion is audited
+
+#### Scenario: Deleting the last line updates the rollup
+
+- **WHEN** a manager deletes the only categorized line of an invoice
+- **THEN** the invoice's status rollup is recomputed in the same transaction
+
+### Requirement: Invoice and line payloads carry correction state
+
+Read models SHALL expose enough state for a client to render what was corrected
+and what still needs review, without a second request.
+
+- `InvoiceRead` and `InvoiceDetailRead` SHALL carry `verified_fields`,
+  `verified_at`, `verified_by`, the resolved supplier (`supplier_name`,
+  `supplier_country_code`, `supplier_vat_number` — the override when set,
+  otherwise the linked vendor's value), and a per-field marker of which supplier
+  values are overrides.
+- `InvoiceDetailRead` SHALL carry `lines_reconciled` and, when false,
+  `reconciliation_delta` — the signed difference between the lines' sum and the
+  nearest accepted total.
+- `InvoiceLineRead` SHALL carry `verified_fields`, and its `origin` vocabulary
+  SHALL include `human`.
+
+#### Scenario: The resolved supplier is served
+
+- **WHEN** an invoice has a supplier country override and a linked vendor with a
+  different country
+- **THEN** its payload reports the override as the supplier country and marks it
+  as overridden
+
+#### Scenario: The mismatch is reported on the detail
+
+- **WHEN** an invoice's lines do not sum to its total beyond tolerance
+- **THEN** its detail payload has `lines_reconciled` false and a non-zero
+  `reconciliation_delta`
+
+#### Scenario: A human line is identifiable
+
+- **WHEN** a line was added by a human
+- **THEN** its payload reports origin `human`
+
+### Requirement: Lines SHALL be filterable by whether the AI was confident
+
+`GET /invoice-lines` SHALL accept a `needs_review` filter which, when true, returns only lines whose status is `ai_categorized` and whose `confidence` is below the platform's review threshold. When false or absent, the listing SHALL be unaffected.
+
+A `verified` line SHALL never be returned by this filter whatever its confidence: a human has already looked, which is the entire question the filter asks. Lines that are `uncategorized` or `ai_failed` SHALL likewise be excluded — they are their own backlogs, already filterable by `status`, and folding them in would make one filter mean three different kinds of work.
+
+#### Scenario: Doubtful AI lines are returned
+
+- **WHEN** `GET /invoice-lines?needs_review=true` is called
+- **THEN** only `ai_categorized` lines whose confidence is below the threshold are returned
+
+#### Scenario: A verified line is excluded whatever its confidence
+
+- **WHEN** a line was AI-categorized with low confidence and then verified by a human
+- **THEN** it is not returned by `needs_review=true`
+
+#### Scenario: Failures and backlogs are not folded in
+
+- **WHEN** `needs_review=true` is called on a company holding `ai_failed` and `uncategorized` lines
+- **THEN** neither is returned
+
+#### Scenario: The filter composes with the others
+
+- **WHEN** `needs_review=true` is combined with `company_id` and a date range
+- **THEN** the result respects every filter and paginates as any other listing does
+
+### Requirement: A line payload SHALL state whether it is awaiting review
+
+Every line payload SHALL carry a computed flag saying whether that line falls in the review set, resolved server-side from its status and confidence against the current threshold.
+
+It SHALL be computed on read and never stored, for the same reason `category_stale` is: the threshold is a tunable platform judgement, and a stored flag would be a snapshot of a setting rather than a fact about the line — silently wrong for every historical line the moment it moved.
+
+#### Scenario: The flag rides on the line
+
+- **WHEN** a line below the threshold is fetched
+- **THEN** its payload states that it needs review, with no second request
+
+#### Scenario: The flag follows the threshold, not a column
+
+- **WHEN** the review threshold is changed
+- **THEN** the flag on existing lines reflects the new threshold without any row being rewritten
+
+### Requirement: An invoice payload SHALL state whether its two totals agree
+
+`InvoiceRead` SHALL carry the document's `document_total` and `document_tax`
+alongside the posted `total` and `tax`, plus a computed `totals_agree` saying
+whether they reconcile within the configured tolerance.
+
+Computed on read and never stored, for the same reason `category_stale` and
+`lines_reconciled` are: the tolerance is a tunable platform judgement, and a
+stored flag would be a snapshot of a setting rather than a fact about the
+invoice.
+
+`totals_agree` SHALL be null — not true — when the document stated no total.
+"Nothing to compare" and "compared and agreed" are different states, and a client
+that cannot distinguish them will present an unread document as a verified one.
+
+#### Scenario: Agreement is reported
+
+- **WHEN** a document's total matches the posted total within tolerance
+- **THEN** the payload reports `totals_agree` true
+
+#### Scenario: Disagreement is reported without blocking anything
+
+- **WHEN** a document states 104,85 and the ERP posted 90,00
+- **THEN** the payload carries both figures and reports `totals_agree` false, and
+  the invoice's lines and status are unaffected
+
+#### Scenario: No document total is not agreement
+
+- **WHEN** the document stated no total
+- **THEN** `totals_agree` is null
+
+#### Scenario: The flag follows the tolerance, not a column
+
+- **WHEN** the reconciliation tolerance is widened
+- **THEN** an invoice that previously disagreed reports agreement without any row
+  being rewritten
+
