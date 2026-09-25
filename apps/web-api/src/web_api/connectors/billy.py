@@ -343,6 +343,7 @@ class BillyConnector(HttpErpConnector):
         return ErpEntryData(
             erp_entry_id=str(posting["id"]),
             voucher_id=voucher_id,
+            voucher_number=transaction.get("voucherNo") or None,
             entry_type=entry_type,
             erp_account_code=code,
             source_line_erp_id=None,
@@ -411,8 +412,6 @@ class BillyConnector(HttpErpConnector):
             if str(line.get("billId") or "") == bill_id
         ]
 
-        invoice_number = bill.get("suppliersInvoiceNo") or bill.get("voucherNo") or bill_id
-
         attachment = self._attachments_by_bill().get(bill_id)
         file_name = None
         if attachment is not None:
@@ -429,7 +428,7 @@ class BillyConnector(HttpErpConnector):
             vendor_erp_id=str(bill.get("contactId") or ""),
             vendor_name=bill.get("contactName")
             or self._contact_name(str(bill.get("contactId") or "")),
-            invoice_number=str(invoice_number),
+            invoice_number=bill.get("suppliersInvoiceNo") or None,
             invoice_date=date.fromisoformat(bill["entryDate"]),
             currency=bill.get("currencyId") or "DKK",
             total=float(bill.get("grossAmount") or bill.get("amount") or 0),

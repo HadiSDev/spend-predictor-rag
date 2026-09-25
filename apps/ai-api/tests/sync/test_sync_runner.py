@@ -22,6 +22,7 @@ from web_api.db.models import (
     Vendor,
 )
 from web_api.spend_trees import service
+from ai_api_testkit import ENTRIES, INVOICE
 
 EXPECTED = {
     "vendors": 1,
@@ -440,3 +441,38 @@ def test_the_buying_company_reaches_the_prompt(
     ))
 
     assert "Bought by: Acme" in _facts(prompts)
+
+
+def test_the_erp_voucher_number_is_stored_beside_the_voucher_id(
+    engine, make_tenant, fake_connector
+):
+    tenant = make_tenant("Acme")
+    fake_connector.entries = [
+        entry.model_copy(update={"voucher_number": "15"}) for entry in ENTRIES
+    ]
+
+    runner.run_sync()
+
+    with Session(engine) as s:
+        rows = s.exec(
+            select(ErpEntry).where(ErpEntry.company_id == tenant["company_id"])
+        ).all()
+    assert {(row.voucher_id, row.voucher_number) for row in rows} == {
+        ("V1", "15"),
+        ("PAY1", "15"),
+    }
+
+
+def test_an_invoice_without_a_supplier_number_is_stored_without_one(
+    engine, make_tenant, fake_connector
+):
+    tenant = make_tenant("Acme")
+    fake_connector.scan = INVOICE.model_copy(update={"invoice_number": None})
+
+    runner.run_sync()
+
+    with Session(engine) as s:
+        invoice = s.exec(
+            select(Invoice).where(Invoice.company_id == tenant["company_id"])
+        ).one()
+    assert invoice.invoice_number is None

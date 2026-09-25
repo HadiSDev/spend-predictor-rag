@@ -45,14 +45,14 @@ function ProvenanceBadge({ source }: { source: string }) {
   )
 }
 
-/** The ERP's own invoice number, shown as metadata. */
+/** The supplier's invoice number as recorded in the ERP. */
 function PostedNumber({ invoice }: { invoice: InvoiceDetailRead }) {
   if (!invoice.invoice_number) {
     return null
   }
   return (
     <p className="text-xs text-muted-foreground">
-      ERP reference{' '}
+      Invoice number in the ERP{' '}
       <span className="font-medium tabular-nums text-foreground/80">
         {invoice.invoice_number}
       </span>

@@ -510,6 +510,7 @@ def _persist_entries(
         row.erp_account_id = erp_account_id
         row.entry_type = e.entry_type
         row.voucher_id = e.voucher_id
+        row.voucher_number = e.voucher_number
         row.source_invoice_id = source_invoice_id
         row.source_invoice_line_id = source_invoice_line_id
         row.accounting_date = e.accounting_date

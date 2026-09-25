@@ -222,6 +222,29 @@ def test_the_blank_voucher_numbers_do_not_collide(connector):
     assert len({t["id"] for t in live_blank} & vouchers) == len(live_blank)
 
 
+def test_a_transactions_voucher_number_becomes_the_entries_voucher_number():
+    transactions = load("transactions")["transactions"]
+    numbered = next(
+        t for t in transactions
+        if not t["isVoid"] and not t["isVoided"]
+        and not t["originatorReference"].startswith("invoice:")
+    )
+    numbered["voucherNo"] = "15"
+
+    entries = Billy(transactions=transactions).connector().fetch_entries()
+
+    postings = [e for e in entries if e.voucher_id == numbered["id"]]
+    assert postings
+    assert {e.voucher_number for e in postings} == {"15"}
+
+
+def test_a_blank_voucher_number_is_left_empty(connector):
+    entries = connector.fetch_entries()
+    blank = {t["id"] for t in load("transactions")["transactions"] if not t["voucherNo"]}
+
+    assert all(e.voucher_number is None for e in entries if e.voucher_id in blank)
+
+
 def test_no_entry_claims_an_invoice_line(connector):
     assert all(e.source_line_erp_id is None for e in connector.fetch_entries())
 
@@ -371,12 +394,40 @@ def test_the_scan_reports_the_voucher_it_was_asked_for(connector):
     assert scan.voucher_id == voucher
 
 
-def test_a_blank_supplier_invoice_number_falls_back_to_the_bill_id(connector):
+def test_a_blank_supplier_invoice_number_leaves_the_invoice_number_empty(connector):
     bill = load("bill_single")["bill"]
-    assert not bill["suppliersInvoiceNo"] and not bill["voucherNo"]
+    assert not bill["suppliersInvoiceNo"]
 
     scan = connector.fetch_invoice_scan(_bill_voucher(connector))
-    assert scan.invoice_number == bill["id"]
+    assert scan.invoice_number is None
+
+
+def test_only_the_suppliers_invoice_number_becomes_the_invoice_number(billy):
+    body = load("bill_single")
+    body["bill"].update(suppliersInvoiceNo="INV-2835451", voucherNo="15")
+
+    connector = billy.connector(
+        lambda request: httpx.Response(200, json=body)
+        if "/bills/" in request.url.path
+        else billy.handler(request)
+    )
+
+    scan = connector.fetch_invoice_scan(_bill_voucher(connector))
+    assert scan.invoice_number == "INV-2835451"
+
+
+def test_a_bills_voucher_number_is_never_its_invoice_number(billy):
+    body = load("bill_single")
+    body["bill"].update(suppliersInvoiceNo=None, voucherNo="15")
+
+    connector = billy.connector(
+        lambda request: httpx.Response(200, json=body)
+        if "/bills/" in request.url.path
+        else billy.handler(request)
+    )
+
+    scan = connector.fetch_invoice_scan(_bill_voucher(connector))
+    assert scan.invoice_number is None
 
 
 def test_sideloaded_bill_lines_become_invoice_lines(connector):

@@ -31,7 +31,7 @@ class ErpInvoiceData(BaseModel):
     erp_id: str
     vendor_erp_id: str
     vendor_name: str
-    invoice_number: str
+    invoice_number: str | None = None
     invoice_date: date
     currency: str
     total: float

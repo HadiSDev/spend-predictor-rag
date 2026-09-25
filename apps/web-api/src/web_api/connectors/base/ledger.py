@@ -21,6 +21,7 @@ class ErpEntryData(BaseModel):
 
     erp_entry_id: str
     voucher_id: str
+    voucher_number: str | None = None
     entry_type: str
     erp_account_code: str
     source_line_erp_id: str | None = None

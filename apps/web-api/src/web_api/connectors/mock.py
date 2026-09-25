@@ -114,7 +114,7 @@ class MockErpConnector(HttpErpConnector):
             erp_id=str(r["purchaseInvoiceNumber"]),
             vendor_erp_id=str(r.get("supplier", {}).get("supplierNumber", "")),
             vendor_name=r.get("supplier", {}).get("name", ""),
-            invoice_number=str(r.get("purchaseInvoiceNumber", "")),
+            invoice_number=str(r["purchaseInvoiceNumber"]) if r.get("purchaseInvoiceNumber") else None,
             invoice_date=date.fromisoformat(r["date"]),
             currency=r.get("currency", "DKK"),
             total=float(r.get("grossAmount", 0)),
@@ -151,6 +151,7 @@ class MockErpConnector(HttpErpConnector):
                 ErpEntryData(
                     erp_entry_id=str(r["entryNumber"]),
                     voucher_id=str(r["voucherId"]),
+                    voucher_number=str(r["voucherId"]),
                     entry_type=r.get("entryType", "journal_entry"),
                     erp_account_code=str(r.get("account", {}).get("accountNumber", "")),
                     accounting_date=date.fromisoformat(accounting_date) if accounting_date else None,

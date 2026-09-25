@@ -38,6 +38,13 @@ import { VoucherActivityTab } from './activity/voucher-activity-tab'
 import { VoucherDetailsTab } from './voucher-details-tab'
 import { VoucherLinesTab } from './voucher-lines-tab'
 import { VoucherPostingsTab } from './voucher-postings-tab'
+import { voucherLabel } from '#/lib/format/voucher'
+
+/** The drawer heading: "Voucher 15", or what the voucher lacks. */
+function voucherTitle(detail: VoucherDetailRead): string {
+  const label = voucherLabel(detail)
+  return label.numbered ? `Voucher ${label.text}` : label.text
+}
 
 export interface VoucherDrawerProps {
   /** `undefined` while the detail request is in flight. */
@@ -103,7 +110,7 @@ function VoucherHeader({ detail }: { detail: VoucherDetailRead }) {
   return (
     <DrawerHeader>
       <DrawerTitle className="flex flex-wrap items-center gap-2">
-        {detail.voucher_id ?? 'No voucher'}
+        {voucherTitle(detail)}
         {detail.invoice && !detail.invoice.lines_reconciled ? (
           <Badge variant="warning">
             <TriangleAlert className="size-3" aria-hidden="true" />

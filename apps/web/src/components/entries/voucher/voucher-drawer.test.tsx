@@ -82,6 +82,7 @@ function entry(overrides: Partial<ErpEntryRead> = {}): ErpEntryRead {
     erp_account_id: 'a1',
     source_invoice_id: 'inv1',
     voucher_id: 'V-1042',
+    voucher_number: 'V-1042',
     entry_type: 'purchase_invoice',
     accounting_date: '2026-07-02',
     description: 'Acme SaaS July',
@@ -210,6 +211,7 @@ function invoice(
 
 const withInvoice: VoucherDetailRead = {
   voucher_id: 'V-1042',
+  voucher_number: 'V-1042',
   company_id: 'c1',
   accounting_date: '2026-07-02',
   currency: 'DKK',
@@ -222,6 +224,7 @@ const withInvoice: VoucherDetailRead = {
 
 const journalOnly: VoucherDetailRead = {
   voucher_id: 'V-9001',
+  voucher_number: 'V-9001',
   company_id: 'c1',
   accounting_date: '2026-07-03',
   currency: 'DKK',
@@ -231,6 +234,7 @@ const journalOnly: VoucherDetailRead = {
     entry({
       id: 'j1',
       voucher_id: 'V-9001',
+      voucher_number: 'V-9001',
       entry_type: 'journal_entry',
       source_invoice_id: null,
       source_invoice_line_id: null,
@@ -392,15 +396,15 @@ describe('VoucherDrawer — layout', () => {
 })
 
 describe('VoucherDrawer — header', () => {
-  it('shows voucher id, supplier, date, posting count and total', () => {
+  it('shows the voucher number, supplier, date, posting count and total', () => {
     render(
       <VoucherDrawer
         {...props({ detail: withInvoice })}
         spendTreeNodes={TREE_NODES}
       />,
     )
-    const header = within(screen.getByText('V-1042').closest('div')!)
-    expect(header.getByText('V-1042')).toBeTruthy()
+    const header = within(screen.getByText('Voucher V-1042').closest('div')!)
+    expect(header.getByText('Voucher V-1042')).toBeTruthy()
     expect(header.getByText(/Contoso ApS/)).toBeTruthy()
     expect(header.getByText(/2026-07-02/)).toBeTruthy()
     expect(header.getByText(/2 postings/)).toBeTruthy()
@@ -414,17 +418,31 @@ describe('VoucherDrawer — header', () => {
         spendTreeNodes={TREE_NODES}
       />,
     )
-    const header = within(screen.getByText('V-1042').closest('div')!)
+    const header = within(screen.getByText('Voucher V-1042').closest('div')!)
 
     expect(header.getByText(/DKK 746\.00/)).toBeTruthy()
     expect(header.queryByText(/1,200\.00/)).toBeNull()
+  })
+
+  it('never titles a voucher with its internal id when the ERP gave no number', () => {
+    render(
+      <VoucherDrawer
+        {...props({
+          detail: { ...journalOnly, voucher_number: null },
+          tab: 'postings',
+        })}
+        spendTreeNodes={TREE_NODES}
+      />,
+    )
+    expect(screen.getByText('No number')).toBeTruthy()
+    expect(screen.queryByText(/V-9001/)).toBeNull()
   })
 
   it('labels a voucher with no id as "No voucher"', () => {
     render(
       <VoucherDrawer
         {...props({
-          detail: { ...journalOnly, voucher_id: null },
+          detail: { ...journalOnly, voucher_id: null, voucher_number: null },
           tab: 'postings',
         })}
         spendTreeNodes={TREE_NODES}

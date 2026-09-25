@@ -21,6 +21,7 @@ import { ConvertedAmount } from './converted-amount'
 import { LineStatusBadge } from './lines/line-status'
 import { ProvenanceMark } from './lines/provenance-mark'
 import { SpendCategory } from './lines/spend-category'
+import { voucherLabel } from '#/lib/format/voucher'
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' })
 
@@ -253,6 +254,7 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
           const lines = group.lines
           const expandable = lines.length > 0
           const isOpen = expanded.has(key)
+          const label = voucherLabel(group)
           const openGroup = () =>
             onSelectEntry({
               voucher: group.voucher_id ?? undefined,
@@ -265,7 +267,7 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
                   {expandable ? (
                     <IconButton
                       variant="ghost"
-                      aria-label={`${isOpen ? 'Collapse' : 'Expand'} voucher ${group.voucher_id}`}
+                      aria-label={`${isOpen ? 'Collapse' : 'Expand'} voucher ${label.text}`}
                       aria-expanded={isOpen}
                       onClick={(event) => {
                         event.stopPropagation()
@@ -283,14 +285,14 @@ export function VoucherTable({ groups, onSelectEntry }: VoucherTableProps) {
                       event.stopPropagation()
                       openGroup()
                     }}
-                    aria-label={`View voucher ${group.voucher_id ?? 'with no id'}`}
+                    aria-label={`View voucher ${label.numbered ? label.text : label.text.toLowerCase()}`}
                     className={cn(
-                      'text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring',
-                      group.voucher_id === null &&
-                        'text-muted-foreground italic',
+                      'text-left tabular-nums outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring',
+                      !label.numbered &&
+                        'font-normal text-muted-foreground italic',
                     )}
                   >
-                    {group.voucher_id ?? 'No voucher'}
+                    {label.text}
                   </button>
                   {hasFailure(group) ? (
                     <Badge variant="destructive" className="ml-2">

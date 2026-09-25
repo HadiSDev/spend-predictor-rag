@@ -20,6 +20,7 @@ class ErpEntryRead(BaseModel):
     erp_account_id: str
     source_invoice_id: str | None = None
     voucher_id: str | None = None
+    voucher_number: str | None = None
     entry_type: str
     accounting_date: date | None = None
     description: str | None = None
@@ -52,6 +53,7 @@ class VoucherGroupRead(BaseModel):
     """The postings that make up one spend event."""
 
     voucher_id: str | None = None
+    voucher_number: str | None = None
     company_id: str
     accounting_date: date | None = None
     entry_types: list[str] = []
@@ -75,6 +77,7 @@ class VoucherDetailRead(BaseModel):
     """Everything one voucher's detail panel needs, in one request."""
 
     voucher_id: str | None = None
+    voucher_number: str | None = None
     company_id: str
     accounting_date: date | None = None
     currency: str | None = None

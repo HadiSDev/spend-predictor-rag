@@ -21,6 +21,7 @@ class ErpEntry(SQLModel, table=True):
         sa_type=String, foreign_key="invoice_lines.id", nullable=True
     )
     voucher_id: Optional[str] = Field(sa_type=String, nullable=True)
+    voucher_number: Optional[str] = Field(sa_type=String, nullable=True)
     entry_type: str = Field(sa_type=String, nullable=False)
     accounting_date: Optional[date] = Field(sa_type=Date, nullable=True)
     description: Optional[str] = Field(sa_type=String, nullable=True)

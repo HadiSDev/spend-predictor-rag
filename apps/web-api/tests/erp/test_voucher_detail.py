@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from web_api.audit import record_audit
 from web_api.db.models import AuditLog, ErpAccount, ErpEntry
@@ -372,3 +372,23 @@ def test_voucher_on_enabled_accounts_is_unaffected_by_a_sibling_deselection(
                      f"{voucher_seed['entry_unvouchered']}", headers=auth("tokA"))
     assert res.status_code == 200
     assert res.json()["entry_count"] == 1
+
+
+def test_the_erp_voucher_number_is_reported_beside_the_voucher_id(client, engine, voucher_seed):
+    with Session(engine) as s:
+        for entry in s.exec(
+            select(ErpEntry).where(ErpEntry.voucher_id == voucher_seed["voucher"])
+        ).all():
+            entry.voucher_number = "15"
+            s.add(entry)
+        s.commit()
+
+    detail = client.get(f"/api/v1/erp-entries/vouchers/{voucher_seed['voucher']}",
+                        headers=auth("tokA")).json()
+    groups = client.get("/api/v1/erp-entries/vouchers", headers=auth("tokA")).json()
+
+    assert detail["voucher_id"] == voucher_seed["voucher"]
+    assert detail["voucher_number"] == "15"
+    group = next(g for g in groups["items"] if g["voucher_id"] == voucher_seed["voucher"])
+    assert group["voucher_number"] == "15"
+    assert {e["voucher_number"] for e in group["entries"]} == {"15"}

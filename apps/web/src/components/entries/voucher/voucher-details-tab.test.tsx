@@ -310,12 +310,12 @@ describe('VoucherDetailsTab', () => {
     ).toBe('')
   })
 
-  it('shows the ERP’s own number as evidence, not as a field', () => {
+  it('shows the invoice number the ERP recorded as evidence, not as a field', () => {
     render(<VoucherDetailsTab {...props()} />)
 
-    expect(screen.getByText(/ERP reference/i)).toBeTruthy()
+    expect(screen.getByText(/Invoice number in the ERP/i)).toBeTruthy()
     expect(screen.getByText('INV-2026-0412')).toBeTruthy()
-    expect(screen.queryByLabelText(/ERP reference/i)).toBeNull()
+    expect(screen.queryByLabelText(/Invoice number in the ERP/i)).toBeNull()
   })
 
   it('surfaces a save failure rather than swallowing it', async () => {

@@ -336,6 +336,8 @@ export interface ErpEntryRead {
   erp_account_id: string
   source_invoice_id: string | null
   voucher_id: string | null
+  /** The ERP's own voucher number, as people know it; null when the ERP has none. */
+  voucher_number?: string | null
   entry_type: string
   accounting_date: string | null
   description: string | null
@@ -367,6 +369,8 @@ export interface ErpEntryRead extends Converted {}
 /** The postings that make up one spend event (`GET /erp-entries/vouchers`). */
 export interface VoucherGroupRead {
   voucher_id: string | null
+  /** The ERP's own voucher number, as people know it; null when the ERP has none. */
+  voucher_number?: string | null
   company_id: string
   accounting_date: string | null
   entry_types: Array<string>
@@ -602,6 +606,8 @@ export interface DocumentRead {
 /** Everything one voucher's detail panel needs, in one request. */
 export interface VoucherDetailRead {
   voucher_id: string | null
+  /** The ERP's own voucher number, as people know it; null when the ERP has none. */
+  voucher_number?: string | null
   company_id: string
   accounting_date: string | null
   /** Claimed only when every summed posting agrees; null otherwise. */

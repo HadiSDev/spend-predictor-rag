@@ -426,6 +426,7 @@ def _voucher_group(
 
     return VoucherGroupRead(
         voucher_id=voucher_id,
+        voucher_number=_shared([e.voucher_number for e in entries if e.voucher_number]),
         company_id=company_id,
         accounting_date=last_date,
         entry_types=sorted({e.entry_type for e in entries}),
@@ -484,6 +485,7 @@ def _voucher_detail(
     )
     return VoucherDetailRead(
         voucher_id=first.voucher_id,
+        voucher_number=_shared([r.voucher_number for r in reads if r.voucher_number]),
         company_id=first.company_id,
         accounting_date=max((r.accounting_date for r in reads if r.accounting_date), default=None),
         currency=currency,

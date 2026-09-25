@@ -100,6 +100,7 @@ function entry(overrides: Partial<ErpEntryRead> = {}): ErpEntryRead {
     erp_account_id: 'a1',
     source_invoice_id: 'inv1',
     voucher_id: 'V-1042',
+    voucher_number: 'V-1042',
     entry_type: 'purchase_invoice',
     accounting_date: '2026-07-02',
     description: 'Acme SaaS July',
@@ -177,6 +178,7 @@ function line(overrides: Partial<InvoiceLineRead> = {}): InvoiceLineRead {
 /** A three-posting voucher, the normal case. */
 const VOUCHER: VoucherGroupRead = {
   voucher_id: 'V-1042',
+  voucher_number: 'V-1042',
   company_id: 'c1',
   accounting_date: '2026-07-02',
   entry_types: ['purchase_invoice'],
@@ -217,6 +219,7 @@ const VOUCHER: VoucherGroupRead = {
 const SPLIT: VoucherGroupRead = {
   ...VOUCHER,
   voucher_id: 'V-SPLIT',
+  voucher_number: 'V-SPLIT',
   amount: '900.00',
   entry_count: 3,
   lines: [
@@ -241,6 +244,7 @@ const SPLIT: VoucherGroupRead = {
     entry({
       id: 's1',
       voucher_id: 'V-SPLIT',
+      voucher_number: 'V-SPLIT',
       erp_account_code: '6200',
       erp_account_name: 'Software',
       erp_account_type: 'expense',
@@ -249,6 +253,7 @@ const SPLIT: VoucherGroupRead = {
     entry({
       id: 's2',
       voucher_id: 'V-SPLIT',
+      voucher_number: 'V-SPLIT',
       erp_account_code: '6400',
       erp_account_name: 'Travel',
       erp_account_type: 'expense',
@@ -257,6 +262,7 @@ const SPLIT: VoucherGroupRead = {
     entry({
       id: 's3',
       voucher_id: 'V-SPLIT',
+      voucher_number: 'V-SPLIT',
       erp_account_code: '8100',
       erp_account_name: 'Payables',
       erp_account_type: 'liability',
@@ -305,6 +311,7 @@ const LONE: VoucherGroupRead = {
 const MIXED: VoucherGroupRead = {
   ...VOUCHER,
   voucher_id: 'V-MIX',
+  voucher_number: 'V-MIX',
   currency: null,
   entry_count: 2,
   amount: '30.00',
@@ -321,12 +328,14 @@ const MIXED: VoucherGroupRead = {
     entry({
       id: 'm1',
       voucher_id: 'V-MIX',
+      voucher_number: 'V-MIX',
       currency: 'DKK',
       debit_amount: '10.00',
     }),
     entry({
       id: 'm2',
       voucher_id: 'V-MIX',
+      voucher_number: 'V-MIX',
       currency: 'EUR',
       debit_amount: '20.00',
     }),
@@ -380,6 +389,7 @@ function invoiceDetail(
 /** The voucher detail payload the panel would fetch after `VOUCHER` is opened. */
 const DETAIL: VoucherDetailRead = {
   voucher_id: 'V-1042',
+  voucher_number: 'V-1042',
   company_id: 'c1',
   accounting_date: '2026-07-02',
   currency: 'DKK',
@@ -479,6 +489,44 @@ describe('EntriesPanel — voucher rows', () => {
       voucher: undefined,
       entry: 'e9',
     })
+  })
+
+  it('shows the ERP voucher number, never the internal voucher id', () => {
+    setup({
+      result: {
+        items: [
+          {
+            ...VOUCHER,
+            voucher_id: 'TIf8g2QFRYmblef0MtxBpA',
+            voucher_number: '15',
+          },
+        ],
+        page: 1,
+        page_size: 25,
+        total: 1,
+      },
+    })
+    expect(screen.getByRole('button', { name: 'View voucher 15' })).toBeTruthy()
+    expect(screen.queryByText(/TIf8g2QF/)).toBeNull()
+  })
+
+  it('says a voucher has no number rather than printing its internal id', () => {
+    setup({
+      result: {
+        items: [
+          {
+            ...VOUCHER,
+            voucher_id: 'TIf8g2QFRYmblef0MtxBpA',
+            voucher_number: null,
+          },
+        ],
+        page: 1,
+        page_size: 25,
+        total: 1,
+      },
+    })
+    expect(screen.getByText('No number')).toBeTruthy()
+    expect(screen.queryByText(/TIf8g2QF/)).toBeNull()
   })
 
   it('gives a voucherless posting no expand affordance', () => {
@@ -894,6 +942,7 @@ describe('EntriesPanel — voucher rows', () => {
     const refund: VoucherGroupRead = {
       ...VOUCHER,
       voucher_id: 'CN-1',
+      voucher_number: 'CN-1',
       amount: '-3200.00',
     }
     setup({ result: { items: [refund], page: 1, page_size: 25, total: 1 } })
@@ -904,6 +953,7 @@ describe('EntriesPanel — voucher rows', () => {
     const payment: VoucherGroupRead = {
       ...VOUCHER,
       voucher_id: 'PAY-1',
+      voucher_number: 'PAY-1',
       amount: null,
     }
     setup({ result: { items: [payment], page: 1, page_size: 25, total: 1 } })
@@ -1132,6 +1182,7 @@ const CONVERTED_LINE = () =>
 const CONVERTED_MIX: VoucherGroupRead = {
   ...VOUCHER,
   voucher_id: 'V-MIX',
+  voucher_number: 'V-MIX',
   amount: '1434.00',
   debit_total: '1434.00',
   credit_total: '0',
@@ -1142,6 +1193,7 @@ const CONVERTED_MIX: VoucherGroupRead = {
     entry({
       id: 'm1',
       voucher_id: 'V-MIX',
+      voucher_number: 'V-MIX',
       currency: 'EUR',
       debit_amount: '100.00',
       base_debit_amount: '746.00',
@@ -1151,6 +1203,7 @@ const CONVERTED_MIX: VoucherGroupRead = {
     entry({
       id: 'm2',
       voucher_id: 'V-MIX',
+      voucher_number: 'V-MIX',
       currency: 'USD',
       debit_amount: '100.00',
       base_debit_amount: '688.00',
@@ -1164,6 +1217,7 @@ const CONVERTED_MIX: VoucherGroupRead = {
 const PARTLY_UNCONVERTED: VoucherGroupRead = {
   ...VOUCHER,
   voucher_id: 'V-GAP',
+  voucher_number: 'V-GAP',
   lines: [
     line({
       id: 'gl1',
@@ -1186,6 +1240,7 @@ const PARTLY_UNCONVERTED: VoucherGroupRead = {
     entry({
       id: 'g2',
       voucher_id: 'V-GAP',
+      voucher_number: 'V-GAP',
       currency: 'GBP',
       debit_amount: '500.00',
       base_currency: null,
