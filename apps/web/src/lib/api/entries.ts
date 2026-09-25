@@ -18,7 +18,13 @@ export function voucherGroupsQueryOptions(
   api: ApiClient,
   filters: EntryFilters = {},
 ) {
-  const query = { currency_mode: 'base' as const, ...filters }
+  const {
+    voucher: _voucher,
+    entry: _entry,
+    tab: _tab,
+    ...listFilters
+  } = filters
+  const query = { currency_mode: 'base' as const, ...listFilters }
   return queryOptions({
     queryKey: [...entriesKey, 'vouchers', query],
     queryFn: () =>

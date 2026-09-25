@@ -61,6 +61,41 @@ describe('voucherGroupsQueryOptions', () => {
     expect(a).not.toEqual(b)
     expect(a.slice(0, 2)).toEqual([...entriesKey, 'vouchers'])
   })
+
+  it('keeps the same cache key while the voucher panel opens or changes tab', () => {
+    const { api } = fakeApi()
+    const list = { company_id: 'c1', page: 2 }
+    const closed = voucherGroupsQueryOptions(api, list).queryKey
+    const onLines = voucherGroupsQueryOptions(api, {
+      ...list,
+      voucher: '4821',
+      tab: 'lines',
+    }).queryKey
+    const onActivity = voucherGroupsQueryOptions(api, {
+      ...list,
+      voucher: '4821',
+      tab: 'activity',
+    }).queryKey
+
+    expect(onLines).toEqual(closed)
+    expect(onActivity).toEqual(closed)
+  })
+
+  it('does not send the voucher panel state to the API', async () => {
+    const { api, get } = fakeApi()
+
+    await voucherGroupsQueryOptions(api, {
+      company_id: 'c1',
+      voucher: '4821',
+      entry: 'e1',
+      tab: 'postings',
+    }).queryFn!({} as never)
+
+    expect(get.mock.calls[0][1]).toEqual({
+      currency_mode: 'base',
+      company_id: 'c1',
+    })
+  })
 })
 
 describe('entryQueryOptions', () => {
