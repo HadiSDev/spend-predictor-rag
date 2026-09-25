@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ApiError } from './api-client'
+import { ApiError } from './api/api-client'
 import { applyServerError, serverErrorMessage } from './form-errors'
 
 describe('serverErrorMessage', () => {

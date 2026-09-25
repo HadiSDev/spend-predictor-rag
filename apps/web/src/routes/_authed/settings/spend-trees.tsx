@@ -1,8 +1,8 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { SpendTreeEditor } from '#/components/settings/spend-tree-editor'
-import { SpendTreesPanel } from '#/components/settings/spend-trees-panel'
-import { canManageCompanies, useApi, usePrincipal } from '#/lib/auth'
+import { SpendTreeEditor } from '#/components/settings/spend-trees/spend-tree-editor'
+import { SpendTreesPanel } from '#/components/settings/spend-trees/spend-trees-panel'
+import { canManageCompanies, useApi, usePrincipal } from '#/lib/auth/auth'
 import {
   createSpendCategoryMutation,
   archiveSpendTreeMutation,
@@ -18,9 +18,9 @@ import {
   dismissSuggestionMutation,
   reopenSuggestionMutation,
   spendTreeSuggestionsQueryOptions,
-} from '#/lib/spend-trees'
+} from '#/lib/api/spend-trees'
 
-/** Which tree is open, in the URL — so a tree is linkable like a voucher is. */
+/** Which tree is open. */
 interface SpendTreeSearch {
   tree?: string
 }
@@ -29,7 +29,8 @@ export const Route = createFileRoute('/_authed/settings/spend-trees')({
   component: SpendTreesSection,
   staticData: { title: 'Spend trees' },
   validateSearch: (search: Record<string, unknown>): SpendTreeSearch => ({
-    tree: typeof search.tree === 'string' && search.tree ? search.tree : undefined,
+    tree:
+      typeof search.tree === 'string' && search.tree ? search.tree : undefined,
   }),
 })
 
@@ -44,19 +45,33 @@ function SpendTreesSection() {
   const openTree = useQuery(spendTreeQueryOptions(api, openTreeId ?? null))
 
   const create = useMutation(createSpendTreeMutation(api, queryClient))
-  const useDefault = useMutation(ensureDefaultSpendTreeMutation(api, queryClient))
+  const useDefault = useMutation(
+    ensureDefaultSpendTreeMutation(api, queryClient),
+  )
   const removeTree = useMutation(deleteSpendTreeMutation(api, queryClient))
   const archiveTree = useMutation(archiveSpendTreeMutation(api, queryClient))
   const importCsv = useMutation(importSpendTreeMutation(api, queryClient))
-  const addNode = useMutation(createSpendCategoryMutation(api, queryClient, openTreeId ?? ''))
-  const updateNode = useMutation(updateSpendCategoryMutation(api, queryClient, openTreeId ?? ''))
-  const deleteNode = useMutation(deleteSpendCategoryMutation(api, queryClient, openTreeId ?? ''))
-  // Readable by any member, like the tree itself — a reviewer judging a proposal
-  // needs to see it, and seeing one grants nothing.
-  const suggestions = useQuery(spendTreeSuggestionsQueryOptions(api, openTreeId ?? null))
-  const accept = useMutation(acceptSuggestionMutation(api, queryClient, openTreeId ?? ''))
-  const dismiss = useMutation(dismissSuggestionMutation(api, queryClient, openTreeId ?? ''))
-  const reopen = useMutation(reopenSuggestionMutation(api, queryClient, openTreeId ?? ''))
+  const addNode = useMutation(
+    createSpendCategoryMutation(api, queryClient, openTreeId ?? ''),
+  )
+  const updateNode = useMutation(
+    updateSpendCategoryMutation(api, queryClient, openTreeId ?? ''),
+  )
+  const deleteNode = useMutation(
+    deleteSpendCategoryMutation(api, queryClient, openTreeId ?? ''),
+  )
+  const suggestions = useQuery(
+    spendTreeSuggestionsQueryOptions(api, openTreeId ?? null),
+  )
+  const accept = useMutation(
+    acceptSuggestionMutation(api, queryClient, openTreeId ?? ''),
+  )
+  const dismiss = useMutation(
+    dismissSuggestionMutation(api, queryClient, openTreeId ?? ''),
+  )
+  const reopen = useMutation(
+    reopenSuggestionMutation(api, queryClient, openTreeId ?? ''),
+  )
 
   if (openTreeId) {
     return (

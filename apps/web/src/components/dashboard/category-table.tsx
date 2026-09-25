@@ -1,6 +1,7 @@
-import { type ColumnDef, DataTable } from '#/components/ui'
-import { formatCount, formatMoney, toNumber } from '#/lib/format'
-import type { CategorySpendRow } from '#/lib/types'
+import { DataTable } from '#/components/ui'
+import type { ColumnDef } from '#/components/ui'
+import { formatCount, formatMoney, toNumber } from '#/lib/format/format'
+import type { CategorySpendRow } from '#/lib/api/types'
 
 const columns: Array<ColumnDef<CategorySpendRow>> = [
   {
@@ -22,18 +23,25 @@ const columns: Array<ColumnDef<CategorySpendRow>> = [
         {formatMoney(row.original.amount_total, row.original.currency)}
       </span>
     ),
-    sortingFn: (a, b) => toNumber(a.original.amount_total) - toNumber(b.original.amount_total),
+    sortingFn: (a, b) =>
+      toNumber(a.original.amount_total) - toNumber(b.original.amount_total),
   },
   {
     accessorKey: 'count',
     header: 'Lines',
     meta: { align: 'right' },
-    cell: ({ getValue }) => <span className="tabular-nums">{formatCount(getValue<number>())}</span>,
+    cell: ({ getValue }) => (
+      <span className="tabular-nums">{formatCount(getValue<number>())}</span>
+    ),
   },
 ]
 
 /** Categorized spend by level-2 category, highest amount first. */
-export function CategorySpendTable({ rows }: { rows: Array<CategorySpendRow> }) {
+export function CategorySpendTable({
+  rows,
+}: {
+  rows: Array<CategorySpendRow>
+}) {
   const sorted = [...rows].sort(
     (a, b) => toNumber(b.amount_total) - toNumber(a.amount_total),
   )

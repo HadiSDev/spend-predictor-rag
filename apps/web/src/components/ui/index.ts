@@ -1,6 +1,3 @@
-// Design-system primitives for the Steelyard admin panel (monochrome tokens in styles.css).
-// Import from '#/components/ui' (or '@/ui').
-
 export { cn } from './cn'
 export {
   ThemeProvider,
@@ -9,20 +6,20 @@ export {
   type ThemePreference,
 } from './theme-provider'
 
-export { Button, buttonVariants, type ButtonProps } from './button'
-export { IconButton, type IconButtonProps } from './icon-button'
-export { CodeInput, type CodeInputProps } from './code-input'
-export { Input, inputClassName } from './input'
-export { NumberInput, type NumberInputProps } from './number-input'
-export { CurrencyInput, type CurrencyInputProps } from './currency-input'
-export { Textarea } from './textarea'
+export { Button, buttonVariants, type ButtonProps } from './actions/button'
+export { IconButton, type IconButtonProps } from './actions/icon-button'
+export { CodeInput, type CodeInputProps } from './forms/code-input'
+export { Input, inputClassName } from './forms/input'
+export { NumberInput, type NumberInputProps } from './forms/number-input'
+export { CurrencyInput, type CurrencyInputProps } from './forms/currency-input'
+export { Textarea } from './forms/textarea'
 export {
   Field,
   FieldLabel,
   FieldControl,
   FieldDescription,
   FieldError,
-} from './field'
+} from './forms/field'
 export {
   Form,
   FormField,
@@ -32,10 +29,10 @@ export {
   FormDescription,
   FormMessage,
   useFormField,
-} from './form'
-export { Checkbox } from './checkbox'
-export { RadioGroup, RadioItem } from './radio'
-export { Switch } from './switch'
+} from './forms/form'
+export { Checkbox } from './forms/checkbox'
+export { RadioGroup, RadioItem } from './forms/radio'
+export { Switch } from './forms/switch'
 export {
   Select,
   SelectGroup,
@@ -45,7 +42,7 @@ export {
   SelectItem,
   SelectGroupLabel,
   SelectSeparator,
-} from './select'
+} from './forms/select'
 export {
   Combobox,
   ComboboxInput,
@@ -62,7 +59,7 @@ export {
   ComboboxGroupLabel,
   ComboboxSeparator,
   type ComboboxContentProps,
-} from './combobox'
+} from './forms/combobox'
 
 export {
   Dialog,
@@ -73,7 +70,7 @@ export {
   DialogFooter,
   DialogTitle,
   DialogDescription,
-} from './dialog'
+} from './overlays/dialog'
 export {
   AlertDialog,
   AlertDialogTrigger,
@@ -83,7 +80,7 @@ export {
   AlertDialogFooter,
   AlertDialogTitle,
   AlertDialogDescription,
-} from './alert-dialog'
+} from './overlays/alert-dialog'
 export {
   Drawer,
   DrawerTrigger,
@@ -94,7 +91,7 @@ export {
   DrawerTitle,
   DrawerDescription,
   type DrawerContentProps,
-} from './drawer'
+} from './overlays/drawer'
 export {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -103,7 +100,7 @@ export {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-} from './dropdown-menu'
+} from './overlays/dropdown-menu'
 export {
   Popover,
   PopoverTrigger,
@@ -111,10 +108,15 @@ export {
   PopoverContent,
   PopoverTitle,
   PopoverDescription,
-} from './popover'
-export { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from './tooltip'
-export { Tabs, TabsList, TabsTab, TabsPanel } from './tabs'
-export { ToastProvider, useToast } from './toast'
+} from './overlays/popover'
+export {
+  TooltipProvider,
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from './overlays/tooltip'
+export { Tabs, TabsList, TabsTab, TabsPanel } from './display/tabs'
+export { ToastProvider, useToast } from './overlays/toast'
 
 export {
   Card,
@@ -125,13 +127,16 @@ export {
   CardFooter,
   StatCard,
   type StatCardProps,
-} from './card'
-export { Badge, badgeVariants, type BadgeProps } from './badge'
-export { Avatar, AvatarImage, AvatarFallback } from './avatar'
-export { Separator } from './separator'
-export { Skeleton } from './skeleton'
-export { LoadingScreen, type LoadingScreenProps } from './loading-screen'
-export { Progress, type ProgressProps } from './progress'
+} from './display/card'
+export { Badge, badgeVariants, type BadgeProps } from './feedback/badge'
+export { Avatar, AvatarImage, AvatarFallback } from './display/avatar'
+export { Separator } from './display/separator'
+export { Skeleton } from './feedback/skeleton'
+export {
+  LoadingScreen,
+  type LoadingScreenProps,
+} from './feedback/loading-screen'
+export { Progress, type ProgressProps } from './feedback/progress'
 export {
   Table,
   TableHeader,
@@ -140,11 +145,15 @@ export {
   TableHead,
   TableCell,
   TableCaption,
-} from './table'
-export { Pagination, type PaginationProps } from './pagination'
-export { DataTable, type ColumnDef, type DataTableProps } from './data-table'
-export { Calendar, type CalendarProps } from './calendar'
-export { DatePicker, type DatePickerProps } from './date-picker'
+} from './data/table'
+export { Pagination, type PaginationProps } from './data/pagination'
+export {
+  DataTable,
+  type ColumnDef,
+  type DataTableProps,
+} from './data/data-table'
+export { Calendar, type CalendarProps } from './forms/calendar'
+export { DatePicker, type DatePickerProps } from './forms/date-picker'
 
 export {
   Sidebar,

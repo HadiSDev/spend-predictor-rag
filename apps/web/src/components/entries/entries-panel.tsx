@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Button, Card, Pagination, Skeleton } from '#/components/ui'
-import type { VoucherSelection } from '#/lib/entries'
+import type { VoucherSelection } from '#/lib/api/entries'
 import type {
   CompanyRead,
   EntryFilters,
@@ -14,13 +14,20 @@ import type {
   VoucherDetailRead,
   VoucherGroupRead,
   VoucherTab,
-} from '#/lib/types'
+} from '#/lib/api/types'
 import { FilterBar } from './filter-bar'
-import { VoucherDrawer } from './voucher-drawer'
+import { VoucherDrawer } from './voucher/voucher-drawer'
 import { VoucherTable } from './voucher-table'
 
-/** The filter keys that narrow results; `page` is navigation, not a filter. */
-const FILTER_KEYS = ['company_id', 'entry_type', 'status', 'vendor_id', 'from', 'to'] as const
+/** The filter keys that narrow results. */
+const FILTER_KEYS = [
+  'company_id',
+  'entry_type',
+  'status',
+  'vendor_id',
+  'from',
+  'to',
+] as const
 
 export function hasActiveFilters(filters: EntryFilters): boolean {
   return FILTER_KEYS.some((key) => filters[key] !== undefined)
@@ -46,7 +53,9 @@ function EmptyState({
   if (!hasActiveFilters(filters)) {
     return (
       <Card className="p-8 text-center">
-        <h2 className="font-display text-base font-medium">No ERP data synced yet</h2>
+        <h2 className="font-display text-base font-medium">
+          No ERP data synced yet
+        </h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
           Once a sync runs against a connected ERP, its postings appear here.
         </p>
@@ -55,14 +64,16 @@ function EmptyState({
   }
   return (
     <Card className="p-8 text-center">
-      <h2 className="font-display text-base font-medium">No entries match these filters</h2>
+      <h2 className="font-display text-base font-medium">
+        No entries match these filters
+      </h2>
       <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
         Try widening the date range or clearing a filter.
         {filters.vendor_id !== undefined ? (
           <>
             {' '}
-            Note that postings not linked to an invoice carry no supplier, so a supplier filter
-            excludes them.
+            Note that postings not linked to an invoice carry no supplier, so a
+            supplier filter excludes them.
           </>
         ) : null}
       </p>
@@ -87,45 +98,37 @@ export interface EntriesPanelProps {
   onClearFilters: () => void
   onPageChange: (page: number) => void
   onVendorSearch: (query: string) => void
-  /** The open voucher's full detail, and its loading state. `undefined`
-   *  while in flight — never an empty object. */
+  /** The open voucher's detail; undefined while loading. */
   voucherDetail: VoucherDetailRead | undefined
   voucherLoading: boolean
   /** The open voucher's change history, newest first. */
   auditRows: Array<VoucherAuditRead>
   auditLoading: boolean
-  /** Which face of the panel is showing — URL state, owned by the route. */
+  /** The panel tab being shown. */
   tab: VoucherTab
   onTabChange: (tab: VoucherTab) => void
-  /** Opens the panel for a voucher (or, lacking one, a lone posting), on the
-   *  tab the activated row asks for. Also the way the panel is closed:
-   *  `onSelectEntry({})` clears all three. */
+  /** Opens the panel for a voucher or lone posting; an empty selection closes it. */
   onSelectEntry: (key: VoucherSelection) => void
   onVerifyLine: (lineId: string, corrections: LineCorrections) => Promise<void>
-  /** The open voucher's company's spend tree. Resolved by the route, so one
-   *  request serves every line in the panel. */
+  /** The open voucher's company's spend tree. */
   spendTreeNodes: Array<SpendCategoryRead> | null
-  /** Where a manager assigns that company's tree, for the no-tree case. */
+  /** Where a manager assigns the company's spend tree. */
   companySettingsHref?: string
   onUpdateHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
   /** Verify the header, applying any pending edits first. */
   onVerifyHeader: (invoiceId: string, changes: InvoiceUpdate) => Promise<void>
-  /** Correct what a line says was bought — not its category. */
+  /** Correct what a line says was bought. */
   onUpdateLine: (lineId: string, changes: InvoiceLineUpdate) => Promise<void>
-  /** Add a line to the open invoice, and delete one from it. */
+  /** Add a line to, or delete one from, the open invoice. */
   onCreateLine: (invoiceId: string) => Promise<void>
   onDeleteLine: (lineId: string) => Promise<void>
   /** Queue an invoice's document to be read again. */
   onReprocess: (invoiceId: string) => Promise<void>
-  /** Whether the signed-in user holds a management role — every write in the
-   *  panel requires one, so the actions are offered only where they will work. */
+  /** Whether the signed-in user holds a management role. */
   canManage: boolean
 }
 
-/**
- * The Entries page body. Presentational: every query and the URL-backed filter
- * state live in the route, so this can be rendered directly in tests.
- */
+/** The Entries page body. */
 export function EntriesPanel({
   result,
   loading,
@@ -156,18 +159,11 @@ export function EntriesPanel({
   onReprocess,
   canManage,
 }: EntriesPanelProps) {
-  const pageCount = result ? Math.max(1, Math.ceil(result.total / result.page_size)) : 1
+  const pageCount = result
+    ? Math.max(1, Math.ceil(result.total / result.page_size))
+    : 1
   const open = filters.voucher !== undefined || filters.entry !== undefined
-  // Local to the panel: whether the Details tab's header editor has edits not
-  // yet saved. `VoucherDetailsTab` remounts (`key={invoice.id}`) whenever the
-  // open voucher's invoice changes, which fires its cleanup and resets this —
-  // so a discard on one voucher never bleeds into the next one opened. Also
-  // reset explicitly on close, in case the drawer's content stays mounted
-  // through its close animation rather than unmounting immediately.
   const [headerDirty, setHeaderDirty] = React.useState(false)
-  // Which line the reader activated, kept here rather than in the URL: paging
-  // is a position inside an open panel, and a search param would put a history
-  // entry behind every step so Back walked through lines instead of leaving.
   const [activeLineId, setActiveLineId] = React.useState<string | null>(null)
 
   return (
@@ -184,9 +180,12 @@ export function EntriesPanel({
 
       {error ? (
         <Card className="p-8 text-center">
-          <h2 className="font-display text-base font-medium">Couldn’t load your entries</h2>
+          <h2 className="font-display text-base font-medium">
+            Couldn’t load your entries
+          </h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            The request to the web API failed. Check that it is running and reachable, then reload.
+            The request to the web API failed. Check that it is running and
+            reachable, then reload.
           </p>
         </Card>
       ) : loading ? (
@@ -206,7 +205,11 @@ export function EntriesPanel({
             <p className="text-sm text-muted-foreground">
               {result.total} voucher{result.total === 1 ? '' : 's'}
             </p>
-            <Pagination page={result.page} pageCount={pageCount} onPageChange={onPageChange} />
+            <Pagination
+              page={result.page}
+              pageCount={pageCount}
+              onPageChange={onPageChange}
+            />
           </div>
         </>
       )}

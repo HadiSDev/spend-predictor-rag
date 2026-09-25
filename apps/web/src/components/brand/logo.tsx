@@ -1,19 +1,4 @@
-/**
- * The Steelyard logo, drawn from the brand pack's own outlines.
- *
- * `brand/` holds the pack; its rules are law here: black on light, white on
- * dark, never another colour; never retyped, tilted, stretched or given
- * effects; the lockup never under 80 px wide, the symbol never under 20 px;
- * below 32 px the symbol uses the favicon geometry, whose thicker arm survives
- * small sizes.
- *
- * Every fill is `currentColor` and the component sets `text-foreground`, which
- * is `#0A0A0A` in light mode and white in dark — so "black on light, white on
- * dark" holds by construction, and a caller cannot recolour the mark by
- * accident. The wordmark is the pack's outlined path, copied verbatim
- * (`brand.test.ts` compares it with `brand/svg/steelyard-lockup-black.svg`):
- * it looks the same whether or not Geist has loaded, and it is never text.
- */
+/** The Steelyard logo, drawn from the brand pack's outlines. */
 import { cn } from '#/components/ui/cn'
 
 /** The wordmark's outlined path, verbatim from `brand/svg/steelyard-lockup-black.svg`. */
@@ -28,7 +13,6 @@ export const SMALL_SYMBOL_BELOW = 32
 
 const LOCKUP_VIEWBOX = { x: 0, y: -8.5, width: 616.2, height: 98 }
 const SYMBOL_VIEWBOX = { x: 6, y: 20, width: 54, height: 24 }
-// The favicon mark without its tile: circles r=11 and r=7, an 8-unit arm.
 const SMALL_SYMBOL_VIEWBOX = { x: 10, y: 21, width: 44, height: 22 }
 
 type ViewBox = { x: number; y: number; width: number; height: number }
@@ -60,9 +44,8 @@ function SmallMark() {
 }
 
 export interface LogoProps {
-  /** `lockup` is mark + wordmark; `symbol` is the mark alone. */
   variant?: 'lockup' | 'symbol'
-  /** Rendered width in CSS pixels. Clamped up to the pack's minimum. */
+  /** Rendered width in CSS pixels, clamped up to the minimum. */
   width: number
   className?: string
 }

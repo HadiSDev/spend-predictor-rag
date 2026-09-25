@@ -2,7 +2,7 @@ import { BarChart3 } from 'lucide-react'
 import { Card } from '#/components/ui'
 import { CategorySpendTable } from './category-table'
 import { DashboardStats } from './stats'
-import type { CategorySpendRow, EntrySummaryRow } from '#/lib/types'
+import type { CategorySpendRow, EntrySummaryRow } from '#/lib/api/types'
 
 function EmptyState() {
   return (
@@ -12,16 +12,14 @@ function EmptyState() {
       </div>
       <h2 className="mt-4 font-display text-base font-medium">No data yet</h2>
       <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-        Once transactions are synced and categorized, your spend figures will appear here.
+        Once transactions are synced and categorized, your spend figures will
+        appear here.
       </p>
     </Card>
   )
 }
 
-/**
- * Pure dashboard content: stat cards + a spend-by-category table, or an empty
- * state when there is nothing to show. Data-loading lives in the route.
- */
+/** Dashboard content: stat cards and a spend-by-category table, or an empty state. */
 export function DashboardBody({
   entryRows,
   categoryRows,
@@ -37,7 +35,9 @@ export function DashboardBody({
     <div className="flex flex-col gap-6">
       {entryRows.length > 0 ? <DashboardStats rows={entryRows} /> : null}
       <Card className="p-5">
-        <h2 className="mb-4 font-display text-base font-medium tracking-tight">Spend by category</h2>
+        <h2 className="mb-4 font-display text-base font-medium tracking-tight">
+          Spend by category
+        </h2>
         <CategorySpendTable rows={categoryRows} />
       </Card>
     </div>

@@ -15,8 +15,6 @@ export function getRouter() {
     defaultPreloadStaleTime: 0,
   })
 
-  // Dehydrate/hydrate Query state across SSR and wrap the app in a
-  // QueryClientProvider (via router `Wrap`).
   setupRouterSsrQueryIntegration({ router, queryClient })
 
   return router
@@ -27,7 +25,7 @@ declare module '@tanstack/react-router' {
     router: ReturnType<typeof getRouter>
   }
 
-  /** Per-route metadata read by the app shell (see `components/app-shell.tsx`). */
+  /** Per-route metadata read by the app shell. */
   interface StaticDataRouteOption {
     /** Heading shown in the topbar while this route is matched. */
     title?: string

@@ -6,6 +6,7 @@ export default [
   ...tanstackConfig,
   {
     rules: {
+      curly: ['error', 'all'],
       'import/no-cycle': 'off',
       'import/order': 'off',
       'sort-imports': 'off',

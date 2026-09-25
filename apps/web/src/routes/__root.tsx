@@ -46,11 +46,13 @@ function ConfigError() {
     <ThemeProvider>
       <div className="grid min-h-screen place-items-center bg-background px-6 text-center">
         <div className="max-w-md">
-          <h1 className="font-display text-lg font-semibold">Configuration required</h1>
+          <h1 className="font-display text-lg font-semibold">
+            Configuration required
+          </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             <code>VITE_CLERK_PUBLISHABLE_KEY</code> is not set. Copy{' '}
-            <code>apps/web/.env.example</code> to <code>.env</code> and set your Clerk
-            publishable key, then restart the dev server.
+            <code>apps/web/.env.example</code> to <code>.env</code> and set your
+            Clerk publishable key, then restart the dev server.
           </p>
         </div>
       </div>
@@ -64,11 +66,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      {/* Browser extensions write attributes onto <body> before React hydrates
-          (Grammarly adds `data-gr-ext-installed` and
-          `data-new-gr-c-s-check-loaded`), which React reports as a hydration
-          mismatch in our code. This silences attribute differences on <body>
-          itself only — a real mismatch anywhere inside it still warns. */}
       <body suppressHydrationWarning>
         {CLERK_PUBLISHABLE_KEY ? (
           <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>

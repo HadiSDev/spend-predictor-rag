@@ -32,7 +32,6 @@ import {
   CardHeader,
   CardTitle,
   Checkbox,
-  type ColumnDef,
   DataTable,
   DatePicker,
   Dialog,
@@ -114,32 +113,83 @@ import {
   useTheme,
   useToast,
 } from '#/components/ui'
+import type { ColumnDef } from '#/components/ui'
 
 export const Route = createFileRoute('/ui')({ component: UiShowcase })
 
-const VENDORS = ['Acme A/S', 'Bolt Industries', 'Contoso ApS', 'Danfoss', 'Elkjøp Erhverv']
-
-const CATEGORY_GROUPS = [
-  { value: 'Technology', items: ['Cloud hosting', 'Laptops', 'Software licences'] },
-  { value: 'Facilities', items: ['Cleaning', 'Electricity', 'Office supplies'] },
+const VENDORS = [
+  'Acme A/S',
+  'Bolt Industries',
+  'Contoso ApS',
+  'Danfoss',
+  'Elkjøp Erhverv',
 ]
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+const CATEGORY_GROUPS = [
+  {
+    value: 'Technology',
+    items: ['Cloud hosting', 'Laptops', 'Software licences'],
+  },
+  {
+    value: 'Facilities',
+    items: ['Cleaning', 'Electricity', 'Office supplies'],
+  },
+]
+
+function Section({
+  title,
+  children,
+}: {
+  title: string
+  children: React.ReactNode
+}) {
   return (
     <Card className="p-6">
-      <h2 className="mb-4 font-display text-base font-medium tracking-tight">{title}</h2>
+      <h2 className="mb-4 font-display text-base font-medium tracking-tight">
+        {title}
+      </h2>
       <div className="flex flex-wrap items-start gap-4">{children}</div>
     </Card>
   )
 }
 
-type Row = { supplier: string; category: string; amount: number; status: string }
+type Row = {
+  supplier: string
+  category: string
+  amount: number
+  status: string
+}
 const ROWS: Array<Row> = [
-  { supplier: 'NordicCloud ApS', category: 'Technology', amount: 12500, status: 'verified' },
-  { supplier: 'Acme Legal', category: 'Professional Services', amount: 4200, status: 'ai_categorized' },
-  { supplier: 'PrintCo', category: 'Office Supplies', amount: 320, status: 'uncategorized' },
-  { supplier: 'BuildRight', category: 'Facilities', amount: 8800, status: 'verified' },
-  { supplier: 'DataFeed Inc', category: 'Technology', amount: 1500, status: 'ai_categorized' },
+  {
+    supplier: 'NordicCloud ApS',
+    category: 'Technology',
+    amount: 12500,
+    status: 'verified',
+  },
+  {
+    supplier: 'Acme Legal',
+    category: 'Professional Services',
+    amount: 4200,
+    status: 'ai_categorized',
+  },
+  {
+    supplier: 'PrintCo',
+    category: 'Office Supplies',
+    amount: 320,
+    status: 'uncategorized',
+  },
+  {
+    supplier: 'BuildRight',
+    category: 'Facilities',
+    amount: 8800,
+    status: 'verified',
+  },
+  {
+    supplier: 'DataFeed Inc',
+    category: 'Technology',
+    amount: 1500,
+    status: 'ai_categorized',
+  },
 ]
 const COLUMNS: Array<ColumnDef<Row>> = [
   { accessorKey: 'supplier', header: 'Supplier' },
@@ -148,7 +198,11 @@ const COLUMNS: Array<ColumnDef<Row>> = [
     accessorKey: 'amount',
     header: 'Amount',
     meta: { align: 'right' },
-    cell: ({ getValue }) => <span className="font-mono tabular-nums">{getValue<number>().toLocaleString()} kr</span>,
+    cell: ({ getValue }) => (
+      <span className="font-mono tabular-nums">
+        {getValue<number>().toLocaleString()} kr
+      </span>
+    ),
   },
   {
     accessorKey: 'status',
@@ -157,7 +211,15 @@ const COLUMNS: Array<ColumnDef<Row>> = [
     cell: ({ getValue }) => {
       const status = getValue<string>()
       return (
-        <Badge variant={status === 'verified' ? 'success' : status === 'ai_categorized' ? 'info' : 'default'}>
+        <Badge
+          variant={
+            status === 'verified'
+              ? 'success'
+              : status === 'ai_categorized'
+                ? 'info'
+                : 'default'
+          }
+        >
           {status}
         </Badge>
       )
@@ -174,7 +236,9 @@ function FormDemo() {
   return (
     <Form {...form}>
       <form
-        onSubmit={form.handleSubmit((values) => toast.add({ title: `Saved ${values.vendor}` }))}
+        onSubmit={form.handleSubmit((values) =>
+          toast.add({ title: `Saved ${values.vendor}` }),
+        )}
         className="grid w-full gap-4 sm:grid-cols-2"
       >
         <FormField
@@ -197,7 +261,10 @@ function FormDemo() {
           name="email"
           rules={{
             required: 'Email is required',
-            pattern: { value: /^[^@\s]+@[^@\s]+\.[^@\s]+$/, message: 'Enter a valid email' },
+            pattern: {
+              value: /^[^@\s]+@[^@\s]+\.[^@\s]+$/,
+              message: 'Enter a valid email',
+            },
           }}
           render={({ field }) => (
             <FormItem>
@@ -250,7 +317,11 @@ function UiShowcase() {
             <IconButton aria-label="Notifications" variant="ghost">
               <Bell />
             </IconButton>
-            <IconButton aria-label="Toggle theme" variant="outline" onClick={toggleTheme}>
+            <IconButton
+              aria-label="Toggle theme"
+              variant="outline"
+              onClick={toggleTheme}
+            >
               {theme === 'dark' ? <Sun /> : <Moon />}
             </IconButton>
             <Avatar>
@@ -262,8 +333,16 @@ function UiShowcase() {
     >
       <div className="flex flex-col gap-6">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <StatCard icon={<BarChart3 />} label="Total product insights" value="758,925" />
-          <StatCard icon={<FileText />} label="Total revenue in 2025" value="$958,925" />
+          <StatCard
+            icon={<BarChart3 />}
+            label="Total product insights"
+            value="758,925"
+          />
+          <StatCard
+            icon={<FileText />}
+            label="Total revenue in 2025"
+            value="$958,925"
+          />
           <StatCard icon={<Users />} label="Active vendors" value="1,204" />
         </div>
 
@@ -304,7 +383,9 @@ function UiShowcase() {
                 <SelectContent>
                   <SelectItem value="Technology">Technology</SelectItem>
                   <SelectItem value="Facilities">Facilities</SelectItem>
-                  <SelectItem value="Professional Services">Professional Services</SelectItem>
+                  <SelectItem value="Professional Services">
+                    Professional Services
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -418,8 +499,8 @@ function UiShowcase() {
               <label className="text-sm font-medium">Total (DKK)</label>
               <CurrencyInput currency="DKK" value={total} onChange={setTotal} />
               <p className="text-xs text-muted-foreground">
-                Emits {total === null ? 'null' : `the number ${total}`} — never a
-                formatted string, and never NaN.
+                Emits {total === null ? 'null' : `the number ${total}`} — never
+                a formatted string, and never NaN.
               </p>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -435,11 +516,15 @@ function UiShowcase() {
 
         <Section title="Overlays">
           <Dialog>
-            <DialogTrigger render={<Button variant="outline">Open dialog</Button>} />
+            <DialogTrigger
+              render={<Button variant="outline">Open dialog</Button>}
+            />
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Verify categorization</DialogTitle>
-                <DialogDescription>Confirm the AI-assigned category for this line.</DialogDescription>
+                <DialogDescription>
+                  Confirm the AI-assigned category for this line.
+                </DialogDescription>
               </DialogHeader>
               <DialogFooter>
                 <DialogClose render={<Button variant="ghost">Cancel</Button>} />
@@ -449,12 +534,15 @@ function UiShowcase() {
           </Dialog>
 
           <Drawer>
-            <DrawerTrigger render={<Button variant="outline">Open drawer</Button>} />
+            <DrawerTrigger
+              render={<Button variant="outline">Open drawer</Button>}
+            />
             <DrawerContent>
               <DrawerHeader>
                 <DrawerTitle>Entry detail</DrawerTitle>
                 <DrawerDescription>
-                  A side panel for record detail, so the table behind it stays in place.
+                  A side panel for record detail, so the table behind it stays
+                  in place.
                 </DrawerDescription>
               </DrawerHeader>
               <DrawerFooter>
@@ -464,7 +552,9 @@ function UiShowcase() {
           </Drawer>
 
           <AlertDialog>
-            <AlertDialogTrigger render={<Button variant="destructive">Delete</Button>} />
+            <AlertDialogTrigger
+              render={<Button variant="destructive">Delete</Button>}
+            />
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>Deactivate company?</AlertDialogTitle>
@@ -473,14 +563,20 @@ function UiShowcase() {
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogClose render={<Button variant="ghost">Cancel</Button>} />
-                <AlertDialogClose render={<Button variant="destructive">Deactivate</Button>} />
+                <AlertDialogClose
+                  render={<Button variant="ghost">Cancel</Button>}
+                />
+                <AlertDialogClose
+                  render={<Button variant="destructive">Deactivate</Button>}
+                />
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
 
           <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="outline">Actions</Button>} />
+            <DropdownMenuTrigger
+              render={<Button variant="outline">Actions</Button>}
+            />
             <DropdownMenuContent>
               <DropdownMenuItem>
                 <FileText /> View invoice
@@ -494,19 +590,30 @@ function UiShowcase() {
           </DropdownMenu>
 
           <Popover>
-            <PopoverTrigger render={<Button variant="outline">Popover</Button>} />
+            <PopoverTrigger
+              render={<Button variant="outline">Popover</Button>}
+            />
             <PopoverContent>
               <PopoverTitle>Filter</PopoverTitle>
-              <PopoverDescription>Narrow the results by status or period.</PopoverDescription>
+              <PopoverDescription>
+                Narrow the results by status or period.
+              </PopoverDescription>
             </PopoverContent>
           </Popover>
 
           <Tooltip>
-            <TooltipTrigger render={<Button variant="ghost">Hover me</Button>} />
+            <TooltipTrigger
+              render={<Button variant="ghost">Hover me</Button>}
+            />
             <TooltipContent>Tooltips explain things</TooltipContent>
           </Tooltip>
 
-          <Button variant="secondary" onClick={() => toast.add({ title: 'Saved', description: 'Your changes are in.' })}>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              toast.add({ title: 'Saved', description: 'Your changes are in.' })
+            }
+          >
             Show toast
           </Button>
         </Section>
@@ -518,13 +625,22 @@ function UiShowcase() {
               <TabsTab value="activity">Activity</TabsTab>
               <TabsTab value="settings">Settings</TabsTab>
             </TabsList>
-            <TabsPanel value="overview" className="text-sm text-muted-foreground">
+            <TabsPanel
+              value="overview"
+              className="text-sm text-muted-foreground"
+            >
               Overview panel content.
             </TabsPanel>
-            <TabsPanel value="activity" className="text-sm text-muted-foreground">
+            <TabsPanel
+              value="activity"
+              className="text-sm text-muted-foreground"
+            >
               Activity panel content.
             </TabsPanel>
-            <TabsPanel value="settings" className="text-sm text-muted-foreground">
+            <TabsPanel
+              value="settings"
+              className="text-sm text-muted-foreground"
+            >
               Settings panel content.
             </TabsPanel>
           </Tabs>
@@ -547,7 +663,12 @@ function UiShowcase() {
             <CardDescription>Sortable, paginated data table.</CardDescription>
           </CardHeader>
           <CardContent>
-            <DataTable columns={COLUMNS} data={ROWS} getRowId={(r) => r.supplier} pageSize={4} />
+            <DataTable
+              columns={COLUMNS}
+              data={ROWS}
+              getRowId={(r) => r.supplier}
+              pageSize={4}
+            />
           </CardContent>
         </Card>
       </div>

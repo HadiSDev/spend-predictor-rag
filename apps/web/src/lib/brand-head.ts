@@ -1,18 +1,8 @@
-/**
- * The document head's brand metadata: name, icons, theme colour, share card.
- *
- * Kept out of `routes/__root.tsx` so it can be tested without booting Clerk and
- * the devtools. Every file referenced here is served from `public/` as an exact
- * copy of the pack in `brand/` (see `brand.test.ts`).
- */
+/** The document head's brand metadata: name, icons, theme colour, share card. */
 export const PRODUCT_NAME = 'Steelyard'
 export const TAGLINE = 'Know the true price of everything you buy.'
-/** The ink: the brand's only colour, and the browser chrome's. */
+/** The brand colour, also used for the browser chrome. */
 export const THEME_COLOR = '#0A0A0A'
-/**
- * Relative until the app has a production origin; crawlers that require an
- * absolute `og:image` will need one then.
- */
 const OG_IMAGE = '/og-image-1200x630.png'
 
 export const BRAND_META = [
@@ -32,7 +22,7 @@ export const BRAND_META = [
   { name: 'twitter:image', content: OG_IMAGE },
 ]
 
-/** The favicon set, as the pack's README specifies it, plus the manifest. */
+/** The favicon set plus the manifest. */
 export const BRAND_LINKS = [
   { rel: 'icon', href: '/favicon.ico', sizes: '48x48' },
   { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },

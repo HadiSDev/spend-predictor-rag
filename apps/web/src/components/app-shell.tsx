@@ -1,5 +1,10 @@
 import * as React from 'react'
-import { Link, useMatches, useNavigate, useRouterState } from '@tanstack/react-router'
+import {
+  Link,
+  useMatches,
+  useNavigate,
+  useRouterState,
+} from '@tanstack/react-router'
 import { useClerk, useUser } from '@clerk/tanstack-react-start'
 
 import { Logo } from '#/components/brand/logo'
@@ -37,12 +42,16 @@ import {
   useTheme,
 } from '#/components/ui'
 import { OrgSwitcher } from '#/components/org-switcher'
-import { usePrincipal } from '#/lib/auth'
+import { usePrincipal } from '#/lib/auth/auth'
 
 function initials(value: string): string {
   const parts = value.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  if (parts.length === 0) {
+    return '?'
+  }
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase()
+  }
   return (parts[0][0] + parts[1][0]).toUpperCase()
 }
 
@@ -59,7 +68,6 @@ function UserMenu() {
   const { signOut } = useClerk()
   const navigate = useNavigate()
 
-  // Prefer Clerk's identity for display; fall back to the provisioned principal.
   const name = user?.fullName || user?.username || principal.name
   const email = user?.primaryEmailAddress?.emailAddress || principal.email
   const imageUrl = user?.hasImage ? user.imageUrl : undefined
@@ -88,7 +96,9 @@ function UserMenu() {
             className="flex items-center gap-2 rounded-full py-1 pr-2 pl-1 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
           >
             {avatar('size-8')}
-            <span className="hidden max-w-36 truncate text-sm font-medium sm:block">{name}</span>
+            <span className="hidden max-w-36 truncate text-sm font-medium sm:block">
+              {name}
+            </span>
             <ChevronDown className="hidden size-4 text-muted-foreground sm:block" />
           </button>
         }
@@ -97,12 +107,18 @@ function UserMenu() {
         <div className="flex items-center gap-3 px-2 py-2">
           {avatar('size-10')}
           <div className="min-w-0">
-            <div className="truncate text-sm font-medium text-foreground">{name}</div>
-            <div className="truncate text-xs text-muted-foreground">{email}</div>
+            <div className="truncate text-sm font-medium text-foreground">
+              {name}
+            </div>
+            <div className="truncate text-xs text-muted-foreground">
+              {email}
+            </div>
           </div>
         </div>
         <div className="px-2 pb-2">
-          <Badge variant={principal.isSystemAdmin ? 'info' : 'outline'}>{roleLabel}</Badge>
+          <Badge variant={principal.isSystemAdmin ? 'info' : 'outline'}>
+            {roleLabel}
+          </Badge>
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -122,11 +138,7 @@ function UserMenu() {
   )
 }
 
-/** Sidebar navigation. Entries without a `to` are pages that don't exist yet.
- *
- * ERP entries lead rather than invoices: an entry is what the sync actually
- * produces, and one spend event is several of them. Invoices return here if and
- * when there is an invoice review page to point at. */
+/** Sidebar navigation. Entries without a `to` are pages that don't exist yet. */
 export const NAV_ITEMS = [
   { label: 'Dashboard', icon: LayoutDashboard, to: '/' },
   { label: 'Spend Lines', icon: Receipt, to: '/entries' },
@@ -134,13 +146,11 @@ export const NAV_ITEMS = [
   { label: 'Settings', icon: Settings, to: '/settings' },
 ] as const
 
-/**
- * Whether a nav entry matches the current location. The dashboard is matched
- * exactly (every path is "under" `/`); everything else matches its subtree, so
- * `/settings/companies` still highlights Settings.
- */
+/** Whether a nav entry matches the current location. */
 export function isNavItemActive(pathname: string, to: string): boolean {
-  if (to === '/') return pathname === '/'
+  if (to === '/') {
+    return pathname === '/'
+  }
   return pathname === to || pathname.startsWith(`${to}/`)
 }
 
@@ -187,19 +197,20 @@ function usePageTitle(): string {
   const matches = useMatches()
   for (let i = matches.length - 1; i >= 0; i--) {
     const title = matches[i].staticData.title
-    if (title) return title
+    if (title) {
+      return title
+    }
   }
   return 'Dashboard'
 }
 
-/**
- * The application shell for every authenticated route. Rendered once by the
- * `_authed` layout so it survives navigation instead of remounting per page.
- */
+/** The application shell for every authenticated route. */
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme()
   const principal = usePrincipal()
-  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
   const title = usePageTitle()
 
   return (
@@ -209,7 +220,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <Topbar>
           <TopbarTitle>{title}</TopbarTitle>
           <TopbarActions>
-            <IconButton aria-label="Toggle theme" variant="outline" onClick={toggleTheme}>
+            <IconButton
+              aria-label="Toggle theme"
+              variant="outline"
+              onClick={toggleTheme}
+            >
               {theme === 'dark' ? <Sun /> : <Moon />}
             </IconButton>
             <UserMenu key={principal.id} />

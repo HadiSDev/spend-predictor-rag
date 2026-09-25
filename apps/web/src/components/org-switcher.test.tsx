@@ -35,7 +35,6 @@ function renderSwitcher() {
   )
 }
 
-/** Opens the popup the way a pointer does — Base UI listens below `click`. */
 function openSwitcher() {
   const trigger = screen.getByRole('combobox', { name: 'Switch organization' })
   trigger.focus()
@@ -51,18 +50,23 @@ beforeEach(() => {
   setActive.mockReset().mockResolvedValue(undefined)
   activeOrgId = 'org_acme'
   orgsLoaded = true
-  orgRows = [membership('org_acme', 'Acme A/S'), membership('org_bolt', 'Bolt Industries')]
+  orgRows = [
+    membership('org_acme', 'Acme A/S'),
+    membership('org_bolt', 'Bolt Industries'),
+  ]
 })
 
 describe('OrgSwitcher', () => {
   it('activates the organization the user picks', async () => {
     renderSwitcher()
-    expect(screen.getByRole('combobox', { name: 'Switch organization' }).textContent).toContain(
-      'Acme A/S',
-    )
+    expect(
+      screen.getByRole('combobox', { name: 'Switch organization' }).textContent,
+    ).toContain('Acme A/S')
 
     openSwitcher()
-    fireEvent.click(await screen.findByRole('option', { name: 'Bolt Industries' }))
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'Bolt Industries' }),
+    )
 
     await waitFor(() => expect(setActive).toHaveBeenCalledTimes(1))
     expect(setActive).toHaveBeenCalledWith({ organization: 'org_bolt' })
@@ -74,11 +78,16 @@ describe('OrgSwitcher', () => {
     openSwitcher()
     await screen.findByRole('option', { name: 'Acme A/S' })
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Search organizations' }), {
-      target: { value: 'bolt' },
-    })
+    fireEvent.change(
+      screen.getByRole('combobox', { name: 'Search organizations' }),
+      {
+        target: { value: 'bolt' },
+      },
+    )
 
-    await waitFor(() => expect(screen.queryByRole('option', { name: 'Acme A/S' })).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByRole('option', { name: 'Acme A/S' })).toBeNull(),
+    )
     expect(screen.getByRole('option', { name: 'Bolt Industries' })).toBeTruthy()
   })
 
@@ -104,13 +113,14 @@ describe('OrgSwitcher', () => {
     renderSwitcher()
 
     openSwitcher()
-    fireEvent.click(await screen.findByRole('option', { name: 'Bolt Industries' }))
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'Bolt Industries' }),
+    )
 
     expect(await screen.findByText('Couldn’t switch organization')).toBeTruthy()
     expect(navigate).not.toHaveBeenCalled()
-    // Clerk never changed the active org, so the trigger still shows the old one.
-    expect(screen.getByRole('combobox', { name: 'Switch organization' }).textContent).toContain(
-      'Acme A/S',
-    )
+    expect(
+      screen.getByRole('combobox', { name: 'Switch organization' }).textContent,
+    ).toContain('Acme A/S')
   })
 })

@@ -16,13 +16,16 @@ import {
   SelectValue,
 } from '#/components/ui'
 import { LINE_ORIGINS } from '#/lib/entry-search'
-import { fromIsoDate, humanizeKey, toIsoDate } from '#/lib/format'
-import { CountryFlag } from '#/components/settings/country-flag'
-import type { CompanyRead, EntryFilters, LineOrigin, VendorRead } from '#/lib/types'
+import { fromIsoDate, humanizeKey, toIsoDate } from '#/lib/format/format'
+import { CountryFlag } from '#/components/fields/country-flag'
+import type {
+  CompanyRead,
+  EntryFilters,
+  LineOrigin,
+  VendorRead,
+} from '#/lib/api/types'
 
-/** What each provenance means to a reader, who does not think in enum values.
- *  Phrased to match the mark the table puts on a stand-in line ("from
- *  posting"), so the filter and the row it selects use the same words. */
+/** Reader-facing labels for each line origin. */
 const ORIGIN_LABELS: Record<LineOrigin, string> = {
   document_ai: 'From document',
   erp: 'From ERP',
@@ -30,14 +33,7 @@ const ORIGIN_LABELS: Record<LineOrigin, string> = {
   human: 'Added by hand',
 }
 
-/**
- * One width for every control in the bar.
- *
- * They were six different widths, which turned a row of peers into a ragged
- * edge and made the bar read as an accident rather than a set of equals. An
- * option too long for it wraps inside the popup (see `SelectItem`) rather than
- * driving the width of every other control up to match.
- */
+/** Shared width for every control in the bar. */
 const CONTROL = 'w-44'
 
 const ORIGIN_OPTIONS = LINE_ORIGINS.map((value) => ({
@@ -45,31 +41,19 @@ const ORIGIN_OPTIONS = LINE_ORIGINS.map((value) => ({
   label: ORIGIN_LABELS[value],
 }))
 
-
-/**
- * One row of the company picker: its country's flag, then its name.
- *
- * The flag is the coin the settings pickers already use, reused rather than
- * reinvented for the reason that component documents — emoji flags are the
- * obvious route and the wrong one, because Windows ships no flag glyphs and
- * renders 🇩🇰 as two boxed capitals. It falls back to a lettered coin for a
- * country we hold no artwork for, so a row is never blank.
- *
- * **This has to be its own flex row.** `SelectItem` puts its children inside
- * Base UI's `ItemText`, which is not the item's flex container — so the item's
- * own `gap-2` never reaches these two, and a bare `size-5` spacer is an inline
- * element whose width is ignored and which therefore collapses to nothing. That
- * is what left "All companies" sitting a flag's width to the left of every
- * company under it.
- */
-function CompanyOption({ country, children }: { country: string | null; children: React.ReactNode }) {
+/** A company picker row: country flag, then name. */
+function CompanyOption({
+  country,
+  children,
+}: {
+  country: string | null
+  children: React.ReactNode
+}) {
   return (
     <span className="flex min-w-0 items-center gap-2">
       {country ? (
         <CountryFlag country={country} />
       ) : (
-        // Keeps the coin's footprint so the names stay in one column rather
-        // than stepping left on the rows that have no flag.
         <span aria-hidden className="block size-5 shrink-0" />
       )}
       <span className="min-w-0">{children}</span>
@@ -77,24 +61,18 @@ function CompanyOption({ country, children }: { country: string | null; children
   )
 }
 
-/** The domain's fixed set. Kept explicit so a status with no rows yet — the
- *  failed ones especially — never vanishes from the filter. */
+/** Every entry status. */
 const STATUSES = ['pending', 'posted', 'synced', 'failed'] as const
 
-/**
- * Value of the "no filter" option. It cannot be `''` — that is the Select's
- * unset value, and an item carrying it can never be pressed to clear. An unset
- * filter is therefore `''` (so the trigger falls back to the placeholder) while
- * the option that clears it carries this sentinel.
- */
+/** Value of the "no filter" option; the Select's own unset value is ''. */
 const ALL = '__all__'
-// The one non-default confidence state. A "confident only" option would be a
-// filter for admiring the categorizer's work rather than for doing any.
 const REVIEW = 'needs_review'
 const REVIEW_OPTIONS = [{ value: REVIEW, label: 'Needs review' }]
 
-/** Statuses as a reader sees them, not as the column stores them. */
-const STATUS_OPTIONS = STATUSES.map((value) => ({ value, label: humanizeKey(value) }))
+const STATUS_OPTIONS = STATUSES.map((value) => ({
+  value,
+  label: humanizeKey(value),
+}))
 
 export interface FilterBarProps {
   filters: EntryFilters
@@ -115,30 +93,31 @@ export function FilterBar({
   onClear,
   onVendorSearch,
 }: FilterBarProps) {
-  // Humanized here rather than in a lookup table: the types come from the org's
-  // own data and connectors are free to emit their own, so a table would fall
-  // back to the raw key for anything it had not been told about — which is the
-  // behaviour this replaces.
   const entryTypeOptions = React.useMemo(
     () => entryTypes.map((value) => ({ value, label: humanizeKey(value) })),
     [entryTypes],
   )
 
-  // `page` is not a filter; it should not light up the clear control.
   const active = (
     [
-      'company_id', 'entry_type', 'status', 'vendor_id', 'origin',
-      'needs_review', 'from', 'to',
+      'company_id',
+      'entry_type',
+      'status',
+      'vendor_id',
+      'origin',
+      'needs_review',
+      'from',
+      'to',
     ] as const
-  ).some(
-    (key) => filters[key] !== undefined,
-  )
+  ).some((key) => filters[key] !== undefined)
   const selectedVendor = vendors.find((v) => v.id === filters.vendor_id)
 
   return (
     <div className="flex flex-wrap items-end gap-3">
       <label className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Company</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          Company
+        </span>
         <Select
           value={filters.company_id ?? ''}
           onValueChange={(next: string | null) =>
@@ -152,14 +131,14 @@ export function FilterBar({
             />
           </SelectTrigger>
           <SelectContent>
-            {/* The "all" row takes the same footprint as a flag, so every name
-                in the list shares one left edge. */}
             <SelectItem value={ALL}>
               <CompanyOption country={null}>All companies</CompanyOption>
             </SelectItem>
             {companies.map((company) => (
               <SelectItem key={company.id} value={company.id}>
-                <CompanyOption country={company.country_code}>{company.name}</CompanyOption>
+                <CompanyOption country={company.country_code}>
+                  {company.name}
+                </CompanyOption>
               </SelectItem>
             ))}
           </SelectContent>
@@ -189,7 +168,9 @@ export function FilterBar({
       </label>
 
       <label className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Entry type</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          Entry type
+        </span>
         <Select
           value={filters.entry_type ?? ''}
           onValueChange={(next: string | null) =>
@@ -197,9 +178,6 @@ export function FilterBar({
           }
         >
           <SelectTrigger className={CONTROL}>
-            {/* `items` so the trigger reads "Purchase invoice" too. Without it
-                the list is humanized and the selected value still shows the raw
-                `purchase_invoice`, which is worse than never humanizing at all. */}
             <SelectValue placeholder="All types" items={entryTypeOptions} />
           </SelectTrigger>
           <SelectContent>
@@ -214,7 +192,9 @@ export function FilterBar({
       </label>
 
       <label className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Status</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          Status
+        </span>
         <Select
           value={filters.status ?? ''}
           onValueChange={(next: string | null) =>
@@ -236,14 +216,15 @@ export function FilterBar({
       </label>
 
       <label className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Line source</span>
-        {/* Finds the spend still standing on its postings — the vouchers whose
-            document has not been read, and whose descriptions are therefore the
-            bookkeeper's rather than what was bought. */}
+        <span className="text-xs font-medium text-muted-foreground">
+          Line source
+        </span>
         <Select
           value={filters.origin ?? ''}
           onValueChange={(next: string | null) =>
-            onChange({ origin: next && next !== ALL ? (next as LineOrigin) : undefined })
+            onChange({
+              origin: next && next !== ALL ? (next as LineOrigin) : undefined,
+            })
           }
         >
           <SelectTrigger className={CONTROL}>
@@ -261,10 +242,9 @@ export function FilterBar({
       </label>
 
       <label className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Confidence</span>
-        {/* The backlog the categorizer creates now that it always answers rather
-            than declining. Doubt arrives as a low confidence instead of as a
-            failure, which is only an improvement if it is selectable. */}
+        <span className="text-xs font-medium text-muted-foreground">
+          Confidence
+        </span>
         <Select
           value={filters.needs_review === true ? REVIEW : ''}
           onValueChange={(next: string | null) =>
@@ -282,15 +262,17 @@ export function FilterBar({
       </label>
 
       <label className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Supplier</span>
-        {/* A combobox, not a select: a real org has more suppliers than a
-            dropdown can hold, and the API already searches them server-side. */}
+        <span className="text-xs font-medium text-muted-foreground">
+          Supplier
+        </span>
         <Combobox
           items={vendors}
           value={selectedVendor}
           itemToStringLabel={(vendor: VendorRead) => vendor.name}
           isItemEqualToValue={(a: VendorRead, b: VendorRead) => a.id === b.id}
-          onValueChange={(next: VendorRead | null) => onChange({ vendor_id: next?.id })}
+          onValueChange={(next: VendorRead | null) =>
+            onChange({ vendor_id: next?.id })
+          }
           onInputValueChange={onVendorSearch}
         >
           <ComboboxInput placeholder="All suppliers" className={CONTROL} />

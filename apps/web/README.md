@@ -19,12 +19,12 @@ dashboard.
   users to `/sign-in`. Authenticated pages nest under it (the dashboard is
   `src/routes/_authed/index.tsx`, served at `/`); future `/admin/*` routes nest
   here too.
-- **Principal & roles** — `src/lib/auth.tsx` provides `AuthProvider` (loads
+- **Principal & roles** — `src/lib/auth/auth.tsx` provides `AuthProvider` (loads
   `GET /users/me`), `usePrincipal()` (`{ …, isSystemAdmin }`), `useApi()`, and a
   `requireSystemAdmin` guard helper for future admin routes.
-- **API client & data** — `src/lib/api-client.ts` attaches the Clerk session
+- **API client & data** — `src/lib/api/api-client.ts` attaches the Clerk session
   token as a Bearer credential to `VITE_API_BASE_URL`; data is fetched with
-  TanStack Query (`src/lib/reports.ts`, `src/lib/users.ts`) through the
+  TanStack Query (`src/lib/api/reports.ts`, `src/lib/api/users.ts`) through the
   `@tanstack/react-router-ssr-query` integration wired in `src/router.tsx`.
 - **Dashboard** — the themed `AppShell` with stat cards + a spend-by-category
   table from `GET /reports/*` (org-wide), with loading / empty / error states.
@@ -100,9 +100,10 @@ Fonts are self-hosted via `@fontsource-variable/{geist,geist-mono}`. Dark mode i
 
 ### Adding a component
 
-1. Create `src/components/ui/<name>.tsx`. For an interactive control, import the Base UI
-   part and style it (see `dialog.tsx` / `select.tsx` as references); for a
-   plain element, use a `forwardRef` + `cva` + `cn()` (see `button.tsx`).
+1. Create `src/components/ui/<group>/<name>.tsx` in the group it belongs to
+   (`actions`, `forms`, `overlays`, `data`, `feedback`, `display`, `layout`). For an interactive control, import the Base UI
+   part and style it (see `overlays/dialog.tsx` / `forms/select.tsx` as references); for a
+   plain element, use a `forwardRef` + `cva` + `cn()` (see `actions/button.tsx`).
 2. Only use token classes — never hard-coded colors.
 3. Export it from `src/components/ui/index.ts`.
 4. Add it (with its variants/states) to the `/ui` route and a test in

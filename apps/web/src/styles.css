@@ -3,22 +3,11 @@
 @import '@fontsource-variable/geist-mono/index.css';
 @import 'react-day-picker/style.css';
 
-/* Class-based dark mode: add `.dark` on <html>. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/*
- * Steelyard design tokens. The brand is black `#0A0A0A` and white, nothing
- * else (see brand/README.md): the primary action *is* the ink, surfaces are
- * white, and everything between is a hue-free grey. There is no accent colour —
- * hierarchy comes from contrast and weight (an ink fill, an ink border), never
- * from a faint tint. Status colours are the only hue, and only for status.
- *
- * Semantic values live in :root/.dark and are wired into Tailwind utilities via
- * `@theme inline`, so swapping a value here re-themes every component.
- */
 :root {
-  --canvas: #f5f5f5; /* neutral, so white cards separate from the page */
-  --foreground: #0a0a0a; /* the ink */
+  --canvas: #f5f5f5;
+  --foreground: #0a0a0a;
 
   --card: #ffffff;
   --card-foreground: #0a0a0a;
@@ -29,13 +18,12 @@
   --muted-foreground: #5c5c5c;
   --subtle-foreground: #6b6b6b;
 
-  --primary: #0a0a0a; /* the primary action is the ink */
+  --primary: #0a0a0a;
   --primary-foreground: #ffffff;
 
   --secondary: #ffffff;
   --secondary-foreground: #0a0a0a;
 
-  /* Aliases of the ink: kept so existing `accent` utilities stay valid. */
   --accent: #0a0a0a;
   --accent-foreground: #ffffff;
 
@@ -46,9 +34,6 @@
   --input: rgb(10 10 10 / 0.18);
   --ring: rgb(10 10 10 / 0.55);
 
-  /* Status is the only hue. Each tone is used both as a badge's text over a
-     12–16% tint of itself and as a solid fill, so it is tuned per theme to
-     clear 4.5:1 for both (the table is in the steelyard-rebrand change). */
   --success: #30783d;
   --success-foreground: #ffffff;
   --warning: #905c11;
@@ -131,8 +116,6 @@
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
 
-  /* Geist, the wordmark's typeface, for display and body alike; Geist Mono for
-     figures that must align in columns. */
   --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
   --font-display: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, monospace;
@@ -144,11 +127,12 @@
   --radius-2xl: calc(var(--radius) + 12px);
   --radius-card: 1.25rem;
 
-  --shadow-card: 0 1px 2px rgb(10 10 10 / 0.04), 0 8px 24px rgb(10 10 10 / 0.05);
-  --shadow-popover: 0 4px 12px rgb(10 10 10 / 0.08), 0 12px 32px rgb(10 10 10 / 0.12);
-  /* Panels nested inside a card (tables, code blocks). Deliberately shallower
-     than --shadow-card so the nesting reads as one step down, not two cards. */
-  --shadow-panel: 0 1px 2px rgb(10 10 10 / 0.03), 0 2px 6px rgb(10 10 10 / 0.04);
+  --shadow-card:
+    0 1px 2px rgb(10 10 10 / 0.04), 0 8px 24px rgb(10 10 10 / 0.05);
+  --shadow-popover:
+    0 4px 12px rgb(10 10 10 / 0.08), 0 12px 32px rgb(10 10 10 / 0.12);
+  --shadow-panel:
+    0 1px 2px rgb(10 10 10 / 0.03), 0 2px 6px rgb(10 10 10 / 0.04);
 }
 
 * {
@@ -178,7 +162,6 @@ h4 {
   letter-spacing: -0.02em;
 }
 
-/* react-day-picker theming — retint its variables with our tokens. */
 .rdp-root {
   --rdp-accent-color: var(--color-foreground);
   --rdp-accent-background-color: var(--color-primary);
@@ -208,7 +191,6 @@ h4 {
   fill: var(--color-foreground);
 }
 
-/* ── Loading screen animations (GPU-safe: transform/opacity only) ───────── */
 @keyframes ep-loading-bar {
   0%,
   100% {
@@ -224,12 +206,6 @@ h4 {
   animation: ep-loading-bar 1s ease-in-out infinite;
 }
 
-/*
- * Activity-feed entrance stagger (transform/opacity only — GPU-safe). Applied
- * only on first paint (see `voucher-activity-tab.tsx`) and only once already
- * per-row-delayed via inline `animation-delay`, so this runs once per row
- * rather than looping.
- */
 @keyframes ep-activity-row-in {
   from {
     opacity: 0;
@@ -244,13 +220,6 @@ h4 {
   animation: ep-activity-row-in 240ms ease-out both;
 }
 
-/*
- * Voucher drawer tab crossfade (opacity only — GPU-safe). Each `TabsPanel`
- * carries this class; Base UI toggles the panel's `hidden` attribute rather
- * than unmounting it, and a `display: none` → visible transition replays a
- * CSS `animation` (unlike a `transition`, which needs a reflow hack), so a
- * switched-to panel fades in in place with no extra JS.
- */
 @keyframes ep-tab-fade-in {
   from {
     opacity: 0;
@@ -263,15 +232,6 @@ h4 {
   animation: ep-tab-fade-in 160ms ease-out;
 }
 
-/*
- * Paged invoice line: the card enters from the side the reader moved *towards*,
- * so the motion says which way they went rather than merely decorating the
- * change. Transform and opacity only, and short — this is a data-entry surface,
- * and a transition a reviewer waits through is paid on every line of every
- * invoice. Nothing loops: it runs once per step and stops.
- *
- * The reduced-motion block below neutralises both, app-wide.
- */
 @keyframes ep-line-in-next {
   from {
     opacity: 0;
@@ -299,7 +259,6 @@ h4 {
   animation: ep-line-in-prev 180ms ease-out;
 }
 
-/* Accessibility: honour reduced-motion for the whole app. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -310,4 +269,3 @@ h4 {
     scroll-behavior: auto !important;
   }
 }
-

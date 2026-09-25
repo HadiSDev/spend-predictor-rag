@@ -7,8 +7,6 @@ import { describe, expect, it } from 'vitest'
 
 import { Logo, MIN_LOCKUP_WIDTH, MIN_SYMBOL_WIDTH, WORDMARK_PATH } from './logo'
 
-// Joined by hand: Vite rewrites `new URL(<relative>, import.meta.url)` into an
-// asset import, and its fs guard refuses files outside apps/web.
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '../../../../..')
 const brand = (path: string) => readFileSync(join(REPO, 'brand', path), 'utf8')
 
@@ -17,7 +15,6 @@ describe('Logo', () => {
     const { container } = render(<Logo width={140} />)
     const logo = screen.getByRole('img', { name: 'Steelyard' })
     expect(logo.tagName.toLowerCase()).toBe('svg')
-    // Rendered from outlines, never retyped.
     expect(container.textContent).toBe('')
   })
 
@@ -31,7 +28,9 @@ describe('Logo', () => {
     const svg = container.querySelector('svg')!
     expect(svg.getAttribute('fill')).toBe('currentColor')
     for (const el of container.querySelectorAll('[fill], [stroke], [style]')) {
-      if (el === svg) continue
+      if (el === svg) {
+        continue
+      }
       throw new Error(
         `a descendant sets its own paint: ${el.outerHTML.slice(0, 80)}`,
       )
@@ -53,7 +52,6 @@ describe('Logo', () => {
     const { rerender, container } = render(<Logo variant="symbol" width={24} />)
     const svg = () => container.querySelector('svg')!
     expect(svg().dataset.variant).toBe('symbol-small')
-    // The favicon's thicker arm: 8 units against the standard 6.
     expect(svg().querySelector('rect')!.getAttribute('height')).toBe('8')
     rerender(<Logo variant="symbol" width={32} />)
     expect(svg().dataset.variant).toBe('symbol')

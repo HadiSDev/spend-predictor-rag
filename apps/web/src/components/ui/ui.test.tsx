@@ -5,7 +5,6 @@ import { useForm } from 'react-hook-form'
 import {
   Button,
   CodeInput,
-  type ColumnDef,
   Combobox,
   ComboboxContent,
   ComboboxEmpty,
@@ -43,18 +42,25 @@ import {
   ToastProvider,
   useToast,
 } from './index'
+import type { ColumnDef } from './index'
 
 describe('Button', () => {
   it('renders variant-based classes from one component', () => {
     const { rerender } = render(<Button variant="primary">Go</Button>)
-    expect(screen.getByRole('button', { name: 'Go' }).className).toContain('bg-primary')
+    expect(screen.getByRole('button', { name: 'Go' }).className).toContain(
+      'bg-primary',
+    )
     rerender(<Button variant="outline">Go</Button>)
-    expect(screen.getByRole('button', { name: 'Go' }).className).toContain('border')
+    expect(screen.getByRole('button', { name: 'Go' }).className).toContain(
+      'border',
+    )
   })
 
   it('merges a caller className', () => {
     render(<Button className="w-full">X</Button>)
-    expect(screen.getByRole('button', { name: 'X' }).className).toContain('w-full')
+    expect(screen.getByRole('button', { name: 'X' }).className).toContain(
+      'w-full',
+    )
   })
 })
 
@@ -66,8 +72,9 @@ describe('Field', () => {
         <FieldControl />
       </Field>,
     )
-    // getByLabelText only succeeds when the label is programmatically linked.
-    expect(screen.getByLabelText('Company name')).toBeInstanceOf(HTMLInputElement)
+    expect(screen.getByLabelText('Company name')).toBeInstanceOf(
+      HTMLInputElement,
+    )
   })
 })
 
@@ -84,7 +91,9 @@ describe('Dialog', () => {
     expect(screen.queryByText('Verify line')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Open' }))
     expect(await screen.findByText('Verify line')).toBeTruthy()
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: 'Escape',
+    })
     await waitFor(() => expect(screen.queryByText('Verify line')).toBeNull())
   })
 })
@@ -104,12 +113,12 @@ describe('Drawer', () => {
     const trigger = screen.getByRole('button', { name: 'Open panel' })
     fireEvent.click(trigger)
     const panel = await screen.findByText('Entry detail')
-    // Anchored right, not centred like Dialog.
     expect(panel.closest('[class*="right-0"]')).toBeTruthy()
-    // Focus is trapped inside the panel, not left on the trigger behind it.
     await waitFor(() => expect(document.activeElement).not.toBe(trigger))
 
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: 'Escape',
+    })
     await waitFor(() => expect(screen.queryByText('Entry detail')).toBeNull())
     await waitFor(() => expect(document.activeElement).toBe(trigger))
   })
@@ -138,8 +147,6 @@ describe('Drawer', () => {
       </Drawer>,
     )
     const panel = screen.getByLabelText('Wide panel')
-    // The default drawer is max-w-md; the split layout needs room for a PDF
-    // beside a field list.
     expect(panel.className).toContain('max-w-[1100px]')
     expect(panel.className).not.toContain('max-w-md')
   })
@@ -158,18 +165,22 @@ const rows: Array<Row> = [
 
 describe('DataTable', () => {
   it('sorts by a column and paginates', async () => {
-    render(<DataTable columns={columns} data={rows} getRowId={(r) => r.name} pageSize={2} />)
+    render(
+      <DataTable
+        columns={columns}
+        data={rows}
+        getRowId={(r) => r.name}
+        pageSize={2}
+      />,
+    )
 
-    // pageSize 2 → first page has 2 of 3 rows in original order.
     let cells = screen.getAllByRole('cell')
     expect(cells[0].textContent).toBe('Charlie')
 
-    // Sort by Name asc → Alice first.
     fireEvent.click(screen.getByRole('button', { name: /Name/ }))
     cells = screen.getAllByRole('cell')
     expect(cells[0].textContent).toBe('Alice')
 
-    // Page 2 shows the 3rd sorted row (Charlie).
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
     cells = screen.getAllByRole('cell')
     expect(cells[0].textContent).toBe('Charlie')
@@ -210,17 +221,16 @@ describe('NumberInput', () => {
   })
 })
 
-/**
- * `CurrencyInput` is what every money field in the app uses. Its whole purpose
- * is that a caller never parses: it takes the API's Decimal-as-string and hands
- * back a number or null, so the `Number(input.value)` that turned `1,5` into
- * `NaN` — and then into a JSON `null` that erased the figure — has nowhere left
- * to live.
- */
 describe('CurrencyInput', () => {
   it('formats a stored decimal string for its currency', () => {
-    render(<CurrencyInput currency="DKK" value="1234.50000" onChange={() => {}} readOnly />)
-    // Two decimals, grouped, and not the raw `1234.50000` the column holds.
+    render(
+      <CurrencyInput
+        currency="DKK"
+        value="1234.50000"
+        onChange={() => {}}
+        readOnly
+      />,
+    )
     expect(screen.getByDisplayValue(/1,234\.50/)).toBeTruthy()
   })
 
@@ -228,7 +238,9 @@ describe('CurrencyInput', () => {
     const onChange = vi.fn()
     render(<CurrencyInput currency="DKK" value={null} onChange={onChange} />)
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '1234.5' } })
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: '1234.5' },
+    })
 
     expect(onChange).toHaveBeenCalled()
     expect(typeof onChange.mock.lastCall?.[0]).toBe('number')
@@ -249,7 +261,9 @@ describe('CurrencyInput', () => {
     render(<CurrencyInput currency="DKK" value={null} onChange={onChange} />)
 
     for (const typed of ['1,5', 'abc', '.', '-', '1.2.3']) {
-      fireEvent.change(screen.getByRole('textbox'), { target: { value: typed } })
+      fireEvent.change(screen.getByRole('textbox'), {
+        target: { value: typed },
+      })
     }
 
     for (const call of onChange.mock.calls) {
@@ -258,7 +272,14 @@ describe('CurrencyInput', () => {
   })
 
   it('renders a plain number when the invoice states no currency', () => {
-    render(<CurrencyInput currency={null} value={1234.5} onChange={() => {}} readOnly />)
+    render(
+      <CurrencyInput
+        currency={null}
+        value={1234.5}
+        onChange={() => {}}
+        readOnly
+      />,
+    )
     expect(screen.getByDisplayValue('1,234.50')).toBeTruthy()
   })
 
@@ -272,17 +293,15 @@ describe('CurrencyInput', () => {
   })
 
   it('right-aligns with tabular figures, so a column can be scanned', () => {
-    render(<CurrencyInput currency="DKK" value={1} onChange={() => {}} readOnly />)
+    render(
+      <CurrencyInput currency="DKK" value={1} onChange={() => {}} readOnly />,
+    )
     const input = screen.getByRole('textbox')
     expect(input.className).toContain('text-right')
     expect(input.className).toContain('tabular-nums')
   })
 })
 
-/**
- * `CodeInput` is controlled, so the tests drive it through a host that owns the
- * value — the same way both call sites use it.
- */
 function CodeHost({
   length,
   onComplete,
@@ -295,9 +314,6 @@ function CodeHost({
   initial?: string
 }) {
   const [code, setCode] = React.useState(initial)
-  // Associated by `htmlFor`, not by wrapping: the cells render inside the
-  // component, so a wrapping <label> would fold the entered digits into its own
-  // text and the field's accessible name would drift as the user types.
   return (
     <>
       <label htmlFor="code">Verification code</label>
@@ -369,7 +385,6 @@ describe('CodeInput', () => {
     fireEvent.keyDown(field, { key: 'Backspace' })
     expect(field.value).toBe('')
 
-    // Nothing left to delete — Backspace on an empty field is harmless.
     fireEvent.keyDown(field, { key: 'Backspace' })
     expect(field.value).toBe('')
   })
@@ -393,7 +408,6 @@ describe('CodeInput', () => {
     expect(cellText()).toEqual(['1', '2', '3', '4', '5', '6'])
     unmount()
 
-    // Mail clients group a code; the space must not occupy a cell.
     render(<CodeHost />)
     fireEvent.change(screen.getByLabelText('Verification code'), {
       target: { value: '123 456' },
@@ -416,14 +430,12 @@ describe('CodeInput', () => {
     render(<CodeHost initial="12345" onComplete={onComplete} />)
     const field = screen.getByLabelText<HTMLInputElement>('Verification code')
 
-    // Five of six digits is not complete.
     expect(onComplete).not.toHaveBeenCalled()
 
     fireEvent.change(field, { target: { value: '123456' } })
     expect(onComplete).toHaveBeenCalledTimes(1)
     expect(onComplete).toHaveBeenCalledWith('123456')
 
-    // Re-rendering a still-complete, unchanged code must not resubmit.
     fireEvent.focus(field)
     fireEvent.blur(field)
     expect(onComplete).toHaveBeenCalledTimes(1)
@@ -460,7 +472,6 @@ describe('CodeInput', () => {
 
     expect(field.getAttribute('autocomplete')).toBe('one-time-code')
     expect(field.getAttribute('inputmode')).toBe('numeric')
-    // One real control, so one tab stop — the cells are presentational.
     expect(document.querySelectorAll('input').length).toBe(1)
     expect(field.tabIndex).toBe(0)
   })
@@ -505,17 +516,14 @@ describe('Form', () => {
     const onValid = vi.fn()
     render(<VendorForm onValid={onValid} />)
 
-    // Label is programmatically associated with the control.
     const control = screen.getByLabelText('Vendor name')
     expect(control).toBeInstanceOf(HTMLInputElement)
 
-    // Submitting empty surfaces the rule's message and blocks onValid.
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('Vendor name is required')).toBeTruthy()
     expect(onValid).not.toHaveBeenCalled()
     expect(control.getAttribute('aria-invalid')).toBe('true')
 
-    // Filling a value clears the error and lets the submit through.
     fireEvent.change(control, { target: { value: 'Acme A/S' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(onValid).toHaveBeenCalledTimes(1))
@@ -534,7 +542,9 @@ describe('LoadingScreen', () => {
 
   it('shows the Steelyard lockup, rendered rather than typed', () => {
     const { container } = render(<LoadingScreen />)
-    expect(screen.getByRole('img', { name: 'Steelyard' }).tagName.toLowerCase()).toBe('svg')
+    expect(
+      screen.getByRole('img', { name: 'Steelyard' }).tagName.toLowerCase(),
+    ).toBe('svg')
     expect(container.textContent).not.toMatch(/steelyard/i)
   })
 })
@@ -542,10 +552,11 @@ describe('LoadingScreen', () => {
 describe('DatePicker', () => {
   it('opens the calendar and reports the selected date', async () => {
     const onChange = vi.fn()
-    render(<DatePicker onChange={onChange} defaultMonth={new Date(2025, 0, 1)} />)
+    render(
+      <DatePicker onChange={onChange} defaultMonth={new Date(2025, 0, 1)} />,
+    )
 
     fireEvent.click(screen.getByRole('button', { name: /Pick a date/ }))
-    // The calendar grid appears in the popover.
     const day = await screen.findByText('15')
     fireEvent.click(day)
 
@@ -555,8 +566,6 @@ describe('DatePicker', () => {
     expect(picked.getMonth()).toBe(0)
   })
 
-  // It shipped as `Button variant="outline"` — a transparent pill in a row of
-  // rounded-rectangle fields. The shape is the contract here, not decoration.
   it('wears the same field shape as the selects it sits beside', () => {
     render(
       <>
@@ -572,7 +581,9 @@ describe('DatePicker', () => {
     const trigger = screen.getByRole('button', { name: /Pick a date/ })
     for (const shared of ['rounded-md', 'h-10', 'border-input', 'bg-card']) {
       expect(trigger.className).toContain(shared)
-      expect(screen.getByRole('combobox', { name: 'Company' }).className).toContain(shared)
+      expect(
+        screen.getByRole('combobox', { name: 'Company' }).className,
+      ).toContain(shared)
     }
     expect(trigger.className).not.toContain('rounded-full')
   })
@@ -604,9 +615,10 @@ function ComboboxDemo({
   )
 }
 
-/** Opens the popup the way a pointer does — Base UI listens below `click`. */
 function openCombobox(): HTMLInputElement {
-  const input: HTMLInputElement = screen.getByRole('combobox', { name: 'Fruit' })
+  const input: HTMLInputElement = screen.getByRole('combobox', {
+    name: 'Fruit',
+  })
   input.focus()
   fireEvent.pointerDown(input, { pointerType: 'mouse' })
   fireEvent.mouseDown(input)
@@ -623,7 +635,9 @@ describe('Combobox', () => {
 
     fireEvent.change(input, { target: { value: 'bl' } })
 
-    await waitFor(() => expect(screen.queryByRole('option', { name: 'Apple' })).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByRole('option', { name: 'Apple' })).toBeNull(),
+    )
     expect(screen.getByRole('option', { name: 'Blueberry' })).toBeTruthy()
     expect(screen.queryByRole('option', { name: 'Banana' })).toBeNull()
   })
@@ -635,7 +649,9 @@ describe('Combobox', () => {
 
     fireEvent.click(await screen.findByRole('option', { name: 'Cherry' }))
 
-    await waitFor(() => expect(screen.queryByRole('option', { name: 'Cherry' })).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByRole('option', { name: 'Cherry' })).toBeNull(),
+    )
     expect(onValueChange).toHaveBeenCalledTimes(1)
     expect(onValueChange.mock.calls[0][0]).toBe('Cherry')
     expect(input.value).toBe('Cherry')
@@ -647,12 +663,12 @@ describe('Combobox', () => {
     const input = openCombobox()
     await screen.findByRole('option', { name: 'Apple' })
 
-    // Escape closes without selecting.
     fireEvent.keyDown(input, { key: 'Escape' })
-    await waitFor(() => expect(screen.queryByRole('option', { name: 'Apple' })).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByRole('option', { name: 'Apple' })).toBeNull(),
+    )
     expect(onValueChange).not.toHaveBeenCalled()
 
-    // Arrow down highlights the first option, Enter selects it.
     fireEvent.keyDown(input, { key: 'ArrowDown' })
     await screen.findByRole('option', { name: 'Apple' })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -672,9 +688,6 @@ describe('Combobox', () => {
     expect(screen.queryAllByRole('option')).toHaveLength(0)
   })
 
-  // Without the chevron the control is indistinguishable from a plain Input,
-  // and a user has no reason to click it expecting a list — it shipped that way
-  // once already, unnoticed, because nothing asserted it.
   it('marks itself as opening a list', () => {
     const { container } = render(<ComboboxDemo />)
 
@@ -700,8 +713,9 @@ describe('Combobox', () => {
 
     const adornment = screen.getByText('DK')
     expect(adornment.parentElement?.className).toContain('pointer-events-none')
-    // The input keeps room for it, so the text never sits under the adornment.
-    expect(screen.getByRole('combobox', { name: 'Fruit' }).className).toContain('pl-10')
+    expect(screen.getByRole('combobox', { name: 'Fruit' }).className).toContain(
+      'pl-10',
+    )
   })
 
   it('shows a loading indication instead of the list while items load', async () => {
@@ -723,7 +737,6 @@ describe('Combobox', () => {
         </Combobox>
       </Field>,
     )
-    // Resolving by role + accessible name proves the label is linked to the input.
     const control = screen.getByRole('combobox', { name: 'Vendor' })
     expect(control).toBeInstanceOf(HTMLInputElement)
   })
@@ -754,8 +767,6 @@ describe('Select', () => {
   }
 
   it('shows the item label rather than the raw value when given items', () => {
-    // SelectValue always passes a function child, so Base UI never consults the
-    // root's own `items` — the mapping has to be handed to SelectValue itself.
     expect(renderSelect(ROLES).textContent).toBe('Member')
   })
 

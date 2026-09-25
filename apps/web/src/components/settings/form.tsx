@@ -32,7 +32,9 @@ export function SettingsCard({
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div className="flex flex-col gap-1.5">
           <CardTitle>{title}</CardTitle>
-          {description ? <CardDescription>{description}</CardDescription> : null}
+          {description ? (
+            <CardDescription>{description}</CardDescription>
+          ) : null}
         </div>
         {action}
       </CardHeader>
@@ -44,15 +46,13 @@ export function SettingsCard({
 /** A read-only notice explaining why a panel offers no controls. */
 export function ReadOnlyNotice({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">{children}</p>
+    <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+      {children}
+    </p>
   )
 }
 
-/**
- * The submit contract shared by every settings form: submittable only when
- * dirty and valid, disabled and labelled "Saving…" while in flight, with any
- * form-level server error shown beside it.
- */
+/** The submit button row shared by every settings form. */
 export function SubmitRow<T extends FieldValues>({
   form,
   label = 'Save changes',
@@ -63,8 +63,9 @@ export function SubmitRow<T extends FieldValues>({
   /** Extra controls (e.g. a cancel button) rendered after the submit button. */
   children?: React.ReactNode
 }) {
-  // Subscribe here so this row re-renders as the form's state changes.
-  const { isDirty, isSubmitting, errors } = useFormState({ control: form.control })
+  const { isDirty, isSubmitting, errors } = useFormState({
+    control: form.control,
+  })
   const rootError = errors.root?.message
 
   return (
@@ -73,25 +74,19 @@ export function SubmitRow<T extends FieldValues>({
         {isSubmitting ? 'Saving…' : label}
       </Button>
       {children}
-      {rootError ? <p className="text-sm text-destructive">{String(rootError)}</p> : null}
+      {rootError ? (
+        <p className="text-sm text-destructive">{String(rootError)}</p>
+      ) : null}
     </div>
   )
 }
 
-/**
- * Thrown by `run` when it has already reported the write's outcome itself —
- * e.g. by opening its own confirmation dialog instead of completing the
- * write — so neither the generic success toast nor the generic failure one
- * applies to it. `run` remains responsible for showing the user whatever it
- * is they still need to see; this only stops the shared wrapper from also
- * claiming success (or a plain failure) on top of that.
- */
+/** Thrown by `run` when it has already reported the write's outcome itself. */
 export class SubmitHandled extends Error {}
 
 export interface SettingsSubmitOptions<T extends FieldValues> {
   form: UseFormReturn<T>
-  /** Performs the write. Anything it throws is surfaced on the form, unless
-   *  it is a `SubmitHandled` — see that class. */
+  /** Performs the write. */
   run: (values: T) => Promise<unknown>
   /** Toast title shown once the write succeeds. */
   success: string
@@ -101,11 +96,7 @@ export interface SettingsSubmitOptions<T extends FieldValues> {
   resetTo?: (values: T, result: unknown) => T
 }
 
-/**
- * Builds an `onSubmit` handler implementing the shared contract: success
- * toasts, the form reset to its saved values (so it is no longer dirty), and
- * failures mapped onto the offending field with the user's input preserved.
- */
+/** Builds an `onSubmit` handler with shared toasts, reset and error mapping. */
 export function useSettingsSubmit() {
   const toast = useToast()
 
@@ -123,12 +114,17 @@ export function useSettingsSubmit() {
           toast.add({ title: success })
           form.reset(resetTo ? resetTo(values, result) : values)
         } catch (error) {
-          if (error instanceof SubmitHandled) return
+          if (error instanceof SubmitHandled) {
+            return
+          }
           const message = applyServerError(error, form.setError, {
             fields: Object.keys(values) as Array<Path<T>>,
             fieldFor,
           })
-          toast.add({ title: 'Couldn’t save your changes', description: message })
+          toast.add({
+            title: 'Couldn’t save your changes',
+            description: message,
+          })
         }
       }),
     [toast],

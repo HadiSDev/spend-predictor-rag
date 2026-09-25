@@ -3,8 +3,8 @@ import { Outlet, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useAuth } from '@clerk/tanstack-react-start'
 import { LoadingScreen } from '#/components/ui'
 import { AppLayout } from '#/components/app-shell'
-import { AuthProvider } from '#/lib/auth'
-import { useOrgMemberships } from '#/lib/orgs'
+import { AuthProvider } from '#/lib/auth/auth'
+import { useOrgMemberships } from '#/lib/auth/orgs'
 
 export const Route = createFileRoute('/_authed')({ component: AuthedLayout })
 
@@ -16,29 +16,28 @@ function FullScreen({ children }: { children: React.ReactNode }) {
   )
 }
 
-/**
- * Client-side auth gate. Clerk's client SDK is authoritative about the session
- * (and handles the dev handshake), so we gate here rather than with a server
- * `auth()` in `beforeLoad`. `treatPendingAsSignedOut: false` lets us see a
- * "pending" session (signed in but no active organization) and resolve its org
- * task ourselves instead of bouncing back to sign-in.
- */
+/** Client-side auth gate. */
 function AuthedLayout() {
-  const { isLoaded, isSignedIn, orgId } = useAuth({ treatPendingAsSignedOut: false })
+  const { isLoaded, isSignedIn, orgId } = useAuth({
+    treatPendingAsSignedOut: false,
+  })
   const navigate = useNavigate()
   const { isLoaded: orgsLoaded, memberships, setActive } = useOrgMemberships()
   const activating = React.useRef(false)
 
-  // Truly signed out → sign-in.
   React.useEffect(() => {
-    if (isLoaded && !isSignedIn) void navigate({ to: '/sign-in' })
+    if (isLoaded && !isSignedIn) {
+      void navigate({ to: '/sign-in' })
+    }
   }, [isLoaded, isSignedIn, navigate])
 
-  // Signed in but no active org (pending org task) → activate the first
-  // membership once. This resolves the pending session into an active one.
   React.useEffect(() => {
-    if (!isSignedIn || orgId || activating.current) return
-    if (!orgsLoaded || !setActive) return
+    if (!isSignedIn || orgId || activating.current) {
+      return
+    }
+    if (!orgsLoaded || !setActive) {
+      return
+    }
     const first = memberships.at(0)
     if (first) {
       activating.current = true
@@ -46,18 +45,23 @@ function AuthedLayout() {
     }
   }, [isSignedIn, orgId, orgsLoaded, setActive, memberships])
 
-  if (!isLoaded) return <LoadingScreen />
-  if (!isSignedIn) return <LoadingScreen message="Redirecting…" />
+  if (!isLoaded) {
+    return <LoadingScreen />
+  }
+  if (!isSignedIn) {
+    return <LoadingScreen message="Redirecting…" />
+  }
 
-  // Pending: signed in but no active organization yet.
   if (!orgId) {
     if (orgsLoaded && memberships.length === 0) {
       return (
         <FullScreen>
-          <h1 className="font-display text-lg font-semibold text-foreground">No organization</h1>
+          <h1 className="font-display text-lg font-semibold text-foreground">
+            No organization
+          </h1>
           <p className="mx-auto mt-2 max-w-sm text-sm">
-            Your account isn’t a member of any organization yet. Ask an administrator to invite you
-            (or create one in Clerk), then reload.
+            Your account isn’t a member of any organization yet. Ask an
+            administrator to invite you (or create one in Clerk), then reload.
           </p>
         </FullScreen>
       )
@@ -65,8 +69,6 @@ function AuthedLayout() {
     return <LoadingScreen message="Preparing your workspace…" />
   }
 
-  // The shell lives here, not in a page, so it mounts once for every
-  // authenticated route and survives navigation between them.
   return (
     <AuthProvider>
       <AppLayout>

@@ -31,7 +31,9 @@ describe('validateEntrySearch', () => {
 
   it('leaves unset filters undefined rather than empty strings', () => {
     const parsed = validateEntrySearch({})
-    expect(Object.values(parsed).every((value) => value === undefined)).toBe(true)
+    expect(Object.values(parsed).every((value) => value === undefined)).toBe(
+      true,
+    )
   })
 
   it('treats an empty string as unset, so a cleared filter leaves the URL', () => {
@@ -49,36 +51,46 @@ describe('validateEntrySearch', () => {
   })
 
   it('carries the open voucher and tab', () => {
-    expect(validateEntrySearch({ voucher: '4821', tab: 'activity' })).toMatchObject({
+    expect(
+      validateEntrySearch({ voucher: '4821', tab: 'activity' }),
+    ).toMatchObject({
       voucher: '4821',
       tab: 'activity',
     })
   })
 
   it('drops an unknown tab rather than trusting the URL', () => {
-    expect(validateEntrySearch({ voucher: '4821', tab: 'evil' }).tab).toBeUndefined()
+    expect(
+      validateEntrySearch({ voucher: '4821', tab: 'evil' }).tab,
+    ).toBeUndefined()
   })
 })
 
 describe('applyFilterChange', () => {
   it('merges the change over the existing filters', () => {
-    expect(applyFilterChange({ company_id: 'c1' }, { status: 'failed' })).toMatchObject({
+    expect(
+      applyFilterChange({ company_id: 'c1' }, { status: 'failed' }),
+    ).toMatchObject({
       company_id: 'c1',
       status: 'failed',
     })
   })
 
   it('resets to page 1, so a narrowed filter cannot strand the user', () => {
-    expect(applyFilterChange({ company_id: 'c1', page: 7 }, { status: 'failed' }).page).toBeUndefined()
+    expect(
+      applyFilterChange({ company_id: 'c1', page: 7 }, { status: 'failed' })
+        .page,
+    ).toBeUndefined()
   })
 
   it('clears a filter when the change sets it undefined', () => {
-    expect(applyFilterChange({ company_id: 'c1' }, { company_id: undefined }).company_id).toBeUndefined()
+    expect(
+      applyFilterChange({ company_id: 'c1' }, { company_id: undefined })
+        .company_id,
+    ).toBeUndefined()
   })
 
   it('closes the panel when a filter changes', () => {
-    // The open voucher may not survive the new filter; leaving it open would
-    // show a panel for a row that is no longer in the list.
     const next = applyFilterChange(
       { voucher: '4821', entry: 'e1', tab: 'details' },
       { company_id: 'c2' },
@@ -91,22 +103,24 @@ describe('applyFilterChange', () => {
 
 describe('applyVoucherSelection', () => {
   it('opens the voucher on the tab the caller asked for', () => {
-    // A reader who pressed a *line* is asking to see lines. Dropping the tab
-    // opened the panel on whichever face it was left on, so the row they
-    // activated was not in view — the panel opened over it and showed
-    // something else.
-    const next = applyVoucherSelection({ tab: 'details' }, { voucher: 'V-1', entry: 'e1', tab: 'lines' })
+    const next = applyVoucherSelection(
+      { tab: 'details' },
+      { voucher: 'V-1', entry: 'e1', tab: 'lines' },
+    )
     expect(next).toMatchObject({ voucher: 'V-1', entry: 'e1', tab: 'lines' })
   })
 
   it('keeps the tab in view when the caller names none', () => {
-    // Opening the next voucher from the voucher row says nothing about which
-    // face to show, so the reader stays on the one they were reading.
-    expect(applyVoucherSelection({ tab: 'activity' }, { voucher: 'V-2' }).tab).toBe('activity')
+    expect(
+      applyVoucherSelection({ tab: 'activity' }, { voucher: 'V-2' }).tab,
+    ).toBe('activity')
   })
 
   it('keeps the filters the selection says nothing about', () => {
-    const next = applyVoucherSelection({ company_id: 'c1', page: 3 }, { voucher: 'V-1' })
+    const next = applyVoucherSelection(
+      { company_id: 'c1', page: 3 },
+      { voucher: 'V-1' },
+    )
     expect(next).toMatchObject({ company_id: 'c1', page: 3 })
   })
 
@@ -120,12 +134,9 @@ describe('applyVoucherSelection', () => {
 
 describe('listableEntryTypes', () => {
   it('drops the types no listing can return', () => {
-    // entries-summary reports over every entry, so it still sees payments —
-    // offering one as a filter would only ever produce an empty table.
-    expect(listableEntryTypes(['purchase_invoice', 'payment', 'credit_note'])).toEqual([
-      'credit_note',
-      'purchase_invoice',
-    ])
+    expect(
+      listableEntryTypes(['purchase_invoice', 'payment', 'credit_note']),
+    ).toEqual(['credit_note', 'purchase_invoice'])
   })
 
   it('keeps credit notes and journal entries, which move real spend', () => {
@@ -136,9 +147,12 @@ describe('listableEntryTypes', () => {
   })
 
   it('deduplicates and sorts, since the summary reports one row per currency', () => {
-    expect(listableEntryTypes(['purchase_invoice', 'purchase_invoice', 'credit_note'])).toEqual([
-      'credit_note',
-      'purchase_invoice',
-    ])
+    expect(
+      listableEntryTypes([
+        'purchase_invoice',
+        'purchase_invoice',
+        'credit_note',
+      ]),
+    ).toEqual(['credit_note', 'purchase_invoice'])
   })
 })

@@ -1,11 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useUser } from '@clerk/tanstack-react-start'
 import { Skeleton } from '#/components/ui'
-import { EmailsPanel } from '#/components/settings/emails-panel'
-import { PreferencesPanel } from '#/components/settings/preferences-panel'
-import { ProfilePanel } from '#/components/settings/profile-panel'
-import { SecurityPanel } from '#/components/settings/security-panel'
-import { usePrincipal } from '#/lib/auth'
+import { EmailsPanel } from '#/components/settings/profile/emails-panel'
+import { PreferencesPanel } from '#/components/settings/profile/preferences-panel'
+import { ProfilePanel } from '#/components/settings/profile/profile-panel'
+import { SecurityPanel } from '#/components/settings/profile/security-panel'
+import { usePrincipal } from '#/lib/auth/auth'
 
 export const Route = createFileRoute('/_authed/settings/profile')({ component: ProfileSection })
 
