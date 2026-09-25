@@ -1,21 +1,4 @@
-"""Describe a supplier once, for everyone.
-
-`Vendor` is a **global** catalog: the same supplier seen by different companies
-collapses onto one row (`ai_api.sync.runner._vendor_key`). That is what makes
-this affordable — DSB is researched once and every tenant that has ever bought a
-train ticket reads the answer — and it is also the constraint. What this writes
-is prose every tenant sees, so it describes the supplier's trade and nothing
-about anybody's relationship with them.
-
-**Why it is a stage and not a step in categorization.** Putting a web search on
-the per-line path would make a slow network look like a slow categorizer, and
-would research the same supplier once per line. It runs like the document stage
-does: separately, over what the database says needs doing.
-
-**Why it is off by default.** It reaches the public web, so the suite and any
-offline run must make no request without somebody having asked. `FX_ENABLED` sets
-the same rule for the same reason.
-"""
+"""Describe a supplier once, for everyone."""
 from __future__ import annotations
 
 import logging
@@ -27,12 +10,10 @@ from sqlmodel import Session, select
 from web_api.db.models import Invoice, Vendor
 
 from .. import config
+from ..web_context import get_supplier_context
 
 logger = logging.getLogger("ai_api.enrichment")
 
-#: A description this stage wrote. The other value, ``human``, is set by the
-#: migration for anything that predates the column and by any future correction
-#: path; either way it is never overwritten here.
 WEB = "web"
 HUMAN = "human"
 
@@ -57,14 +38,7 @@ class EnrichmentResult:
 def vendors_needing_description(
     session: Session, *, company_id: str | None = None, limit: int | None = None
 ) -> list[Vendor]:
-    """Vendors with nothing said about them, most-referenced first is not needed —
-    order is by name so a partial run is repeatable.
-
-    ``company_id`` narrows to suppliers *that company* has invoices from. The
-    vendor row itself is global and is written globally either way; the filter
-    only decides whose backlog is worked first, which is the useful thing when
-    one customer is waiting on their own ledger.
-    """
+    """Vendors with no description yet, ordered by name."""
     statement = select(Vendor).where(
         (Vendor.description.is_(None)) | (Vendor.description == "")  # type: ignore[union-attr]
     )
@@ -88,15 +62,7 @@ def describe_vendors(
     enabled: bool | None = None,
     describe: Callable[[str, str | None], str] | None = None,
 ) -> EnrichmentResult:
-    """Research and store a description for every vendor that has none.
-
-    Commits once at the end: a partial run leaves nothing half-written, and each
-    row is independent so there is nothing to unwind on failure.
-
-    ``describe`` is the seam — any callable taking ``(name, country_code)`` and
-    returning a description or ``""``. Tests pass a stub, so the suite needs no
-    network and no model.
-    """
+    """Research and store a description for every vendor that has none."""
     if enabled is None:
         enabled = config.VENDOR_ENRICHMENT_ENABLED
     if not enabled:
@@ -104,28 +70,18 @@ def describe_vendors(
         return EnrichmentResult(0, 0, 0, 0)
 
     if describe is None:
-        from ..web_context import get_supplier_context
-
-        def describe(name: str, country_code: str | None) -> str:  # type: ignore[misc]
-            return get_supplier_context(name, country_code)
+        describe = get_supplier_context
 
     pending = vendors_needing_description(session, company_id=company_id, limit=limit)
     described = not_found = skipped = 0
 
     for vendor in pending:
-        # Re-checked per row rather than trusted from the query. The select runs
-        # once and the loop then takes minutes — a lookup apiece — so on a shared
-        # catalog a human edit or a second run landing inside that window is
-        # ordinary, not exotic.
         if (vendor.description or "").strip():
             skipped += 1
             continue
         try:
             note = (describe(vendor.name, vendor.country_code) or "").strip()
-        except Exception as exc:  # noqa: BLE001 - a lookup is never worth a failure
-            # Nothing is written and nothing is raised. A supplier we could not
-            # describe is a slightly worse prompt, not a broken ledger, and the
-            # next run tries again because the column is still null.
+        except Exception as exc:  # noqa: BLE001
             logger.warning("could not describe %s: %s", vendor.name, exc)
             not_found += 1
             continue
@@ -134,10 +90,6 @@ def describe_vendors(
             not_found += 1
             continue
 
-        # Checked again on the far side of the lookup, which is where the window
-        # actually is: `describe` is a web search and a model call, seconds wide,
-        # and the first check happened before it. Cheap, and the alternative is
-        # overwriting a correction with a guess.
         session.refresh(vendor)
         if (vendor.description or "").strip():
             skipped += 1

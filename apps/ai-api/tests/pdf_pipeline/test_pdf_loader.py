@@ -1,11 +1,10 @@
 import pytest
+from reportlab.pdfgen import canvas
 
 from ai_api.pdf_loader import extract_text
 
 
 def _make_pdf(path, lines):
-    from reportlab.pdfgen import canvas
-
     c = canvas.Canvas(str(path))
     y = 750
     for line in lines:

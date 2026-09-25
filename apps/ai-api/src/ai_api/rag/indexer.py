@@ -1,19 +1,4 @@
-"""Qdrant vector index over a spend taxonomy.
-
-Two entry points, for two different taxonomies, deliberately kept apart:
-
-* :func:`build_index` / :func:`retrieve_accounts` index a **chart-of-accounts
-  CSV**, keyed by ``tenant_id``. This is what the PDF ``InvoiceFlow`` and the
-  synthetic-data tooling use, and it predates spend trees being a real entity.
-* :func:`build_tree_index` / :func:`retrieve_categories` index a real
-  **``SpendTree``**, keyed by tree id. This is the shape the LLM categorizer
-  will use, and it is the one that reflects what a customer actually chose.
-
-Both scope retrieval by collection name, so no query can reach another tenant's
-taxonomy. The tree path is not yet wired into the sync — the sync's stub matcher
-is keyword-based and needs no embeddings — so the CSV path stays until the
-embedding categorizer replaces it.
-"""
+"""Qdrant vector index over a spend taxonomy."""
 from __future__ import annotations
 
 import csv
@@ -22,18 +7,15 @@ from typing import Callable
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.models import Distance, VectorParams
+from sentence_transformers import SentenceTransformer
 
 from .. import config
 
 _COLLECTION_PREFIX = "spend_tree_"
 
 _client: QdrantClient | None = None
-_model: "SentenceTransformer | None" = None
+_model: SentenceTransformer | None = None
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _get_client() -> QdrantClient:
     global _client
@@ -49,7 +31,6 @@ def _get_client() -> QdrantClient:
 def _default_embed(texts: list[str]) -> list[list[float]]:
     global _model
     if _model is None:
-        from sentence_transformers import SentenceTransformer
         _model = SentenceTransformer(config.EMBEDDING_MODEL)
     return _model.encode(texts, normalize_embeddings=True).tolist()
 
@@ -57,10 +38,6 @@ def _default_embed(texts: list[str]) -> list[list[float]]:
 def _collection_name(tenant_id: str) -> str:
     return f"{_COLLECTION_PREFIX}{tenant_id}"
 
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 def load_accounts(csv_path: str | None = None) -> list[dict]:
     """Return the chart of accounts as a list of row dicts."""
@@ -74,16 +51,22 @@ def _collection_exists(client: QdrantClient, name: str) -> bool:
     return any(c.name == name for c in collections)
 
 
+def _recreate_collection(client: QdrantClient, name: str, vector_size: int) -> None:
+    """Drop ``name`` if it exists and create it empty for ``vector_size`` vectors."""
+    if _collection_exists(client, name):
+        client.delete_collection(name)
+    client.create_collection(
+        name,
+        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+    )
+
+
 def build_index(
     csv_path: str | None = None,
     tenant_id: str | None = None,
     embed_fn: Callable[[list[str]], list[list[float]]] = _default_embed,
 ):
-    """Embed the chart of accounts into a Qdrant collection for the given tenant.
-
-    Idempotent: skips if the collection already holds exactly one point per row.
-    Pass ``tenant_id="default"`` or omit for the single-tenant / dev case.
-    """
+    """Embed the chart of accounts into a Qdrant collection for the given tenant."""
     csv_path = csv_path or config.CHART_OF_ACCOUNTS_PATH
     rows = load_accounts(csv_path)
     if not rows:
@@ -98,9 +81,7 @@ def build_index(
         if count == len(rows):
             return
 
-    # Build document strings and embeddings
     has_level_3 = "level_3" in rows[0] and rows[0]["level_3"]
-    ids = [r["account_code"] for r in rows]
     documents = [
         f'{r["level_2"]} > {r["level_3"]} > {r["account_name"]}: {r["description"]}'
         if has_level_3
@@ -111,18 +92,7 @@ def build_index(
     embeddings = embed_fn(documents)
     vector_size = len(embeddings[0])
 
-    # Recreate collection (idempotent: count check above means this only runs on
-    # first build or after a row-count change)
-    try:
-        client.delete_collection(coll)
-    except Exception:
-        pass
-
-    client.create_collection(
-        coll,
-        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-    )
-
+    _recreate_collection(client, coll, vector_size)
     client.upsert(
         coll,
         points=[
@@ -142,11 +112,7 @@ def retrieve_accounts(
     tenant_id: str | None = None,
     embed_fn: Callable[[list[str]], list[list[float]]] = _default_embed,
 ) -> list[dict]:
-    """Return the top-K chart-of-accounts rows most relevant to the query.
-
-    Retrieval is scoped to the tenant's spend tree collection. Returns metadata
-    dicts ordered best-first.
-    """
+    """Return the top-K chart-of-accounts rows most relevant to the query."""
     tid = tenant_id or "default"
     client = _get_client()
     coll = _collection_name(tid)
@@ -165,10 +131,6 @@ def retrieve_accounts(
     return [r.payload for r in results if r.payload]
 
 
-# ---------------------------------------------------------------------------
-# Spend trees (the real entity)
-# ---------------------------------------------------------------------------
-
 _TREE_COLLECTION_PREFIX = "spend_categories_"
 
 
@@ -177,12 +139,7 @@ def _tree_collection_name(tree_id: str) -> str:
 
 
 def _node_document(node) -> str:
-    """The text embedded for a node: its path, then its own description.
-
-    The path is included because a node's name alone is often ambiguous across
-    a taxonomy — "Software" under Technology and "Software" under Direct Costs
-    are different answers, and only the path says which.
-    """
+    """The text embedded for a node: its path, then its own description."""
     path = " > ".join(
         value for value in (node.level_1, node.level_2, node.level_3, node.level_4)
         if value
@@ -195,12 +152,7 @@ def build_tree_index(
     tree_id: str,
     embed_fn: Callable[[list[str]], list[list[float]]] = _default_embed,
 ) -> None:
-    """Embed a spend tree's nodes into a collection of their own.
-
-    Keyed by **tree id**, not tenant: a tree is the organization's and may be
-    shared by several companies, so the tree is the correct unit of a taxonomy
-    index. Idempotent by node count, like :func:`build_index`.
-    """
+    """Embed a spend tree's nodes into a collection of their own."""
     if not nodes:
         return
 
@@ -228,15 +180,7 @@ def build_tree_index(
     ]
     embeddings = embed_fn(documents)
 
-    try:
-        client.delete_collection(coll)
-    except Exception:
-        pass
-
-    client.create_collection(
-        coll,
-        vectors_config=VectorParams(size=len(embeddings[0]), distance=Distance.COSINE),
-    )
+    _recreate_collection(client, coll, len(embeddings[0]))
     client.upsert(
         coll,
         points=[
@@ -252,12 +196,7 @@ def retrieve_categories(
     top_k: int = 5,
     embed_fn: Callable[[list[str]], list[list[float]]] = _default_embed,
 ) -> list[dict]:
-    """The top-K nodes of one tree most relevant to a query, best first.
-
-    Returns an empty list when the tree has never been indexed — a caller that
-    has no candidates must categorize nothing, never fall back to another
-    taxonomy.
-    """
+    """The top-K nodes of one tree most relevant to a query, best first."""
     client = _get_client()
     coll = _tree_collection_name(tree_id)
     if not _collection_exists(client, coll):

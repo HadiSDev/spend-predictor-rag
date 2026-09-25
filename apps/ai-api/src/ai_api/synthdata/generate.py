@@ -4,16 +4,17 @@ from __future__ import annotations
 import argparse
 import logging
 import shutil
+from functools import partial
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
 
 from ..rag.indexer import load_accounts
 from .bundle import append_manifest, category_from_account, write_labels
-from .content import enrich_descriptions
+from .content import _default_generate, enrich_descriptions
 from .erp import build_journal
 from .render.renderer import render_invoice_pdf
 from .sampler import sample_plans
+
+logger = logging.getLogger(__name__)
 
 
 def generate_dataset(
@@ -47,7 +48,7 @@ def generate_dataset(
                 "buyer": plan.buyer.name,
             })
             written += 1
-        except Exception as exc:  # noqa: BLE001 - skip the item, keep the batch going
+        except Exception as exc:  # noqa: BLE001
             logger.warning("skip %s: %s", fixture_id, exc)
             shutil.rmtree(fdir, ignore_errors=True)
     print(f"Wrote {written}/{n} fixtures to {out_dir}")
@@ -69,14 +70,9 @@ def main() -> None:
         logger.warning("--cryptic only affects the LLM path (--live); it is ignored without --live")
 
     if args.live:
-        from .content import _default_generate  # noqa: PLC0415
-
-        def _live_enrich(plan, *, cryptic: bool = False):
-            return enrich_descriptions(plan, cryptic=cryptic, generate_fn=_default_generate)
-
-        enrich_fn = _live_enrich
+        enrich_fn = partial(enrich_descriptions, generate_fn=_default_generate)
     else:
-        enrich_fn = enrich_descriptions  # default: deterministic catalog descriptions
+        enrich_fn = enrich_descriptions
 
     generate_dataset(args.n, args.seed, args.out, enrich_fn=enrich_fn, cryptic=args.cryptic)
 

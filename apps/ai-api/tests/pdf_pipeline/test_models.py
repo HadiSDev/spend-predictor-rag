@@ -19,7 +19,6 @@ def test_extracted_invoice_roundtrip():
     )
     assert inv.line_items[0].amount == 100.0
     assert inv.invoice_number is None
-    # new fields default to None / unset
     assert inv.supplier_country_code is None and inv.buyer_vat_number is None
     assert inv.line_items[0].unit_type is None and inv.line_items[0].vat_rate is None
 

@@ -1,11 +1,4 @@
-"""CLI for the tree-gap suggester.
-
-    python -m ai_api.suggestions.runner [--company-id ID]
-
-Discovers its work from the database like every other stage here: every active
-company with an assigned tree, or the one named. Writes proposals and nothing
-else — no `SpendCategory` is created, renamed, moved or deleted by this process.
-"""
+"""CLI for the tree-gap suggester."""
 from __future__ import annotations
 
 import argparse
@@ -36,8 +29,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.company_id is not None:
             statement = statement.where(Company.id == args.company_id)
         else:
-            # An unnamed run covers active companies only, the same rule the
-            # unfiltered API listings follow.
             statement = statement.where(Company.is_active == True)  # noqa: E712
         companies = list(session.exec(statement.order_by(Company.name)).all())
 
@@ -56,7 +47,6 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"note: {note}")
 
     print(f"\n{total} suggestion(s) pending review.")
-    # Proposing nothing is the good outcome, not a failure.
     return 0
 
 

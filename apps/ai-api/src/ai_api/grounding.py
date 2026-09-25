@@ -1,10 +1,4 @@
-"""Guardrail: ground a categorization in the real chart of accounts.
-
-The model returns an AccountChoice (a leaf pick + a buyer-derived Direct/Indirect).
-This module validates the leaf against the chart, fills L2/L3/account_name from the
-chart row (snapping to the top retrieved candidate if the code is fabricated), and
-carries the model's L1 through unchanged.
-"""
+"""Guardrail: ground a categorization in the real chart of accounts."""
 from __future__ import annotations
 
 from .models import AccountChoice, CategorizedInvoice
@@ -27,8 +21,7 @@ def ground_categorization(
     candidates: list[dict],
     accounts_by_code: dict[str, dict],
 ) -> tuple[CategorizedInvoice, str]:
-    """Return a (categorization, note) grounded in the chart. L2/L3/leaf come from
-    the chart; L1 is the model's buyer-derived judgment."""
+    """Return a (categorization, note) grounded in the chart."""
     code = choice.account_code
     if code in accounts_by_code:
         return _enrich(choice, accounts_by_code[code]), ""

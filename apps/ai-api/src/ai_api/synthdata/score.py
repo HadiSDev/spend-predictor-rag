@@ -7,7 +7,9 @@ from pathlib import Path
 
 from anls import anls_score
 
+from ..flow import InvoiceFlow
 from ..models import CategorizedInvoice, ExtractedInvoice
+from ..rag.indexer import build_index, load_accounts
 
 _STRING_FIELDS = [
     "vendor_name", "invoice_number", "currency",
@@ -19,7 +21,7 @@ _NUMERIC_FIELDS = ["subtotal", "tax", "total"]
 
 
 def anls_field(pred: str, gold: str) -> float:
-    """ANLS similarity for one string field (0..1). Both-empty case handled by explicit guard."""
+    """ANLS similarity for one string field (0..1); two empty values match fully."""
     gold = "" if gold is None else str(gold)
     pred = "" if pred is None else str(pred)
     if not gold and not pred:
@@ -96,10 +98,7 @@ def score_fixture(
 
 def _default_run_pipeline(
     pdf_path: str, buyer_context: str
-) -> tuple[ExtractedInvoice | None, CategorizedInvoice | None]:  # pragma: no cover - live path
-    from ..flow import InvoiceFlow
-    from ..rag.indexer import build_index, load_accounts
-
+) -> tuple[ExtractedInvoice | None, CategorizedInvoice | None]:  # pragma: no cover
     build_index()
     flow = InvoiceFlow()
     flow.kickoff(inputs={"pdf_path": pdf_path, "buyer_context": buyer_context,
@@ -117,7 +116,7 @@ def score_fixtures(fixtures_dir: Path, *, run_pipeline=_default_run_pipeline) ->
         buyer_context = f"{buyer.get('name', '')}: {buyer.get('business_description', '')}"
         try:
             extracted, categorized = run_pipeline(str(fdir / "invoice.pdf"), buyer_context)
-        except Exception as exc:  # noqa: BLE001 - a pipeline failure scores as zero, not a crash
+        except Exception as exc:  # noqa: BLE001
             print(f"  pipeline error on {fdir.name}: {exc}")
             extracted, categorized = None, None
         rows.append(score_fixture(labels, extracted, categorized))

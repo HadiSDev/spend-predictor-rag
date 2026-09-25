@@ -1,9 +1,4 @@
-"""Integration test for the sync runner against an in-memory DB + fake connector.
-
-Exercises the entry-first flow: fetch entries → group by voucher → fetch invoice
-scans per voucher → persist (Invoice + lines + File, entries linked via voucher) →
-categorize. Runs without a live Postgres or the mock ERP HTTP server.
-"""
+"""Integration test for the sync runner against an in-memory DB + fake connector."""
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
@@ -13,6 +8,8 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, func, select
 
+from ai_api.persistence import LineGroundTruth
+from ai_api.sync import runner
 from web_api.connectors import register_connector
 from web_api.connectors.base import (
     DocumentPayload,
@@ -40,13 +37,7 @@ from web_api.db.models import (
 from web_api.fx import FxService
 from web_api.rollup import recompute_invoice_status
 from web_api.spend_trees.service import ensure_default_tree
-from ai_api.persistence import LineGroundTruth
-from ai_api.sync import runner
 
-
-# Two invoice vouchers (V1 matchable, V2 unmatchable) plus a payment voucher with
-# no invoice scan. Each invoice voucher posts three entries: net debit, VAT debit,
-# AP credit. The payment voucher posts two entries and must stay unlinked.
 _SCANS = {
     "V1": ErpInvoiceData(
         erp_id="INV1", vendor_erp_id="V1", vendor_name="NordicCloud Solutions ApS",
@@ -98,8 +89,6 @@ class _FakeConnector(ErpConnector):
 
     def fetch_entries(self, since=None, account_codes=None) -> list[ErpEntryData]:
         def pi(eid, voucher, code, line_no, debit=0.0, credit=0.0, dt=None):
-            # `line_no` is the invoice line this posting came from, or None for
-            # the VAT and payable postings, which belong to no single line.
             return ErpEntryData(erp_entry_id=eid, voucher_id=voucher,
                                 entry_type="purchase_invoice", erp_account_code=code,
                                 source_line_erp_id=line_no,
@@ -114,7 +103,6 @@ class _FakeConnector(ErpConnector):
             pi("E4", "V2", "6020", "1", debit=400.0, dt=date(2025, 8, 3)),
             pi("E5", "V2", "2200", None, debit=100.0, dt=date(2025, 8, 3)),
             pi("E6", "V2", "2100", None, credit=500.0, dt=date(2025, 8, 3)),
-            # Payment voucher — no invoice scan, must stay unlinked.
             ErpEntryData(erp_entry_id="E7", voucher_id="P1", entry_type="payment",
                          erp_account_code="2100", debit_amount=1250.0, currency="DKK"),
             ErpEntryData(erp_entry_id="E8", voucher_id="P1", entry_type="payment",
@@ -133,28 +121,18 @@ class _FakeConnector(ErpConnector):
 
 @pytest.fixture
 def sqlite_engine(monkeypatch):
-    """An engine plus one connected integration for the runner to discover.
-
-    The tenant is built here rather than by the runner: `run_sync` reads its
-    work from the database and never creates an organization or a company.
-    """
+    """An engine plus one connected integration for the runner to discover."""
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(runner, "engine", engine)
-    # Its own erp_type, never "fake": the connector registry is process-global,
-    # and "fake" belongs to ai_api_testkit's scriptable connector. Re-registering
-    # that name here swapped the connector under every test that ran afterwards.
     register_connector("fake-entry-first", _FakeConnector)
 
     with Session(engine) as s:
         org = Organization(name="Test Org", clerk_org_id="clerk_test")
         s.add(org)
         s.commit()
-        # The company must be assigned a spend tree, exactly as `POST /companies`
-        # assigns one: the runner categorizes against the customer's own
-        # taxonomy and has no built-in fallback to invent one from.
         tree = ensure_default_tree(s, org.id)
         s.commit()
         company = Company(organization_id=org.id, name="Test Company", spend_tree_id=tree.id)
@@ -180,22 +158,16 @@ def test_run_sync_end_to_end(sqlite_engine):
     assert summary["vendors"] == 1
     assert summary["invoices"] == 2
     assert summary["lines"] == 2
-    # One line matches (ai_categorized); one fails (ai_failed). Each invoice has a
-    # single line, so both invoices roll up to the in-progress "categorized" state.
     assert summary["line_status"] == {"ai_categorized": 1, "ai_failed": 1}
     assert summary["invoice_status"] == {"categorized": 2}
-    # Only the categorized line's amount counts toward spend.
     assert summary["categorized_spend"] == 1000.0
     assert summary["spend_by_level_2"] == {"Technology": 1000.0}
-    # 8 entries persisted; the 6 purchase-invoice entries link, the 2 payments don't.
     assert summary["entries"] == 8
     assert summary["entries_linked"] == 6
 
-    # The categorization result now lives directly on the line…
     for col in ("level_1", "level_2", "level_3", "account_code", "account_name",
                 "confidence", "rationale"):
         assert col in InvoiceLine.__table__.columns
-    # …but synthetic ground truth and the ERP line id never touch the domain line.
     for col in ("gt_level_1", "gt_account_code", "line_erp_id"):
         assert col not in InvoiceLine.__table__.columns
 
@@ -205,32 +177,24 @@ def test_run_sync_end_to_end(sqlite_engine):
         assert ok.level_1 == "Indirect"
         assert ok.level_2 == "Technology"
         assert ok.level_3 == "Cloud Infrastructure"
-        # The tree is three levels deep, so there is no fourth to record.
         assert ok.level_4 is None
         assert ok.confidence is not None
         assert ok.rationale
-        # The match resolves to a real node of the company's assigned tree.
-        # This assertion used to read `is None` — not as a rule but as a symptom:
-        # nothing seeded `spend_categories`, so the accepted assignment was null
-        # on every line the pipeline ever produced.
         node = s.get(SpendCategory, ok.spend_category_id)
         assert node is not None and node.name == "Cloud Infrastructure"
         assert node.spend_tree_id == s.get(Company, ok.company_id).spend_tree_id
-        # Ground truth is recorded in the ai_api-owned store, not on the line.
         ok_gt = s.exec(select(LineGroundTruth)
                        .where(LineGroundTruth.invoice_line_id == ok.id)).one()
         assert ok_gt.gt_account_code == "6010"
 
         bad = s.exec(select(InvoiceLine).where(InvoiceLine.status == "ai_failed")).one()
-        assert bad.account_code is None                  # no prediction on the line
+        assert bad.account_code is None
         assert bad.error_message
 
-        # One ground-truth row per processed line.
         assert s.exec(select(func.count()).select_from(LineGroundTruth)).one() == 2
         assert s.exec(select(func.count()).select_from(InvoiceLine)
                       .where(InvoiceLine.status == "uncategorized")).one() == 0
 
-        # Each AI categorization is attributed to the system in the audit log.
         sys_rows = s.exec(select(AuditLog).where(
             AuditLog.entity_type == "invoice_line", AuditLog.actor == "system")).all()
         assert len(sys_rows) == 2
@@ -244,7 +208,6 @@ def test_run_sync_end_to_end(sqlite_engine):
 def test_verified_line_not_overwritten_by_resync(sqlite_engine):
     runner.run_sync()
 
-    # A human verifies the categorized line, correcting the account.
     with Session(sqlite_engine) as s:
         ln = s.exec(select(InvoiceLine).where(InvoiceLine.status == "ai_categorized")).one()
         ln.status = "verified"
@@ -253,7 +216,6 @@ def test_verified_line_not_overwritten_by_resync(sqlite_engine):
         s.commit()
         line_id = ln.id
 
-    # A re-sync must not re-categorize (overwrite) the verified line.
     runner.run_sync()
     with Session(sqlite_engine) as s:
         ln = s.get(InvoiceLine, line_id)
@@ -262,14 +224,6 @@ def test_verified_line_not_overwritten_by_resync(sqlite_engine):
 
 
 def test_a_company_with_no_spend_tree_still_ingests_its_ledger(sqlite_engine):
-    """Categorization is skipped, the ledger lands, the watermark advances.
-
-    A missing taxonomy is a settings gap, not an ERP failure. Stalling the
-    ingest behind it would help nobody, and inventing categories from a built-in
-    taxonomy the customer never chose would be worse than leaving them
-    uncategorized: the wrong ones flow into every report and savings
-    suggestion with nothing downstream able to tell they were guessed.
-    """
     with Session(sqlite_engine) as s:
         company = s.exec(select(Company)).one()
         company.spend_tree_id = None
@@ -295,15 +249,11 @@ def test_a_company_with_no_spend_tree_still_ingests_its_ledger(sqlite_engine):
 def test_invoice_has_file_and_no_voucher_column(sqlite_engine):
     runner.run_sync()
 
-    # The invoice scan references the internal File domain, and is a purely
-    # internal document: no voucher, no ERP id, no integration link of its own.
     assert "voucher_id" not in Invoice.__table__.columns
     assert "erp_id" not in Invoice.__table__.columns
     assert "erp_integration_id" not in Invoice.__table__.columns
     assert "erp_integration_id" not in InvoiceLine.__table__.columns
     assert "file_id" in Invoice.__table__.columns
-    # Invoice links to the (global) vendor; lines do not. Vendors are not
-    # company-scoped and carry no ERP identity.
     assert "vendor_id" in Invoice.__table__.columns
     assert "vendor_id" not in InvoiceLine.__table__.columns
     for col in ("company_id", "erp_id", "raw_json"):
@@ -319,19 +269,12 @@ def test_invoice_has_file_and_no_voucher_column(sqlite_engine):
 
 
 def test_a_document_renamed_in_the_erp_keeps_its_file_row(sqlite_engine, monkeypatch):
-    """The File's identity is the ERP's `file_ref`, not the label beside it.
-
-    Keying on the name instead would mint a second row and orphan the first
-    every time a customer renamed a file — or, as Billy did, the moment a
-    connector started reporting a name it had previously left blank.
-    """
     runner.run_sync()
     with Session(sqlite_engine) as s:
         before = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
         original_file_id = before.file_id
         assert s.exec(select(func.count()).select_from(File)).one() == 2
 
-    # `_SCANS` is shared module state; monkeypatch restores it after the test.
     monkeypatch.setattr(_SCANS["V1"], "file_name", "renamed-by-the-customer.pdf")
     runner.run_sync()
 
@@ -339,7 +282,6 @@ def test_a_document_renamed_in_the_erp_keeps_its_file_row(sqlite_engine, monkeyp
         after = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
         assert after.file_id == original_file_id
         assert s.get(File, original_file_id).filename == "renamed-by-the-customer.pdf"
-        # Renamed, not duplicated: still one File per invoice scan.
         assert s.exec(select(func.count()).select_from(File)).one() == 2
 
 
@@ -348,38 +290,29 @@ def test_entries_link_to_invoice_via_voucher(sqlite_engine):
 
     with Session(sqlite_engine) as s:
         inv1 = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
-        # All three V1 entries carry the voucher and point at the one invoice.
         v1_entries = s.exec(select(ErpEntry).where(ErpEntry.voucher_id == "V1")).all()
         assert len(v1_entries) == 3
         assert all(e.source_invoice_id == inv1.id for e in v1_entries)
         assert all(e.voucher_id == "V1" for e in v1_entries)
 
-        # Payment voucher entries are persisted but unlinked.
         pay = s.exec(select(ErpEntry).where(ErpEntry.voucher_id == "P1")).all()
         assert len(pay) == 2
         assert all(e.source_invoice_id is None for e in pay)
 
 
 def test_a_posting_links_to_the_invoice_line_it_came_from(sqlite_engine):
-    """The line id is derived from (invoice, line_erp_id), not matched.
-
-    `_persist_invoices` builds the line's id from the same pair, so the two
-    agree by construction rather than by resembling each other.
-    """
     runner.run_sync()
 
     with Session(sqlite_engine) as s:
         e1 = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == "E1")).one()
         line = s.get(InvoiceLine, e1.source_invoice_line_id)
         assert line is not None
-        # A bill line states one text and it names the item.
         assert line.item_name == "Cloud server - monthly hosting"
         assert line.description is None
         assert line.invoice_id == e1.source_invoice_id
 
 
 def test_vat_and_payable_postings_link_to_no_line(sqlite_engine):
-    """They belong to the whole invoice, so null is the right answer, not a gap."""
     runner.run_sync()
 
     with Session(sqlite_engine) as s:
@@ -389,7 +322,6 @@ def test_vat_and_payable_postings_link_to_no_line(sqlite_engine):
 
 
 def test_a_posting_naming_an_undelivered_line_is_kept_unlinked(sqlite_engine, monkeypatch):
-    """A dangling FK would abort the sync over one posting; null does not."""
     original = _FakeConnector.fetch_entries
 
     def with_a_bad_reference(self, since=None, account_codes=None):
@@ -400,13 +332,11 @@ def test_a_posting_naming_an_undelivered_line_is_kept_unlinked(sqlite_engine, mo
         return rows
 
     monkeypatch.setattr(_FakeConnector, "fetch_entries", with_a_bad_reference)
-    # Completes rather than raising on the FK.
     runner.run_sync()
 
     with Session(sqlite_engine) as s:
         e1 = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == "E1")).one()
         assert e1.source_invoice_line_id is None
-        # The posting itself is still persisted, not dropped.
         assert e1.source_invoice_id is not None
 
 
@@ -416,15 +346,11 @@ def test_entries_are_not_categorized(sqlite_engine):
     with Session(sqlite_engine) as s:
         entries = s.exec(select(ErpEntry)).all()
         assert len(entries) == 8
-        # Entries are raw financial context — categorization never touches them,
-        # and the table carries no categorization columns at all.
         for e in entries:
             assert e.status == "pending"
     for col in ("level_1", "level_2", "level_3", "account_code", "account_name",
                 "confidence", "rationale", "gt_account_code"):
         assert col not in ErpEntry.__table__.columns
-    # The integration is reached via the account, not a direct column; the ledger
-    # date is named accounting_date.
     assert "erp_integration_id" not in ErpEntry.__table__.columns
     assert "entry_date" not in ErpEntry.__table__.columns
     assert "accounting_date" in ErpEntry.__table__.columns
@@ -437,24 +363,17 @@ def _acct(session, code: str) -> ErpAccount:
 def test_with_vat_seeded_from_erp(sqlite_engine):
     runner.run_sync()
     with Session(sqlite_engine) as s:
-        assert _acct(s, "6010").with_vat is True   # expense account, with VAT
-        assert _acct(s, "2100").with_vat is False   # balance-sheet, without VAT
-        # New accounts default to enabled.
+        assert _acct(s, "6010").with_vat is True
+        assert _acct(s, "2100").with_vat is False
         assert _acct(s, "6010").sync_enabled is True
 
 
 def test_a_customers_vat_setting_survives_a_resync(sqlite_engine):
-    """The second writer.
-
-    `refresh-accounts` is not the only thing that upserts accounts — the sync
-    does too, on every run. Preserving the setting in only one of them makes it
-    revert unpredictably, which is the hardest kind of bug to report.
-    """
     runner.run_sync()
     with Session(sqlite_engine) as s:
         acct = _acct(s, "6010")
-        assert acct.with_vat is True    # seeded from the ERP
-        acct.with_vat = False           # the customer disagrees
+        assert acct.with_vat is True
+        acct.with_vat = False
         acct.sync_enabled = True
         s.add(acct)
         s.commit()
@@ -463,20 +382,16 @@ def test_a_customers_vat_setting_survives_a_resync(sqlite_engine):
 
     with Session(sqlite_engine) as s:
         acct = _acct(s, "6010")
-        assert acct.with_vat is False   # ours stands
-        # ERP-owned metadata still refreshes.
+        assert acct.with_vat is False
         assert acct.erp_account_name == "Cloud Hosting & Infrastructure"
 
 
 def test_disabled_account_yields_no_entries(sqlite_engine):
-    # First sync populates accounts + entries (E1 posts to account 6010).
     runner.run_sync()
     with Session(sqlite_engine) as s:
         acct6010 = _acct(s, "6010")
         assert s.exec(select(func.count()).select_from(ErpEntry)
                       .where(ErpEntry.erp_account_id == acct6010.id)).one() == 1
-        # Deselect 6010 and clear its already-synced entry, so a re-sync proves
-        # the fetch-time gate does not pull it again.
         for e in s.exec(select(ErpEntry).where(ErpEntry.erp_account_id == acct6010.id)).all():
             s.delete(e)
         acct6010.sync_enabled = False
@@ -486,11 +401,10 @@ def test_disabled_account_yields_no_entries(sqlite_engine):
     runner.run_sync()
     with Session(sqlite_engine) as s:
         acct6010 = _acct(s, "6010")
-        assert acct6010.sync_enabled is False   # selection survived the re-sync
-        assert acct6010.with_vat is True         # metadata still refreshed
+        assert acct6010.sync_enabled is False
+        assert acct6010.with_vat is True
         assert s.exec(select(func.count()).select_from(ErpEntry)
                       .where(ErpEntry.erp_account_id == acct6010.id)).one() == 0
-        # Entries for still-enabled accounts are (re)fetched as normal.
         assert s.exec(select(func.count()).select_from(ErpEntry)
                       .where(ErpEntry.erp_account_id == _acct(s, "2100").id)).one() > 0
 
@@ -507,14 +421,6 @@ def test_run_sync_is_idempotent(sqlite_engine):
         assert s.exec(select(func.count()).select_from(InvoiceLine)).one() == 2
         assert s.exec(select(func.count()).select_from(ErpEntry)).one() == 8
         assert s.exec(select(func.count()).select_from(File)).one() == 2
-
-
-# -- lines the ERP has stopped stating ---------------------------------------
-#
-# A line's identity is `(invoice, line_erp_id)`, so a line the ERP re-issues
-# under a new id arrives as a *second* row. Billy does exactly that when a bill
-# line is re-coded to another account, which made seven invoices state their
-# spend twice on the dev org before this was pruned.
 
 
 def _invoice_lines(session, invoice_number: str) -> list[InvoiceLine]:
@@ -536,12 +442,6 @@ def _recode_v1_line(monkeypatch, line_erp_id: str = "1-recoded", code: str = "60
 
 
 def test_a_line_the_erp_no_longer_states_is_removed(sqlite_engine, monkeypatch):
-    """The replacement lands, and the row it replaced does not survive beside it.
-
-    Keeping both is not a cosmetic duplicate: the invoice's lines then sum to
-    twice its total, so it can never reconcile again and its spend is counted
-    twice everywhere lines are summed.
-    """
     runner.run_sync()
     with Session(sqlite_engine) as s:
         assert [ln.native_account_code for ln in _invoice_lines(s, "INV1")] == ["6010"]
@@ -554,12 +454,6 @@ def test_a_line_the_erp_no_longer_states_is_removed(sqlite_engine, monkeypatch):
 
 
 def test_a_posting_on_a_removed_line_is_unlinked_not_dangling(sqlite_engine, monkeypatch):
-    """The posting outlives the line, pointing at no line — as extraction does.
-
-    An `ErpEntry.source_invoice_line_id` left pointing at a deleted row is a
-    dangling FK that aborts the sync on PostgreSQL, and re-pointing it at the
-    replacement would be the amount-matching the derived link exists to refuse.
-    """
     runner.run_sync()
     _recode_v1_line(monkeypatch)
     runner.run_sync()
@@ -567,11 +461,10 @@ def test_a_posting_on_a_removed_line_is_unlinked_not_dangling(sqlite_engine, mon
     with Session(sqlite_engine) as s:
         entry = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == "E1")).one()
         assert entry.source_invoice_line_id is None
-        assert entry.source_invoice_id is not None  # the invoice link is untouched
+        assert entry.source_invoice_id is not None
 
 
 def test_a_removed_line_leaves_its_values_in_the_audit_trail(sqlite_engine, monkeypatch):
-    """The audit row is the only record the line ever existed."""
     runner.run_sync()
     with Session(sqlite_engine) as s:
         removed_id = _invoice_lines(s, "INV1")[0].id
@@ -580,8 +473,6 @@ def test_a_removed_line_leaves_its_values_in_the_audit_trail(sqlite_engine, monk
     runner.run_sync()
 
     with Session(sqlite_engine) as s:
-        # The line already carries an `ai_categorize` row from the first run;
-        # the withdrawal is appended beside it, never in place of it.
         entry = s.exec(
             select(AuditLog).where(
                 AuditLog.entity_id == removed_id,
@@ -596,12 +487,6 @@ def test_a_removed_line_leaves_its_values_in_the_audit_trail(sqlite_engine, monk
 
 
 def test_a_human_added_line_is_never_pruned(sqlite_engine, monkeypatch):
-    """A reviewer's own line is not the ERP's to withdraw.
-
-    Splitting a stand-in means adding real lines beside it before deleting it,
-    so a prune that removed every line the ERP did not state would delete the
-    reviewer's work the moment the next sync ran.
-    """
     runner.run_sync()
     with Session(sqlite_engine) as s:
         invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
@@ -619,13 +504,6 @@ def test_a_human_added_line_is_never_pruned(sqlite_engine, monkeypatch):
 
 
 def test_withdrawing_a_line_recomputes_the_invoice_status(sqlite_engine, monkeypatch):
-    """The rollup follows the lines that remain, not the ones that were there.
-
-    The categorizer recomputes the rollup, but only for an invoice with pending
-    lines — so an invoice whose *only* verified line is withdrawn, the rest
-    already categorized, would otherwise keep claiming to be verified with no
-    verified line left under it.
-    """
     two_lines = [
         ErpInvoiceLineData(line_erp_id="1", description="Cloud server - monthly hosting",
                            amount=1000.0, native_account_code="6010"),
@@ -635,8 +513,6 @@ def test_withdrawing_a_line_recomputes_the_invoice_status(sqlite_engine, monkeyp
     monkeypatch.setattr(_SCANS["V1"], "lines", two_lines)
     runner.run_sync()
 
-    # One line verified, one left as the AI categorized it: the invoice rolls up
-    # to "categorized", because not every line is verified yet.
     with Session(sqlite_engine) as s:
         first, _second = sorted(_invoice_lines(s, "INV1"), key=lambda ln: ln.sequence)
         first.status = "verified"
@@ -647,9 +523,6 @@ def test_withdrawing_a_line_recomputes_the_invoice_status(sqlite_engine, monkeyp
         s.commit()
         assert invoice.status == "categorized"
 
-    # The ERP withdraws the unverified one. Every remaining line is verified, so
-    # the invoice is now verified — but nothing is pending on it, so the
-    # categorizer never revisits it and cannot be what notices.
     monkeypatch.setattr(_SCANS["V1"], "lines", two_lines[:1])
     runner.run_sync()
 
@@ -660,7 +533,6 @@ def test_withdrawing_a_line_recomputes_the_invoice_status(sqlite_engine, monkeyp
 
 
 def test_an_unchanged_resync_removes_nothing(sqlite_engine):
-    """The prune fires on a line the ERP dropped, never on a steady state."""
     runner.run_sync()
     runner.run_sync()
 
@@ -672,12 +544,6 @@ def test_an_unchanged_resync_removes_nothing(sqlite_engine):
         ).one()
         assert withdrawn == 0
 
-
-# -- currency conversion -----------------------------------------------------
-#
-# The fake ERP posts everything in DKK; the company reports in EUR. Rates come
-# from a stub that records every call, so these tests can assert not only what
-# was converted but how many lookups it cost.
 
 _EUR_RATES = {"EUR": Decimal("1"), "DKK": Decimal("7.4600"), "USD": Decimal("1.0850")}
 
@@ -721,10 +587,9 @@ def test_sync_converts_into_the_companys_base_currency(eur_company, monkeypatch)
     with Session(eur_company) as s:
         entry = s.exec(select(ErpEntry).where(ErpEntry.erp_entry_id == "E1")).one()
         assert entry.base_currency == "EUR"
-        assert entry.fx_rate == Decimal("0.13404826")  # 1 / 7.46
+        assert entry.fx_rate == Decimal("0.13404826")
         assert entry.base_debit_amount == Decimal("134.05")
         assert entry.fx_rate_date == date(2025, 7, 15)
-        # The posting itself is untouched — it is the evidence, not a draft.
         assert entry.currency == "DKK"
         assert entry.debit_amount == Decimal("1000.00")
 
@@ -736,12 +601,11 @@ def test_an_invoice_and_its_lines_convert_at_the_invoices_date(eur_company, monk
 
     with Session(eur_company) as s:
         invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
-        assert invoice.base_total == Decimal("167.56")  # 1250.00 / 7.46
+        assert invoice.base_total == Decimal("167.56")
         assert invoice.base_tax == Decimal("33.51")
         assert invoice.fx_rate_date == date(2025, 7, 15)
 
         line = s.exec(select(InvoiceLine).where(InvoiceLine.invoice_id == invoice.id)).one()
-        # A line has no date of its own: it must land on its invoice's rate.
         assert line.fx_rate == invoice.fx_rate
         assert line.fx_rate_date == invoice.fx_rate_date
         assert line.base_amount == Decimal("134.05")
@@ -752,7 +616,6 @@ def test_a_date_costs_one_rate_lookup_however_many_rows_share_it(eur_company, mo
 
     runner.run_sync()
 
-    # Six entries, two invoices and two lines span exactly two accounting dates.
     assert sorted(provider.calls) == [date(2025, 7, 15), date(2025, 8, 3)]
 
 
@@ -766,7 +629,6 @@ def test_a_posting_with_no_accounting_date_is_left_unconverted(eur_company, monk
         assert payment.accounting_date is None
         assert payment.base_debit_amount is None
         assert payment.base_currency is None
-        # Still fully persisted, and still carrying what the ERP posted.
         assert payment.debit_amount == Decimal("1250.00")
 
 
@@ -787,14 +649,11 @@ def test_a_dead_rate_provider_does_not_fail_the_sync(eur_company, monkeypatch):
 
     result = runner.run_sync()
 
-    # Ledger data is not held hostage to FX: the integration still succeeds…
     summary = _summary(result)
     assert summary["entries"] == 8
     assert summary["fx"]["unconverted"] > 0
     with Session(eur_company) as s:
-        # …the watermark still advances, so the next run is not stuck…
         assert s.exec(select(SyncState)).one().last_invoice_date == date(2025, 8, 3)
-        # …and every row is there, simply unconverted.
         assert s.exec(select(func.count()).select_from(ErpEntry)).one() == 8
         assert all(e.base_currency is None for e in s.exec(select(ErpEntry)).all())
 
@@ -823,7 +682,7 @@ def test_a_resync_reconverts_nothing(eur_company, monkeypatch):
     second = _with_rates(monkeypatch, _StubRates())
     summary = _summary(runner.run_sync())
 
-    assert second.calls == []           # nothing re-fetched
+    assert second.calls == []
     assert summary["fx"]["converted"] == 0
     assert summary["fx"]["unchanged"] > 0
     with Session(eur_company) as s:
@@ -843,22 +702,9 @@ def test_the_runner_never_sets_the_base_currency(eur_company, monkeypatch):
         assert s.exec(select(Company)).one().base_currency == "EUR"
 
 
-# -- The two account writers must agree on identity --------------------------
-
-
 def test_the_runner_adopts_accounts_the_refresh_endpoint_created(sqlite_engine):
-    """`refresh-accounts` and the runner both write this table.
-
-    They used to disagree about identity — the endpoint keys on
-    `(integration, code)` with an ordinary random id, the runner looked up a
-    deterministic id by primary key — so a sync after a refresh inserted a
-    second copy of the entire chart, and the two copies then drifted as each
-    writer updated only its own.
-    """
     with Session(sqlite_engine) as s:
         integration = s.exec(select(ErpIntegration)).one()
-        # Exactly what the endpoint writes: natural key, random id, and a
-        # customer setting the runner must not touch.
         s.add(ErpAccount(erp_integration_id=integration.id, erp_account_code="6010",
                          erp_account_name="Stale name", sync_enabled=False))
         s.commit()
@@ -874,8 +720,6 @@ def test_the_runner_adopts_accounts_the_refresh_endpoint_created(sqlite_engine):
             )
         ).all()
         assert len(rows) == 1, "the runner duplicated an account the endpoint created"
-        # It adopted the existing row: ERP metadata refreshed, the customer's
-        # selection left alone.
         assert rows[0].erp_account_name != "Stale name"
         assert rows[0].sync_enabled is False
 
@@ -889,16 +733,6 @@ def test_running_the_sync_twice_does_not_duplicate_accounts(sqlite_engine):
         assert len(codes) == len(set(codes)), f"duplicate accounts: {codes}"
 
 
-# -- vouchers the ERP has voided ---------------------------------------------
-#
-# Billy voids a transaction by marking the original `isVoided` and adding an
-# `isVoid` reversal, and the connector skips both — they net to zero. But a
-# transaction voided *after* we synced it leaves its postings behind: the
-# connector never mentions it again, so nothing withdraws them. On the dev org
-# that put one bill under two vouchers, counted its expense twice, and rendered
-# its lines under both.
-
-
 def test_a_voucher_voided_after_it_was_synced_loses_its_entries(
     sqlite_engine, monkeypatch
 ):
@@ -908,7 +742,6 @@ def test_a_voucher_voided_after_it_was_synced_loses_its_entries(
             select(func.count()).select_from(ErpEntry).where(ErpEntry.voucher_id == "V1")
         ).one() == 3
 
-    # The ERP now reports V1 as voided, and stops stating its postings.
     original = _FakeConnector.fetch_entries
 
     def without_v1(self, since=None, account_codes=None):
@@ -922,20 +755,12 @@ def test_a_voucher_voided_after_it_was_synced_loses_its_entries(
         assert s.exec(
             select(func.count()).select_from(ErpEntry).where(ErpEntry.voucher_id == "V1")
         ).one() == 0
-        # Its sibling voucher is untouched — this withdraws what was named, not
-        # everything the fetch happened not to restate.
         assert s.exec(
             select(func.count()).select_from(ErpEntry).where(ErpEntry.voucher_id == "V2")
         ).one() == 3
 
 
 def test_a_voided_voucher_does_not_take_its_invoice_with_it(sqlite_engine, monkeypatch):
-    """The bill is still a real bill; only the posting of it was undone.
-
-    Deleting the invoice would destroy a human's corrections and any lines read
-    from its document, and Billy's re-booking re-posts the *same* bill under a
-    new voucher — which then has an invoice to link to.
-    """
     runner.run_sync()
     monkeypatch.setattr(_FakeConnector, "voided_voucher_ids", lambda self: {"V1"}, raising=False)
     runner.run_sync()
@@ -950,7 +775,6 @@ def test_a_voided_voucher_does_not_take_its_invoice_with_it(sqlite_engine, monke
 
 
 def test_withdrawing_a_voided_voucher_is_audited(sqlite_engine, monkeypatch):
-    """Deleting a ledger row silently is not acceptable, even a voided one."""
     runner.run_sync()
     with Session(sqlite_engine) as s:
         entry_ids = [
@@ -969,7 +793,6 @@ def test_withdrawing_a_voided_voucher_is_audited(sqlite_engine, monkeypatch):
 
 
 def test_a_connector_that_reports_no_voids_withdraws_nothing(sqlite_engine):
-    """The default: a connector with no notion of voiding loses no entries."""
     runner.run_sync()
     summary = _summary(runner.run_sync())
 
@@ -978,22 +801,8 @@ def test_a_connector_that_reports_no_voids_withdraws_nothing(sqlite_engine):
         assert s.exec(select(func.count()).select_from(ErpEntry)).one() == 8
 
 
-# -- extraction outranks the ERP's own lines ---------------------------------
-#
-# An invoice holds exactly one *automated* origin at a time: two describe the
-# same spend twice and double its total. Extraction replaces the ERP's lines
-# with the document's, and the next sync must not put them back.
-
-
 def _extracted(session, invoice_id: str) -> None:
-    """Stand in for the document stage, faithfully.
-
-    Replacement is whole-invoice: the old rows are **deleted** and new ones
-    inserted with fresh random ids. That detail is the bug — deleting them frees
-    the ERP's deterministic line ids, so the next sync re-inserts them beside the
-    extracted ones. A helper that merely flipped `origin` would leave the ids in
-    place, reproduce nothing, and pass against broken code.
-    """
+    """Stand in for the document stage."""
     company_id = None
     for line in session.exec(
         select(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id)
@@ -1023,13 +832,10 @@ def test_a_resync_does_not_re_add_lines_extraction_replaced(sqlite_engine):
         lines = s.exec(
             select(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id)
         ).all()
-        # One origin, not two: the document read what was bought, and the ERP's
-        # bill line describes the same money.
         assert {ln.origin for ln in lines} == {"document_ai"}
 
 
 def test_an_extracted_invoice_keeps_its_total(sqlite_engine):
-    """The failure this prevents, stated as the number a reader would see."""
     runner.run_sync()
     with Session(sqlite_engine) as s:
         invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
@@ -1045,16 +851,14 @@ def test_an_extracted_invoice_keeps_its_total(sqlite_engine):
                 select(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id)
             ).all()
         )
-        assert line_sum < Decimal(str(total))  # never 2x
+        assert line_sum < Decimal(str(total))
 
 
 def test_a_stale_erp_line_beside_an_extracted_one_is_withdrawn(sqlite_engine):
-    """Cleanup, not just prevention: the pairs already stored must resolve."""
     runner.run_sync()
     with Session(sqlite_engine) as s:
         invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()
         _extracted(s, invoice.id)
-        # A leftover from before extraction ran, exactly as the dev org holds.
         s.add(InvoiceLine(company_id=invoice.company_id, invoice_id=invoice.id,
                           description="stale ERP copy", amount=Decimal("1000.00"),
                           status="ai_failed", origin="erp", sequence=9))
@@ -1073,7 +877,6 @@ def test_a_stale_erp_line_beside_an_extracted_one_is_withdrawn(sqlite_engine):
 
 
 def test_a_human_line_still_survives_beside_an_extracted_one(sqlite_engine):
-    """A reviewer splitting a line is the deliberate exception to one-origin."""
     runner.run_sync()
     with Session(sqlite_engine) as s:
         invoice = s.exec(select(Invoice).where(Invoice.invoice_number == "INV1")).one()

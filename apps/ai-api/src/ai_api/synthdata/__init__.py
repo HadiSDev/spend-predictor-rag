@@ -1,1 +1,1 @@
-"""Synthetic invoice dataset generation + benchmarking (Phase 1)."""
+"""Synthetic invoice dataset generation and benchmarking."""

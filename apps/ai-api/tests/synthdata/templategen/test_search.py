@@ -4,7 +4,7 @@ from ai_api.synthdata.templategen import search
 
 
 def test_presets_are_nonempty_query_strings():
-    assert search.PRESETS  # at least one preset
+    assert search.PRESETS
     assert all(isinstance(q, str) and q.strip() for q in search.PRESETS.values())
 
 

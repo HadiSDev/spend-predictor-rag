@@ -1,30 +1,9 @@
-# apps/ai-api/src/ai_api/synthdata/catalog.py
-"""Deterministic, curated item catalog for synthetic invoice generation.
-
-Public API
-----------
-line_descriptions(account_code, n, faker) -> list[str]
-    Return n realistic, varied line-item descriptions for the account.
-
-vendor_name(account, faker) -> str
-    Return an industry-flavored vendor name for the account.
-
-All randomness is delegated to the passed ``faker`` instance so callers can
-keep full seed control.
-"""
+"""Deterministic, curated item catalog for synthetic invoice generation."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from faker import Faker
 
-if TYPE_CHECKING:
-    from faker import Faker
-
-# ---------------------------------------------------------------------------
-# Item catalog — ≥8 templates per account code.
-# Templates may contain a ``{spec}`` placeholder that helpers fill.
-# ---------------------------------------------------------------------------
 ITEM_CATALOG: dict[str, list[str]] = {
-    # 6010 Cloud Hosting & Infrastructure
     "6010": [
         "Compute instance {spec} (monthly)",
         "Object storage {spec} — data-at-rest",
@@ -37,7 +16,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Snapshot retention tier {spec}",
         "Bare-metal server lease — {spec}",
     ],
-    # 6015 Third-Party APIs & Data
     "6015": [
         "Geocoding API — {spec} requests",
         "Financial data feed {spec} subscription",
@@ -50,7 +28,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Fraud-detection API — {spec} events",
         "Currency-exchange rate feed {spec}",
     ],
-    # 6020 Software Subscriptions
     "6020": [
         "Project management suite — {spec} seats",
         "BI & analytics platform {spec}",
@@ -63,7 +40,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Log-aggregation platform — {spec} GB/day",
         "Code-review & repo hosting {spec}",
     ],
-    # 6030 Telecommunications
     "6030": [
         "Business broadband — {spec} Mbps line",
         "Mobile data plan {spec} SIM cards",
@@ -76,7 +52,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "DID number rental — {spec} numbers",
         "Colocation cross-connect port {spec}",
     ],
-    # 6500 Office Supplies
     "6500": [
         "A4 printer paper — {spec} reams",
         "Ballpoint pens assorted {spec}",
@@ -89,7 +64,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Desk organisers & trays {spec}",
         "Correction tape & highlighters {spec}",
     ],
-    # 6510 Office Equipment
     "6510": [
         "27″ monitor {spec}",
         "Standing-desk frame {spec}",
@@ -102,7 +76,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Label printer {spec}",
         "UPS battery backup {spec}",
     ],
-    # 6600 Professional Services (Consulting)
     "6600": [
         "Strategy consulting — {spec} days",
         "Process-optimisation workshop {spec}",
@@ -115,7 +88,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Security posture assessment {spec}",
         "Vendor-selection support {spec}",
     ],
-    # 6610 Legal Fees
     "6610": [
         "Corporate M&A due-diligence {spec}",
         "Contract drafting & review {spec}",
@@ -128,7 +100,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Data-processor agreement review {spec}",
         "Commercial lease negotiation {spec}",
     ],
-    # 6620 Accounting & Audit
     "6620": [
         "Annual statutory audit {spec}",
         "Quarterly bookkeeping services {spec}",
@@ -141,7 +112,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Year-end accounts preparation {spec}",
         "R&D tax credit claim {spec}",
     ],
-    # 6700 Marketing & Advertising
     "6700": [
         "Paid search campaign — {spec}",
         "Social-media advertising {spec}",
@@ -154,7 +124,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Programmatic ad spend {spec}",
         "Brand-identity refresh {spec}",
     ],
-    # 6800 Travel - Airfare
     "6800": [
         "Business-class flight {spec}",
         "Economy round-trip {spec}",
@@ -167,7 +136,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Excess-baggage fee {spec}",
         "Frequent-flyer redemption top-up {spec}",
     ],
-    # 6810 Travel - Lodging
     "6810": [
         "Hotel accommodation — {spec} nights",
         "Serviced apartment {spec}",
@@ -180,7 +148,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Boutique hotel — {spec}",
         "Budget hotel stay {spec}",
     ],
-    # 6820 Meals & Entertainment
     "6820": [
         "Client business dinner — {spec} covers",
         "Team lunch — {spec} pax",
@@ -193,7 +160,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "After-work social {spec}",
         "Vendor appreciation dinner {spec}",
     ],
-    # 6900 Utilities
     "6900": [
         "Electricity — {spec} kWh",
         "Natural-gas supply {spec}",
@@ -206,7 +172,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Solar panel energy credit {spec}",
         "Metering & monitoring services {spec}",
     ],
-    # 6910 Rent & Lease
     "6910": [
         "Office-space rent — {spec}",
         "Warehouse lease — {spec} m²",
@@ -219,7 +184,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Showroom rental {spec}",
         "Meeting-room hire {spec}",
     ],
-    # 7000 Shipping & Freight
     "7000": [
         "International air freight {spec}",
         "Sea-freight container {spec}",
@@ -232,7 +196,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Cross-docking service {spec}",
         "Hazmat freight surcharge {spec}",
     ],
-    # 7050 Contractor - Delivery
     "7050": [
         "Freelance developer — {spec} hours",
         "Contract UX designer {spec}",
@@ -245,7 +208,6 @@ ITEM_CATALOG: dict[str, list[str]] = {
         "Embedded systems contractor {spec}",
         "Security consultant {spec}",
     ],
-    # 7100 Training & Development
     "7100": [
         "Online course licence — {spec} seats",
         "In-house workshop — {spec} days",
@@ -260,14 +222,21 @@ ITEM_CATALOG: dict[str, list[str]] = {
     ],
 }
 
-# ---------------------------------------------------------------------------
-# Spec pools — used to fill {spec} placeholders
-# ---------------------------------------------------------------------------
 _COMPUTE_SIZES = ["4vCPU/16 GB", "8vCPU/32 GB", "2vCPU/8 GB", "16vCPU/64 GB", "c3.large", "m5.xlarge"]
 _REGIONS = ["EU-West", "EU-North", "US-East", "US-West", "APAC", "Frankfurt", "Copenhagen", "Virginia"]
 _PERIODS = ["(Q1 2026)", "(Q2 2026)", "(Q3 2026)", "(Q4 2025)", "(Jan 2026)", "(Feb 2026)", "(Mar 2026)",
             "(Apr 2026)", "(May 2026)", "(Jun 2026)", "(Jul 2026)", "(Aug 2026)"]
-_SKUS = lambda fake: f"[{fake.lexify('??').upper()}-{fake.numerify('####')}]"  # noqa: E731
+
+
+def _period(fake: Faker) -> str:
+    """A random billing period such as ``(Q1 2026)``."""
+    return fake.random_element(_PERIODS)
+
+
+def _sku(fake: Faker) -> str:
+    """A random product code such as ``[AB-1234]``."""
+    return f"[{fake.lexify('??').upper()}-{fake.numerify('####')}]"
+
 
 _CITIES = ["London", "Berlin", "Copenhagen", "Amsterdam", "Paris", "Stockholm", "New York", "Chicago",
            "San Francisco", "Singapore", "Dublin", "Zurich"]
@@ -284,122 +253,117 @@ _KWH = ["5 000", "12 000", "25 000", "50 000", "100 000"]
 _LITRES = ["200", "500", "1 000", "2 000"]
 _PAX = ["2", "3", "4", "5", "6"]
 
-# Per-account spec generators: each entry is a callable(fake) -> str
 _SPEC_FN: dict[str, list] = {
     "6010": [
         lambda f: f.random_element(_COMPUTE_SIZES),
         lambda f: f"{f.random_element(_VOLUMES)} GB",
         lambda f: f.random_element(_REGIONS),
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
     ],
     "6015": [
         lambda f: f"{f.random_element(_VOLUMES)} calls",
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
         lambda f: f"Tier {f.random_element(['Starter', 'Pro', 'Enterprise'])}",
     ],
     "6020": [
         lambda f: f.random_element(_SEAT_COUNTS) + " seats",
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
         lambda f: f"Plan {f.random_element(['Basic', 'Standard', 'Pro', 'Enterprise'])}",
     ],
     "6030": [
         lambda f: f.random_element(["100", "500", "1 000", "10 000"]) + " Mbps",
         lambda f: str(f.random_int(1, 50)),
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
     ],
     "6500": [
         lambda f: str(f.random_int(1, 20)),
         lambda f: f"{f.random_int(1, 10)} boxes",
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
     ],
     "6510": [
-        lambda f: _SKUS(f),
+        _sku,
         lambda f: f"Model {f.random_element(['2025', 'Pro', 'Ultra', 'Gen2'])}",
-        lambda f: f.random_element(_PERIODS),
+        _period,
     ],
     "6600": [
         lambda f: f"{f.random_element(_DAY_COUNTS)} days",
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
         lambda f: f.random_element(_CITIES),
     ],
     "6610": [
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
         lambda f: f"Matter {f.numerify('####')}",
     ],
     "6620": [
-        lambda f: f.random_element(_PERIODS),
+        _period,
         lambda f: f"{f.random_element(_EMPLOYEE_COUNTS)} employees",
-        lambda f: _SKUS(f),
+        _sku,
         lambda f: f"FY{f.random_element(['2024', '2025', '2026'])}",
     ],
     "6700": [
         lambda f: f.random_element(_REGIONS),
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
         lambda f: f"Budget {f.random_element(['5 k', '10 k', '25 k', '50 k'])} EUR",
     ],
     "6800": [
         lambda f: f.random_element(_ROUTES),
         lambda f: f.random_element(_CITIES),
         lambda f: f.random_element(_PAX) + " pax",
-        lambda f: _SKUS(f),
+        _sku,
     ],
     "6810": [
         lambda f: f"{f.random_element(_NIGHT_COUNTS)} nights",
         lambda f: f.random_element(_CITIES),
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
     ],
     "6820": [
         lambda f: f"{f.random_element(_COVER_COUNTS)} covers",
         lambda f: f"{f.random_element(_PAX)} pax",
         lambda f: f.random_element(_CITIES),
-        lambda f: _SKUS(f),
+        _sku,
     ],
     "6900": [
         lambda f: f.random_element(_KWH) + " kWh",
-        lambda f: f.random_element(_PERIODS),
+        _period,
         lambda f: f.random_element(_LITRES) + " L",
-        lambda f: _SKUS(f),
+        _sku,
     ],
     "6910": [
         lambda f: f.random_element(_CITIES),
         lambda f: f"{f.random_element(_M2)} m²",
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
     ],
     "7000": [
         lambda f: f.random_element(_ROUTES),
-        lambda f: _SKUS(f),
+        _sku,
         lambda f: f.random_element(_REGIONS),
         lambda f: f"Ref {f.numerify('########')}",
     ],
     "7050": [
         lambda f: f"{f.random_element(['40', '80', '120', '160', '200'])} hours",
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
         lambda f: f"PO-{f.numerify('######')}",
     ],
     "7100": [
         lambda f: f.random_element(_SEAT_COUNTS) + " seats",
         lambda f: f"{f.random_element(_DAY_COUNTS)} days",
-        lambda f: f.random_element(_PERIODS),
-        lambda f: _SKUS(f),
+        _period,
+        _sku,
     ],
 }
 
-# ---------------------------------------------------------------------------
-# Vendor name word pools per industry cluster
-# ---------------------------------------------------------------------------
 _VENDOR_POOLS: dict[str, tuple[list[str], list[str], list[str]]] = {
-    # cluster -> (prefixes, midwords, suffixes)
     "tech": (
         ["Byte", "Cloud", "Nimbus", "Cirrus", "Pixel", "Nexus", "Apex", "Core", "Horizon",
          "Qubit", "Stratus", "Vertex", "Zenith", "Nova", "Synapse", "Prism", "Flux", "Arc"],
@@ -458,7 +422,6 @@ _VENDOR_POOLS: dict[str, tuple[list[str], list[str], list[str]]] = {
 }
 
 
-# Map account codes to vendor clusters
 _ACCOUNT_CLUSTER: dict[str, str] = {
     "6010": "tech", "6015": "tech", "6020": "tech", "6030": "tech",
     "6500": "facilities", "6510": "facilities",
@@ -471,114 +434,40 @@ _ACCOUNT_CLUSTER: dict[str, str] = {
 }
 
 
-def _fill_spec(template: str, account_code: str, fake: "Faker") -> str:
+def _fill_spec(template: str, account_code: str, fake: Faker) -> str:
     """Replace {spec} in a template with a contextually appropriate value."""
     if "{spec}" not in template:
         return template
     fns = _SPEC_FN.get(account_code, [])
-    if fns:
-        # Build list of safe spec generators to avoid double-decoration
-        # Skip period specs if template already contains '(', skip SKU specs if it contains '['
-        safe_indices = list(range(len(fns)))
-
-        if '(' in template:
-            # Filter out functions that return periods (raw _PERIODS selections)
-            safe_indices = [
-                i for i in safe_indices
-                if not _spec_fn_returns_period(fns[i], account_code, i)
-            ]
-
-        if '[' in template:
-            # Filter out functions that return SKUs
-            safe_indices = [
-                i for i in safe_indices
-                if not _spec_fn_returns_sku(fns[i], account_code, i)
-            ]
-
-        # If no safe options, use all (shouldn't happen in practice)
-        if not safe_indices:
-            safe_indices = list(range(len(fns)))
-
-        safe_fns = [fns[i] for i in safe_indices]
-        spec = fake.random_element(safe_fns)(fake)
-    else:
-        spec = f"[{fake.lexify('??').upper()}-{fake.numerify('####')}]"
-    return template.replace("{spec}", spec)
+    if not fns:
+        return template.replace("{spec}", _sku(fake))
+    safe_fns = [fn for fn in fns if not _clashes_with_template(fn, template)] or fns
+    return template.replace("{spec}", fake.random_element(safe_fns)(fake))
 
 
-def _spec_fn_returns_period(fn, account_code: str, index: int) -> bool:
-    """Check if a spec generator at a given account/index typically returns a period."""
-    # Hardcode knowledge of which indices return periods for each account
-    period_indices: dict[str, list[int]] = {
-        "6010": [3],  # index 3: lambda f: f.random_element(_PERIODS)
-        "6015": [1],  # index 1
-        "6020": [1],  # index 1
-        "6030": [2],  # index 2
-        "6500": [2],  # index 2
-        "6510": [2],  # index 2
-        "6600": [1],  # index 1
-        "6610": [0],  # index 0
-        "6620": [0],  # index 0
-        "6700": [1],  # index 1
-        "6810": [2],  # index 2
-        "7050": [1],  # index 1
-        "7100": [2],  # index 2
-        "6900": [1],  # index 1
-        "6910": [2],  # index 2
-    }
-    return index in period_indices.get(account_code, [])
+def _clashes_with_template(spec_fn, template: str) -> bool:
+    """Whether ``spec_fn`` would repeat a period or SKU the template already brackets."""
+    if spec_fn is _period and "(" in template:
+        return True
+    return spec_fn is _sku and "[" in template
 
 
-def _spec_fn_returns_sku(fn, account_code: str, index: int) -> bool:
-    """Check if a spec generator at a given account/index typically returns an SKU."""
-    # Hardcode knowledge of which indices return SKUs for each account
-    sku_indices: dict[str, list[int]] = {
-        "6010": [4],  # index 4: lambda f: _SKUS(f)
-        "6015": [2],  # index 2
-        "6020": [2],  # index 2
-        "6030": [3],  # index 3
-        "6500": [3],  # index 3
-        "6510": [0],  # index 0
-        "6600": [2],  # index 2
-        "6610": [1],  # index 1
-        "6620": [2],  # index 2
-        "6700": [2],  # index 2
-        "6800": [3],  # index 3
-        "6810": [3],  # index 3
-        "6820": [3],  # index 3
-        "6900": [3],  # index 3
-        "6910": [3],  # index 3
-        "7000": [1],  # index 1
-        "7050": [2],  # index 2
-        "7100": [3],  # index 3
-    }
-    return index in sku_indices.get(account_code, [])
-
-
-def _decorate(desc: str, fake: "Faker") -> str:
+def _decorate(desc: str, fake: Faker) -> str:
     """Optionally append a period or SKU decorator for extra variety."""
     roll = fake.random_int(0, 9)
     if roll < 3:
-        # Only append period decorator if description doesn't already contain '('
         if '(' not in desc:
-            desc = f"{desc} {fake.random_element(_PERIODS)}"
+            desc = f"{desc} {_period(fake)}"
     elif roll < 5:
-        # Only append SKU decorator if description doesn't already contain '['
         if '[' not in desc:
-            desc = f"{desc} [{fake.lexify('??').upper()}-{fake.numerify('####')}]"
+            desc = f"{desc} {_sku(fake)}"
     return desc
 
 
-def line_descriptions(account_code: str, n: int, faker: "Faker") -> list[str]:
-    """Return n realistic, varied line-item descriptions for the account.
-
-    Uses the ITEM_CATALOG for the account code, fills {spec} placeholders, and
-    optionally appends decorators.  All randomness goes through ``faker`` so
-    results are fully seed-deterministic.
-    """
+def line_descriptions(account_code: str, n: int, faker: Faker) -> list[str]:
+    """Return n realistic, varied line-item descriptions for the account."""
     templates = ITEM_CATALOG.get(account_code)
     if not templates:
-        # Unknown account — synthesise from account code itself
         fallback_word = account_code.replace("_", " ").replace("-", " ")
         templates = [f"{fallback_word} service {{spec}}", f"{fallback_word} item {{spec}}"]
 
@@ -587,7 +476,6 @@ def line_descriptions(account_code: str, n: int, faker: "Faker") -> list[str]:
     pool = list(range(len(templates)))
 
     for _ in range(n):
-        # Prefer templates not yet used this invoice; recycle when exhausted
         remaining = [i for i in pool if i not in used_templates]
         if not remaining:
             used_templates.clear()
@@ -600,13 +488,8 @@ def line_descriptions(account_code: str, n: int, faker: "Faker") -> list[str]:
     return results
 
 
-def vendor_name(account: dict, faker: "Faker") -> str:
-    """Return an industry-flavored vendor name for the account.
-
-    Builds names from curated per-industry word pools so they look realistic
-    (e.g. 'ByteForge Cloud GmbH', 'Meridian & Hale LLP') rather than the
-    generic Faker ``company()`` default.
-    """
+def vendor_name(account: dict, faker: Faker) -> str:
+    """Return an industry-flavored vendor name for the account."""
     code = account.get("account_code", "")
     cluster = _ACCOUNT_CLUSTER.get(code, "generic")
     prefixes, midwords, suffixes = _VENDOR_POOLS[cluster]
@@ -616,26 +499,20 @@ def vendor_name(account: dict, faker: "Faker") -> str:
 
     style = faker.random_int(0, 4)
     if cluster == "legal":
-        # e.g. "Meridian & Hale LLP"
         second = faker.random_element(prefixes)
-        mid = faker.random_element(midwords)  # "&"
+        mid = faker.random_element(midwords)
         return f"{prefix} {mid} {second} {suffix}"
     elif style == 0:
-        # "PrefixMid Suffix"
         mid = faker.random_element(midwords)
         return f"{prefix}{mid} {suffix}"
     elif style == 1:
-        # "Prefix Mid Suffix"
         mid = faker.random_element(midwords)
         return f"{prefix} {mid} {suffix}"
     elif style == 2:
-        # "Prefix Suffix" (compact)
         return f"{prefix} {suffix}"
     elif style == 3:
-        # "Prefix Mid" (no suffix)
         mid = faker.random_element(midwords)
         return f"{prefix} {mid}"
     else:
-        # "PrefixMid"
         mid = faker.random_element(midwords)
         return f"{prefix}{mid}"

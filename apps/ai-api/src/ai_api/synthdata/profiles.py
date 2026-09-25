@@ -11,7 +11,7 @@ class BuyerProfile:
     country_code: str
     vat_number: str
     business_description: str
-    direct_level_2: frozenset[str]  # chart level_2 groups that are Direct for this buyer
+    direct_level_2: frozenset[str]
 
 
 def level_1_for(profile: BuyerProfile, level_2: str) -> str:

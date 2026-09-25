@@ -1,18 +1,19 @@
-"""Fill realistic line-item descriptions via the local model (free-text JSON).
-
-Labels and numbers come from the InvoicePlan; the model only writes description
-text. We avoid vLLM guided decoding (see memory avoid-vllm-guided-decoding) by
-prompting for JSON and parsing it with ai_api.parsing.
-"""
+"""Fill realistic line-item descriptions via the local model (free-text JSON)."""
 from __future__ import annotations
 
 from typing import Callable
 
 from pydantic import BaseModel, Field
 
+from .. import config
 from ..models import ExtractedInvoice, LineItem
 from ..parsing import parse_model
 from .sampler import InvoicePlan
+
+try:
+    from bespokelabs import curator
+except ImportError:
+    curator = None
 
 
 class _Descriptions(BaseModel):
@@ -41,16 +42,12 @@ def _build_prompt(plan: InvoicePlan, cryptic: bool) -> str:
     )
 
 
-def _default_generate(prompt: str) -> str:  # pragma: no cover - live path
-    """Generate via Bespoke Curator over the local vLLM (free-text, no guided decoding)."""
-    try:
-        from bespokelabs import curator
-    except ImportError as exc:  # pragma: no cover
+def _default_generate(prompt: str) -> str:  # pragma: no cover
+    """Generate free text via Bespoke Curator over the local vLLM."""
+    if curator is None:
         raise ImportError(
             "Live generation needs the 'live' dependency group: run `uv sync --group live`."
-        ) from exc
-
-    from .. import config
+        )
 
     llm = curator.LLM(
         model_name=config.VLLM_MODEL.replace("hosted_vllm/", ""),
@@ -60,32 +57,28 @@ def _default_generate(prompt: str) -> str:  # pragma: no cover - live path
     return str(llm(prompt).dataset[0]["response"])
 
 
+def _generated_descriptions(
+    plan: InvoicePlan, generate_fn: Callable[[str], str], cryptic: bool
+) -> list[str] | None:
+    """One model-written description per planned line, or ``None`` if the reply is unusable."""
+    try:
+        parsed = parse_model(generate_fn(_build_prompt(plan, cryptic)), _Descriptions)
+    except Exception:  # noqa: BLE001
+        return None
+    if len(parsed.descriptions) != len(plan.lines):
+        return None
+    return parsed.descriptions
+
+
 def enrich_descriptions(
     plan: InvoicePlan, *,
     generate_fn: Callable[[str], str] | None = None,
     cryptic: bool = False,
 ) -> ExtractedInvoice:
-    """Return an ExtractedInvoice from the plan.
-
-    When ``generate_fn`` is None (the default), descriptions are taken directly
-    from the plan's catalog-populated ``line.description`` values — no LLM call.
-
-    When a ``generate_fn`` is provided, it is called to generate descriptions via
-    the LLM.  On any failure or count mismatch the catalog descriptions are used
-    as the fallback (never bare placeholder strings).
-    """
-    catalog_descriptions = [l.description for l in plan.lines]
-
-    if generate_fn is None:
-        descriptions = catalog_descriptions
-    else:
-        try:
-            parsed = parse_model(generate_fn(_build_prompt(plan, cryptic)), _Descriptions)
-            descriptions = parsed.descriptions
-            if len(descriptions) != len(plan.lines):
-                raise ValueError("description count mismatch")
-        except Exception:  # noqa: BLE001 - description text is best-effort, never fatal
-            descriptions = catalog_descriptions
+    """Return an ExtractedInvoice from the plan."""
+    descriptions = [l.description for l in plan.lines]
+    if generate_fn is not None:
+        descriptions = _generated_descriptions(plan, generate_fn, cryptic) or descriptions
 
     line_items = [
         LineItem(

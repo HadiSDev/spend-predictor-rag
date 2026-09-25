@@ -8,20 +8,12 @@ import pdfplumber
 
 
 def extract_text(path: str | Path) -> str:
-    """Return the concatenated text of all pages, stripped.
-
-    Raises if the file cannot be opened/parsed as a PDF; returns "" for a
-    valid PDF that contains no extractable text.
-    """
+    """Return the concatenated text of all pages, stripped."""
     return _text_of(str(path))
 
 
 def extract_text_from_bytes(content: bytes) -> str:
-    """Same, for a PDF held in memory.
-
-    The document stage never writes the scan to disk — there is one copy and it
-    lives in the ERP — so it has bytes, not a path.
-    """
+    """Return the concatenated text of a PDF held in memory."""
     return _text_of(io.BytesIO(content))
 
 

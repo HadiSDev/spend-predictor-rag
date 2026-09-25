@@ -1,7 +1,8 @@
 """Tests for style.py: build_render_spec determinism, variety, and regime logic."""
 from __future__ import annotations
 
-import pytest
+from datetime import datetime
+
 from faker import Faker
 
 from ai_api.synthdata.render.renderer import list_templates
@@ -24,7 +25,6 @@ def _make_spec(seed: int, *, vat_regime: str = "EU"):
 
 
 def test_determinism():
-    """Same seed always yields identical spec."""
     s1 = _make_spec(42)
     s2 = _make_spec(42)
     assert s1.template_name == s2.template_name
@@ -38,7 +38,6 @@ def test_determinism():
 
 
 def test_eu_regime_has_iban_and_bank():
-    """EU regime invoices include bank name and IBAN."""
     spec = _make_spec(1, vat_regime="EU")
     assert spec.bank_name is not None
     assert spec.iban is not None
@@ -46,14 +45,12 @@ def test_eu_regime_has_iban_and_bank():
 
 
 def test_us_regime_no_iban():
-    """US regime invoices do NOT include bank/IBAN."""
     spec = _make_spec(1, vat_regime="US")
     assert spec.bank_name is None
     assert spec.iban is None
 
 
 def test_variety_across_seeds():
-    """12 different seeds produce >=4 distinct template names and >=4 distinct accents."""
     templates_seen: set[str] = set()
     accents_seen: set[str] = set()
     for seed in range(12):
@@ -62,7 +59,6 @@ def test_variety_across_seeds():
         accents_seen.add(spec.style.accent)
 
     n_available = len(list_templates())
-    # With 2 templates expect both; with more expect >=4 up to available
     expected_template_variety = min(n_available, 4)
     assert len(templates_seen) >= min(n_available, expected_template_variety), (
         f"Only {len(templates_seen)} distinct templates out of {n_available} available"
@@ -71,7 +67,6 @@ def test_variety_across_seeds():
 
 
 def test_monogram_from_initials():
-    """Monogram is derived from vendor initials."""
     Faker.seed(0)
     fake = Faker()
     fake.seed_instance(0)
@@ -88,8 +83,6 @@ def test_monogram_from_initials():
 
 
 def test_due_date_derived_from_invoice_date_and_terms():
-    """due_date is after invoice_date for any Net N terms."""
-    from datetime import datetime
     spec = _make_spec(7, vat_regime="US")
     if spec.payment_terms.startswith("Net"):
         inv_dt = datetime.strptime("2026-05-15", "%Y-%m-%d")
@@ -98,7 +91,6 @@ def test_due_date_derived_from_invoice_date_and_terms():
 
 
 def test_extra_fields_present():
-    """vendor_address and buyer_address are always non-empty strings."""
     spec = _make_spec(3)
     assert isinstance(spec.vendor_address, str) and len(spec.vendor_address) > 5
     assert isinstance(spec.buyer_address, str) and len(spec.buyer_address) > 5

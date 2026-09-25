@@ -17,7 +17,7 @@ def test_sample_render_inputs_are_deterministic_and_have_lines():
     inv2, buyer2, spec2 = validate.sample_render_inputs()
     assert inv1.vendor_name == inv2.vendor_name
     assert buyer1 == buyer2
-    assert inv1.line_items  # non-empty
+    assert inv1.line_items
 
 
 def test_good_template_passes_all_checks():
@@ -26,7 +26,7 @@ def test_good_template_passes_all_checks():
 
 
 def test_render_check_fails_on_broken_jinja():
-    broken = GOOD.replace("{% endfor %}", "")  # unbalanced tag
+    broken = GOOD.replace("{% endfor %}", "")
     reason = validate.try_render(broken)
     assert reason is not None
 
@@ -46,7 +46,7 @@ def test_lint_flags_email():
 
 
 def test_lint_flags_long_digit_run():
-    bad = GOOD.replace("{{ inv.invoice_number }}", "")  # ensure no placeholder digits
+    bad = GOOD.replace("{{ inv.invoice_number }}", "")
     bad = bad.replace("Billed to {{ buyer_name }}", "Billed to 12345678")
     assert any("digit" in r.lower() for r in validate.lint_no_real_data(bad))
 
@@ -69,7 +69,6 @@ def test_try_render_writes_preview_pdf(tmp_path):
 
 
 def test_lint_allows_retina_image_filename():
-    # A retina-style filename must NOT be mistaken for an email address.
     ok = GOOD.replace("{{ buyer_name }}", "logo design@2x file")
     assert not any("email" in r.lower() for r in validate.lint_no_real_data(ok))
 

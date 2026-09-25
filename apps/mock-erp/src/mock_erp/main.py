@@ -1,17 +1,15 @@
-"""Mock ERP API server — FastAPI app.
-
-Provides endpoints matching the e-conomic REST API shape so the
-MockErpConnector can exercise the full sync pipeline.
-"""
+"""Mock ERP API server — FastAPI app."""
 
 from __future__ import annotations
 
 import os
 from datetime import date, datetime
 
+import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
-import uvicorn
+
+from mock_erp.auth import EXPECTED_KEY
 from mock_erp.data.accounts import ACCOUNTS
 from mock_erp.data.entries import generate as generate_entries
 from mock_erp.data.invoices import generate as generate_invoices
@@ -46,7 +44,7 @@ def regenerate_data() -> None:
         "accountType": a["accountType"],
         "parentAccountNumber": a["parentAccountNumber"],
         "withVat": a.get("withVat", False),
-        "balance": round(a["accountNumber"] * 1000.0, 2),  # fake balance
+        "balance": round(a["accountNumber"] * 1000.0, 2),
     } for a in ACCOUNTS]
     _VENDORS = build_vendors()
     _INVOICES = generate_invoices(
@@ -84,9 +82,6 @@ def _paginate(
     }
 
 
-# ── Health ──────────────────────────────────────────────────────────────────
-
-
 @app.get("/api/v1/health")
 async def health() -> dict:
     return {
@@ -104,18 +99,15 @@ async def health() -> dict:
 
 
 @app.post("/api/v1/data/regenerate")
-async def regenerate(_=None) -> dict:
+async def regenerate() -> dict:
     regenerate_data()
     return {"status": "ok", "generatedAt": _GENERATED_AT}
 
 
 @app.get("/api/v1/cheaper-alternatives")
-async def cheaper_alternatives(_=None) -> dict:
+async def cheaper_alternatives() -> dict:
     """Return {expensive_vendor_number: cheap_vendor_number} pairs."""
     return _CHEAPER_ALTERNATIVES
-
-
-# ── Accounts ────────────────────────────────────────────────────────────────
 
 
 @app.get("/api/v1/accounts")
@@ -134,9 +126,6 @@ async def get_account(account_number: int) -> dict:
     raise HTTPException(status_code=404, detail="Account not found")
 
 
-# ── Vendors ─────────────────────────────────────────────────────────────────
-
-
 @app.get("/api/v1/vendors")
 async def list_vendors(
     page: int = Query(1, ge=1),
@@ -153,9 +142,6 @@ async def get_vendor(vendor_number: int) -> dict:
     raise HTTPException(status_code=404, detail="Vendor not found")
 
 
-# ── Purchase invoices ───────────────────────────────────────────────────────
-
-
 @app.get("/api/v1/purchase-invoices")
 async def list_invoices(
     page: int = Query(1, ge=1),
@@ -170,9 +156,6 @@ async def get_invoice(invoice_number: int) -> dict:
         if inv["purchaseInvoiceNumber"] == invoice_number:
             return inv
     raise HTTPException(status_code=404, detail="Invoice not found")
-
-
-# ── Entries (GL postings) ────────────────────────────────────────────────────
 
 
 @app.get("/api/v1/entries")
@@ -194,16 +177,9 @@ async def list_entries(
     return _paginate(collection, page, pageSize)
 
 
-# ── Documents ───────────────────────────────────────────────────────────────
-
-
 @app.get("/api/v1/documents/{voucher_id}")
 async def get_document(voucher_id: str) -> Response:
-    """The scanned invoice for a voucher, as a PDF.
-
-    Vouchers that are not purchase invoices (payments, journal entries) have no
-    document and 404 — the same distinction `fetch_invoice_scan` already makes.
-    """
+    """The scanned invoice for a voucher, as a PDF."""
     match = next(
         (inv for inv in _INVOICES if str(inv.get("voucherId")) == str(voucher_id)),
         None,
@@ -218,9 +194,6 @@ async def get_document(voucher_id: str) -> Response:
     )
 
 
-# ── Auth wrapper (optional — /api/v1/* routes behind verify_auth) ──────────
-
-
 @app.middleware("http")
 async def auth_middleware(request, call_next):
     if request.url.path.startswith("/api/v1/") and request.url.path not in (
@@ -229,10 +202,10 @@ async def auth_middleware(request, call_next):
         "/openapi.json",
     ):
         token = request.headers.get("x-app-secret-token")
-        if token != "mock-secret":
+        if token != EXPECTED_KEY:
             return JSONResponse(status_code=401, content={"detail": "Invalid token"})
     return await call_next(request)
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run("mock_erp.main:app", host="0.0.0.0", port=8001, reload=False)

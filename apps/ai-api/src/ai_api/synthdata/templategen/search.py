@@ -1,18 +1,16 @@
-"""DuckDuckGo image search + download for invoice design references.
-
-Network primitives are module-level defaults (pragma: no cover); callers inject
-fakes in tests. Best-effort: a failed search or download is skipped, never fatal.
-"""
+"""DuckDuckGo image search + download for invoice design references."""
 from __future__ import annotations
 
 import logging
 import re
+import urllib.request
 from pathlib import Path
 from typing import Callable
 
+from ddgs import DDGS
+
 log = logging.getLogger(__name__)
 
-# Preset queries covering the invoice archetypes the generator renders.
 PRESETS: dict[str, str] = {
     "eu_vat": "european vat invoice template",
     "us_net30": "us business invoice template net 30",
@@ -28,20 +26,16 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "x"
 
 
-def _ddg_image_search(query: str, n: int) -> list[str]:  # pragma: no cover - network
+def _ddg_image_search(query: str, n: int) -> list[str]:  # pragma: no cover
     """Return up to `n` image URLs for `query` via keyless DuckDuckGo image search."""
     try:
-        from ddgs import DDGS
-
         return [r["image"] for r in DDGS().images(query, max_results=n)]
-    except Exception:  # noqa: BLE001 - degrade to no results
+    except Exception:  # noqa: BLE001
         return []
 
 
-def _download(url: str, dest: Path) -> bool:  # pragma: no cover - network
+def _download(url: str, dest: Path) -> bool:  # pragma: no cover
     """Download `url` to `dest`. Return True on success, False on any failure."""
-    import urllib.request
-
     try:
         with urllib.request.urlopen(url, timeout=30) as resp:
             data = resp.read()
@@ -49,7 +43,7 @@ def _download(url: str, dest: Path) -> bool:  # pragma: no cover - network
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
         return True
-    except Exception:  # noqa: BLE001 - best-effort
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -59,8 +53,7 @@ def search_references(
     search_fn: Callable[[str, int], list[str]] = _ddg_image_search,
     download_fn: Callable[[str, Path], bool] = _download,
 ) -> list[Path]:
-    """Search each query and download up to `n` images each into
-    ``out_dir/_refs/<slug>/<i>.jpg``. Return the downloaded paths."""
+    """Download up to `n` images per query into ``out_dir/_refs/<slug>/``."""
     out_dir = Path(out_dir)
     downloaded: list[Path] = []
     for query in queries:

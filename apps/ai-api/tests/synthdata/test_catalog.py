@@ -1,4 +1,3 @@
-# apps/ai-api/tests/synthdata/test_catalog.py
 """Tests for the deterministic item catalog."""
 from faker import Faker
 
@@ -27,10 +26,6 @@ _SAMPLE_ACCOUNT = {
 }
 
 
-# ---------------------------------------------------------------------------
-# ITEM_CATALOG coverage
-# ---------------------------------------------------------------------------
-
 def test_catalog_covers_all_18_accounts():
     assert set(_ALL_CODES) <= set(ITEM_CATALOG.keys()), (
         f"Missing codes: {set(_ALL_CODES) - set(ITEM_CATALOG.keys())}"
@@ -41,10 +36,6 @@ def test_catalog_has_at_least_8_templates_per_account():
     for code in _ALL_CODES:
         assert len(ITEM_CATALOG[code]) >= 8, f"Code {code} has fewer than 8 templates"
 
-
-# ---------------------------------------------------------------------------
-# line_descriptions
-# ---------------------------------------------------------------------------
 
 def _seeded_faker(seed: int = 42) -> Faker:
     Faker.seed(seed)
@@ -67,7 +58,6 @@ def test_line_descriptions_all_non_empty():
 
 
 def test_line_descriptions_variety_within_draw():
-    """20 draws from one account should yield >=10 distinct descriptions."""
     fake = _seeded_faker(3)
     result = line_descriptions("6020", 20, fake)
     assert len(set(result)) >= 10, (
@@ -76,7 +66,6 @@ def test_line_descriptions_variety_within_draw():
 
 
 def test_line_descriptions_all_accounts_work():
-    """All 18 account codes must produce non-empty results without error."""
     fake = _seeded_faker(4)
     for code in _ALL_CODES:
         result = line_descriptions(code, 3, fake)
@@ -89,7 +78,6 @@ def test_line_descriptions_unknown_code_falls_back_gracefully():
     result = line_descriptions("9999", 2, fake)
     assert len(result) == 2
     assert all(desc for desc in result)
-    # should not produce bare "item N"
     for desc in result:
         assert desc.lower() != "item 1" and desc.lower() != "item 2"
 
@@ -100,10 +88,6 @@ def test_line_descriptions_is_seed_deterministic():
     assert a == b
 
 
-# ---------------------------------------------------------------------------
-# vendor_name
-# ---------------------------------------------------------------------------
-
 def test_vendor_name_is_non_empty():
     fake = _seeded_faker(10)
     name = vendor_name(_SAMPLE_ACCOUNT, fake)
@@ -111,7 +95,6 @@ def test_vendor_name_is_non_empty():
 
 
 def test_vendor_name_variety():
-    """10 draws should yield >=8 distinct vendor names (not all identical)."""
     names = [vendor_name(_SAMPLE_ACCOUNT, _seeded_faker(i)) for i in range(10)]
     assert len(set(names)) >= 8, f"Only {len(set(names))} distinct names: {names}"
 
@@ -123,7 +106,6 @@ def test_vendor_name_is_seed_deterministic():
 
 
 def test_vendor_name_all_accounts():
-    """vendor_name must not raise for any of the 18 account codes."""
     for code in _ALL_CODES:
         acct = {**_SAMPLE_ACCOUNT, "account_code": code}
         name = vendor_name(acct, _seeded_faker(0))
@@ -132,6 +114,5 @@ def test_vendor_name_all_accounts():
 
 def test_vendor_name_legal_style():
     acct = {**_SAMPLE_ACCOUNT, "account_code": "6610"}
-    # Legal cluster always uses "X & Y Suffix" style
     names = [vendor_name(acct, _seeded_faker(i)) for i in range(5)]
     assert all("&" in n for n in names), f"Expected '&' in all legal names: {names}"

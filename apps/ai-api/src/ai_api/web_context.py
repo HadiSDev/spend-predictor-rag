@@ -1,14 +1,13 @@
-"""External web context for categorization: buyer-website scrape + product search.
-
-Both lookups are cached to disk and accept injected primitives so unit tests run
-offline. Failures degrade to empty context (never fatal).
-"""
+"""External web context for categorization: buyer-website scrape + product search."""
 from __future__ import annotations
 
 import hashlib
 import re
 from pathlib import Path
 from typing import Callable
+
+from crewai_tools import ScrapeWebsiteTool
+from ddgs import DDGS
 
 from . import config
 
@@ -34,25 +33,19 @@ def _write_cache(cache_dir: str, key: str, value: str) -> None:
     path.write_text(value, encoding="utf-8")
 
 
-# --- primitives (replaceable in tests) -------------------------------------
-
 def _scrape(url: str) -> str:
     """Scrape a website's text with CrewAI's keyless ScrapeWebsiteTool."""
     try:
-        from crewai_tools import ScrapeWebsiteTool
-
         return ScrapeWebsiteTool(website_url=url).run() or ""
-    except Exception:  # noqa: BLE001 - degrade to no context
+    except Exception:  # noqa: BLE001
         return ""
 
 
 def _ddg_search(query: str) -> list[dict]:
     """Keyless DuckDuckGo text search; returns [{title, body, href}, ...]."""
     try:
-        from ddgs import DDGS
-
         return list(DDGS().text(query, max_results=config.PRODUCT_SEARCH_MAX_RESULTS))
-    except Exception:  # noqa: BLE001 - degrade to no results
+    except Exception:  # noqa: BLE001
         return []
 
 
@@ -65,7 +58,7 @@ def _summarize_buyer(name: str, text: str) -> str:
     )
     try:
         return config.get_llm().call(messages=[{"role": "user", "content": prompt}]).strip()
-    except Exception:  # noqa: BLE001 - degrade to no context
+    except Exception:  # noqa: BLE001
         return f"No website context available for '{name}'."
 
 
@@ -77,11 +70,9 @@ def _summarize_products(items_with_snippets: list[tuple[str, str]]) -> str:
     )
     try:
         return config.get_llm().call(messages=[{"role": "user", "content": prompt}]).strip()
-    except Exception:  # noqa: BLE001 - degrade to plain listing
+    except Exception:  # noqa: BLE001
         return "PRODUCTS:\n" + "\n".join(f"- {d}: {s}" for d, s in items_with_snippets)
 
-
-# --- public API ------------------------------------------------------------
 
 def get_buyer_context(
     name: str | None = None,
@@ -131,13 +122,7 @@ def get_product_context(
 
 
 def _summarize_supplier(name: str, snippets: str) -> str:
-    """One or two sentences on what a supplier sells.
-
-    Deliberately narrow. The `vendors` table is a **global** catalog, so this
-    text is read by every tenant that has ever bought from this supplier: it may
-    describe the supplier's trade and nothing else — no buyer, no relationship,
-    no amounts.
-    """
+    """One or two sentences on what a supplier sells."""
     if not snippets.strip() or snippets == "no info found":
         return ""
     prompt = (
@@ -149,7 +134,7 @@ def _summarize_supplier(name: str, snippets: str) -> str:
     )
     try:
         note = config.get_llm().call(messages=[{"role": "user", "content": prompt}]).strip()
-    except Exception:  # noqa: BLE001 - degrade to no context
+    except Exception:  # noqa: BLE001
         return ""
     return "" if note.upper().startswith("UNKNOWN") else note
 
@@ -162,16 +147,7 @@ def get_supplier_context(
     summarize_fn: Callable[[str, str], str] = _summarize_supplier,
     cache_dir: str | None = None,
 ) -> str:
-    """What this supplier sells, from a web search of its name (cached).
-
-    A search rather than a scrape, which is what separates this from
-    :func:`get_buyer_context`: we know the buyer's website because it is
-    configured, and we know nothing about a supplier but the name an ERP printed.
-
-    Returns ``""`` when nothing usable was found — never a placeholder sentence.
-    A stored "no information available for X" would be indistinguishable from a
-    real description to every later reader, including the categorizer's prompt.
-    """
+    """What this supplier sells, from a web search of its name (cached)."""
     if not (name or "").strip():
         return ""
     cache_dir = config.WEB_CONTEXT_CACHE_DIR if cache_dir is None else cache_dir

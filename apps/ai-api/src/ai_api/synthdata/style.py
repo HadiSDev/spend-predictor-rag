@@ -1,26 +1,21 @@
-# apps/ai-api/src/ai_api/synthdata/style.py
 """Per-invoice render style + extra fields, built deterministically from a seeded Faker."""
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from faker import Faker
+from faker import Faker
 
-# ---------------------------------------------------------------------------
-# Palette / font options
-# ---------------------------------------------------------------------------
 _ACCENT_PALETTE = [
-    "#2b6cb0",  # steel blue
-    "#276749",  # forest green
-    "#c05621",  # burnt orange
-    "#6b46c1",  # deep purple
-    "#b7791f",  # amber
-    "#2c7a7b",  # teal
-    "#9b2335",  # crimson
-    "#1a365d",  # navy
+    "#2b6cb0",
+    "#276749",
+    "#c05621",
+    "#6b46c1",
+    "#b7791f",
+    "#2c7a7b",
+    "#9b2335",
+    "#1a365d",
 ]
 
 _FONT_STACKS = [
@@ -38,9 +33,9 @@ _DATE_FORMATS = [
 ]
 
 _NUMBER_FORMATS = [
-    "comma",   # 1,234.56
-    "period",  # 1.234,56  (European style)
-    "space",   # 1 234.56
+    "comma",
+    "period",
+    "space",
 ]
 
 _PAYMENT_TERMS = ["Net 15", "Net 30", "Net 45", "Net 60", "Due on Receipt", "EOM"]
@@ -59,25 +54,20 @@ _EU_COUNTRY_IBAN_PREFIX = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Dataclasses
-# ---------------------------------------------------------------------------
-
 @dataclass
 class RenderStyle:
-    accent: str          # hex color
-    font_stack: str      # CSS font-family string
+    accent: str
+    font_stack: str
     show_logo: bool
-    monogram: str        # vendor initials (2–3 chars)
-    date_format: str     # strftime pattern
-    number_format: str   # "comma" | "period" | "space"
+    monogram: str
+    date_format: str
+    number_format: str
 
 
 @dataclass
 class RenderSpec:
     template_name: str
     style: RenderStyle
-    # Extra fields — render-only distractors
     vendor_address: str
     buyer_address: str
     po_number: str | None
@@ -88,10 +78,6 @@ class RenderSpec:
     notes: str | None
 
 
-# ---------------------------------------------------------------------------
-# Builder
-# ---------------------------------------------------------------------------
-
 def _monogram(name: str) -> str:
     """Return up to 3 uppercase initials from the vendor name words."""
     words = [w for w in name.split() if w.isalpha()]
@@ -99,9 +85,9 @@ def _monogram(name: str) -> str:
     return initials or name[:2].upper()
 
 
-def _fake_iban(fake: "Faker", country_code: str) -> str:
+def _fake_iban(fake: Faker, country_code: str) -> str:
     prefix, length = _EU_COUNTRY_IBAN_PREFIX.get(country_code, ("EU", 20))
-    digits_needed = length - len(prefix) - 2  # 2 check digits
+    digits_needed = length - len(prefix) - 2
     digits = fake.numerify("#" * digits_needed)
     check = fake.numerify("##")
     return f"{prefix}{check}{digits}"
@@ -112,9 +98,9 @@ def _add_net_days(date_str: str, terms: str) -> str:
     try:
         base = datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
-        return date_str  # fallback: return as-is
+        return date_str
 
-    net_days = 30  # default
+    net_days = 30
     for word in terms.split():
         if word.isdigit():
             net_days = int(word)
@@ -122,19 +108,15 @@ def _add_net_days(date_str: str, terms: str) -> str:
     if "Receipt" in terms:
         net_days = 0
     if "EOM" in terms:
-        # End of current month
-        if base.month == 12:
-            due = base.replace(year=base.year + 1, month=1, day=1) - timedelta(days=1)
-        else:
-            due = base.replace(month=base.month + 1, day=1) - timedelta(days=1)
-        return due.strftime("%Y-%m-%d")
+        last_day = calendar.monthrange(base.year, base.month)[1]
+        return base.replace(day=last_day).strftime("%Y-%m-%d")
 
     due = base + timedelta(days=net_days)
     return due.strftime("%Y-%m-%d")
 
 
 def build_render_spec(
-    faker: "Faker",
+    faker: Faker,
     *,
     vendor_name: str,
     buyer_name: str,
@@ -157,9 +139,7 @@ def build_render_spec(
     payment_terms = faker.random_element(_PAYMENT_TERMS)
     due_date = _add_net_days(invoice_date, payment_terms)
 
-    # IBAN / bank only for EU regime
     if vat_regime == "EU":
-        # pick a supplier country from the EU pool deterministically
         supplier_cc = faker.random_element(sorted(_EU_COUNTRY_IBAN_PREFIX.keys()))
         bank_name: str | None = faker.random_element(_EU_BANKS)
         iban: str | None = _fake_iban(faker, supplier_cc)
@@ -167,12 +147,10 @@ def build_render_spec(
         bank_name = None
         iban = None
 
-    # PO number ~60 % of the time
     po_number: str | None = (
         f"PO-{faker.numerify('######')}" if faker.boolean(chance_of_getting_true=60) else None
     )
 
-    # Notes ~80 % of the time (4 out of 5 options are non-None)
     notes_options = [
         "Please quote invoice number with payment.",
         "Late payment subject to 2% monthly interest.",

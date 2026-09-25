@@ -1,4 +1,3 @@
-# apps/ai-api/tests/synthdata/test_sampler.py
 from ai_api.synthdata.sampler import InvoicePlan, sample_plans
 
 _ACCOUNTS = [
@@ -22,7 +21,7 @@ def test_each_plan_reconciles_and_has_single_account():
         line_sum = round(sum(l.amount for l in p.lines), 2)
         assert line_sum == round(p.subtotal, 2)
         assert round(p.subtotal + p.tax, 2) == round(p.total, 2)
-        assert p.account in _ACCOUNTS  # exactly one chart account drives the invoice
+        assert p.account in _ACCOUNTS
         assert p.level_1 in {"Direct", "Indirect"}
         assert all(l.description for l in p.lines)
 
@@ -31,7 +30,7 @@ def test_vat_regime_controls_vat_and_country_fields():
     plans = sample_plans(40, seed=3, accounts=_ACCOUNTS)
     eu = [p for p in plans if p.vat_regime == "EU"]
     us = [p for p in plans if p.vat_regime == "US"]
-    assert eu and us  # both regimes appear
+    assert eu and us
     for p in eu:
         assert p.tax > 0 and p.supplier_vat_number and p.buyer_country_code
         assert all(l.vat_rate and l.vat_code for l in p.lines)

@@ -20,7 +20,6 @@ def _fake_download(url, dest):
 
 
 def test_author_stages_passing_and_rejected_and_writes_report(tmp_path):
-    # First image -> good HTML, second -> a draft that fails lint (an email).
     responses = iter([
         f"```html\n{GOOD}\n```",
         f"```html\n{GOOD.replace('{{ buyer_name }}', 'a@b.com')}\n```",
@@ -58,6 +57,5 @@ def test_author_survives_vision_error_on_one_image(tmp_path):
         ["q"], tmp_path, n=2,
         search_fn=_fake_search, download_fn=_fake_download, generate_fn=fake_generate,
     )
-    # one image produced no draft (skipped), one produced a passing template
     assert any(o.ok for o in outcomes)
     assert (tmp_path / "report.md").exists()

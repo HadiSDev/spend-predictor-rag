@@ -1,12 +1,4 @@
-"""CLI for the vendor-enrichment stage.
-
-    python -m ai_api.enrichment.runner [--company-id ID] [--limit N]
-
-Discovers its work from the database, like every other stage here: the vendors
-with nothing said about them. It is a no-op unless ``VENDOR_ENRICHMENT_ENABLED``
-is set, and says so rather than exiting silently — a stage that reaches the
-public web should never do it because somebody forgot it could.
-"""
+"""CLI for the vendor-enrichment stage."""
 from __future__ import annotations
 
 import argparse
@@ -59,8 +51,6 @@ def main(argv: list[str] | None = None) -> int:
     print("\n=== vendor enrichment ===")
     for key, value in result.as_dict.items():
         print(f"{key}: {value}")
-    # Not describing a supplier is an ordinary outcome, not a failure: plenty of
-    # small suppliers have no web presence to find. Nothing here exits non-zero.
     return 0
 
 

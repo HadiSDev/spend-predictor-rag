@@ -21,25 +21,22 @@ def test_enrich_fills_descriptions_and_preserves_labels():
 
     assert isinstance(inv, ExtractedInvoice)
     assert [li.description for li in inv.line_items] == [f"Item {i}" for i in range(len(plan.lines))]
-    # numeric/label fields come straight from the plan, untouched by the LLM
     assert inv.total == plan.total and inv.subtotal == plan.subtotal
     assert inv.vendor_name == plan.vendor_name
     assert len(inv.line_items) == len(plan.lines)
     assert inv.line_items[0].amount == plan.lines[0].amount
-    assert "Cloud Hosting & Infrastructure" in captured["prompt"]  # account context given
+    assert "Cloud Hosting & Infrastructure" in captured["prompt"]
 
 
 def test_enrich_falls_back_when_count_mismatch():
     plan = sample_plans(1, seed=5, accounts=_ACCOUNTS)[0]
 
     def bad_generate(prompt: str) -> str:
-        return '{"descriptions": ["only one"]}'  # wrong count
+        return '{"descriptions": ["only one"]}'
 
     inv = enrich_descriptions(plan, generate_fn=bad_generate)
-    # falls back to catalog descriptions from the plan, never crashes
     assert len(inv.line_items) == len(plan.lines)
     assert all(li.description for li in inv.line_items)
-    # fallback uses catalog descriptions (from plan.lines[i].description)
     expected = [l.description for l in plan.lines]
     assert [li.description for li in inv.line_items] == expected
 
@@ -53,34 +50,28 @@ def test_enrich_falls_back_on_unparseable_output():
     inv = enrich_descriptions(plan, generate_fn=junk_generate)
     assert len(inv.line_items) == len(plan.lines)
     assert all(li.description for li in inv.line_items)
-    # fallback uses the catalog descriptions, not "account_name item N"
     expected = [l.description for l in plan.lines]
     assert [li.description for li in inv.line_items] == expected
 
 
 def test_enrich_default_no_llm_uses_catalog_descriptions():
-    """With generate_fn=None (default), descriptions come from plan.lines[i].description."""
     plan = sample_plans(1, seed=42, accounts=_ACCOUNTS)[0]
 
-    # Verify plan has catalog descriptions already populated
     assert all(l.description for l in plan.lines)
 
-    inv = enrich_descriptions(plan)  # generate_fn defaults to None
+    inv = enrich_descriptions(plan)
 
     assert isinstance(inv, ExtractedInvoice)
     assert len(inv.line_items) == len(plan.lines)
-    # All descriptions must match the plan's catalog descriptions exactly
     for i, (li, line) in enumerate(zip(inv.line_items, plan.lines)):
         assert li.description == line.description, (
             f"Line {i}: expected '{line.description}', got '{li.description}'"
         )
-    # Numeric fields preserved
     assert inv.total == plan.total
     assert inv.vendor_name == plan.vendor_name
 
 
 def test_enrich_default_descriptions_are_not_bare_placeholder():
-    """Default path must not produce 'account_name item N' strings."""
     plan = sample_plans(1, seed=7, accounts=_ACCOUNTS)[0]
     inv = enrich_descriptions(plan)
     for li in inv.line_items:

@@ -1,4 +1,3 @@
-# apps/ai-api/src/ai_api/synthdata/sampler.py
 """Seeded sampler that builds InvoicePlans (all ground-truth labels, no LLM)."""
 from __future__ import annotations
 
@@ -7,7 +6,8 @@ from dataclasses import dataclass
 from faker import Faker
 
 from ..rag.indexer import load_accounts
-from .catalog import line_descriptions as _line_descriptions, vendor_name as _vendor_name
+from .catalog import line_descriptions as _line_descriptions
+from .catalog import vendor_name as _vendor_name
 from .profiles import PROFILES, BuyerProfile, level_1_for
 from .render.renderer import list_templates
 from .style import RenderSpec, build_render_spec
@@ -32,7 +32,7 @@ class LinePlan:
 class InvoicePlan:
     buyer: BuyerProfile
     account: dict
-    vat_regime: str  # "EU" | "US"
+    vat_regime: str
     currency: str
     vendor_name: str
     invoice_number: str

@@ -1,9 +1,4 @@
-"""Standard e-conomic-style chart of accounts for the mock ERP.
-
-``withVat`` marks whether the account is configured with VAT. Expense/COGS
-accounts are with-VAT; balance-sheet and income accounts are without-VAT, so the
-flag is meaningfully mixed.
-"""
+"""Standard e-conomic-style chart of accounts for the mock ERP."""
 
 
 def _with_vat(account_type: str) -> bool:
@@ -11,18 +6,13 @@ def _with_vat(account_type: str) -> bool:
 
 
 _RAW: list[dict] = [
-    # Assets (1xxx)
     {"accountNumber": 1000, "name": "Cash", "accountType": "asset", "parentAccountNumber": None},
     {"accountNumber": 1100, "name": "Accounts Receivable", "accountType": "asset", "parentAccountNumber": None},
     {"accountNumber": 1200, "name": "Inventory", "accountType": "asset", "parentAccountNumber": None},
-    # Liabilities (2xxx)
     {"accountNumber": 2100, "name": "Accounts Payable", "accountType": "liability", "parentAccountNumber": None},
     {"accountNumber": 2200, "name": "VAT Payable", "accountType": "liability", "parentAccountNumber": None},
-    # Income (3xxx)
     {"accountNumber": 3000, "name": "Revenue", "accountType": "income", "parentAccountNumber": None},
-    # Direct costs / COGS (4xxx)
     {"accountNumber": 4000, "name": "Cost of Goods Sold", "accountType": "expense", "parentAccountNumber": None},
-    # Operating expenses (6xxx-8xxx)
     {"accountNumber": 6010, "name": "Cloud Hosting & Infrastructure", "accountType": "expense", "parentAccountNumber": 6000},
     {"accountNumber": 6015, "name": "Third-Party APIs & Data", "accountType": "expense", "parentAccountNumber": 6000},
     {"accountNumber": 6020, "name": "Software Subscriptions", "accountType": "expense", "parentAccountNumber": 6000},
@@ -46,3 +36,11 @@ _RAW: list[dict] = [
 ACCOUNTS: list[dict] = [
     {**a, "withVat": _with_vat(a["accountType"])} for a in _RAW
 ]
+
+
+def account_name(account_number: int) -> str:
+    """The chart name of ``account_number``, or ``"Unknown"``."""
+    for account in ACCOUNTS:
+        if account["accountNumber"] == account_number:
+            return account["name"]
+    return "Unknown"

@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from ai_api.synthdata.templategen import draft
 
@@ -12,7 +11,6 @@ def test_load_exemplar_contains_core_placeholders():
 def test_build_prompt_includes_exemplar_and_no_real_data_rule():
     prompt = draft.build_prompt("<EXEMPLAR-HTML/>")
     assert "<EXEMPLAR-HTML/>" in prompt
-    # The contract and the safety rule must be stated.
     assert "placeholder" in prompt.lower()
     assert "do not" in prompt.lower() or "never" in prompt.lower()
 
@@ -44,7 +42,6 @@ def test_draft_template_passes_prompt_and_image_to_generate_fn(tmp_path):
     html = draft.draft_template(img, generate_fn=fake_generate)
     assert "inv.vendor_name" in html
     assert seen["image_path"] == img
-    # exemplar contract must be in the prompt
     assert "inv.line_items" in seen["prompt"]
 
 

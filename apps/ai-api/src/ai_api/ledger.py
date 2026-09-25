@@ -7,8 +7,6 @@ from pathlib import Path
 
 from .models import CategorizedInvoice, ExtractedInvoice, VerificationResult
 
-# Serializes ledger writes so concurrent invoice flows can't interleave rows or
-# both write the header. The header decision must also happen under the lock.
 _write_lock = threading.Lock()
 
 LEDGER_COLUMNS = [
@@ -35,6 +33,15 @@ LEDGER_COLUMNS = [
 ]
 
 
+def _unprocessed_row(source_file: str, status: str, reason: str, buyer_name: str) -> dict:
+    row = {col: "" for col in LEDGER_COLUMNS}
+    row["source_file"] = source_file
+    row["status"] = status
+    row["notes"] = reason
+    row["buyer_name"] = buyer_name
+    return row
+
+
 def build_ledger_row(
     *,
     source_file: str,
@@ -50,20 +57,10 @@ def build_ledger_row(
 ) -> dict:
     """Build a ledger row dict from flow results."""
     if skipped:
-        row = {col: "" for col in LEDGER_COLUMNS}
-        row["source_file"] = source_file
-        row["status"] = "skipped"
-        row["notes"] = skip_reason
-        row["buyer_name"] = buyer_name
-        return row
+        return _unprocessed_row(source_file, "skipped", skip_reason, buyer_name)
 
     if errored:
-        row = {col: "" for col in LEDGER_COLUMNS}
-        row["source_file"] = source_file
-        row["status"] = "error"
-        row["notes"] = error_reason
-        row["buyer_name"] = buyer_name
-        return row
+        return _unprocessed_row(source_file, "error", error_reason, buyer_name)
 
     note_parts: list[str] = []
     if verification and verification.discrepancies:

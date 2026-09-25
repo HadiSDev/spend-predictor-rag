@@ -1,15 +1,15 @@
-"""Draft a Jinja2 invoice template from a reference image via the vision LLM.
-
-The vision call is the module default (pragma: no cover); tests inject a fake
-`generate_fn`. The model is told to reproduce layout/styling only and to use the
-Jinja placeholders from the exemplar contract — never any real data.
-"""
+"""Draft a Jinja2 invoice template from a reference image via the vision LLM."""
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import re
+import urllib.request
 from pathlib import Path
 from typing import Callable
+
+from ... import config
 
 log = logging.getLogger(__name__)
 
@@ -53,8 +53,6 @@ def extract_html(response: str) -> str | None:
     m = _BARE_RE.search(response)
     if m:
         matched = m.group(1)
-        # If </html> exists in the match, truncate to just after it (inclusive).
-        # Otherwise, keep the entire match (to end of string).
         close_tag_idx = matched.lower().rfind("</html>")
         if close_tag_idx != -1:
             matched = matched[:close_tag_idx + len("</html>")]
@@ -62,14 +60,8 @@ def extract_html(response: str) -> str | None:
     return None
 
 
-def _default_vision_generate(prompt: str, image_path: Path) -> str:  # pragma: no cover - live
+def _default_vision_generate(prompt: str, image_path: Path) -> str:  # pragma: no cover
     """POST the prompt + image to the local OpenAI-compatible vLLM endpoint."""
-    import base64
-    import json
-    import urllib.request
-
-    from ... import config
-
     b64 = base64.b64encode(Path(image_path).read_bytes()).decode("ascii")
     body = json.dumps({
         "model": config.VLLM_MODEL.replace("hosted_vllm/", ""),
@@ -101,7 +93,7 @@ def draft_template(
     prompt = build_prompt(exemplar_html)
     try:
         response = generate_fn(prompt, image_path)
-    except Exception:  # noqa: BLE001 - best-effort
+    except Exception:  # noqa: BLE001
         log.warning("vision generate failed for %s", image_path)
         return None
     html = extract_html(response)

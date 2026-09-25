@@ -17,7 +17,7 @@ def test_valid_code_enriched_from_chart_keeps_model_l1():
     assert grounded.account_code == "6020"
     assert grounded.account_name == "Software Subscriptions"
     assert grounded.level_2 == "Technology" and grounded.level_3 == "SaaS & Licenses"
-    assert grounded.level_1 == "Direct"  # from the model, not the chart
+    assert grounded.level_1 == "Direct"
     assert note == ""
 
 

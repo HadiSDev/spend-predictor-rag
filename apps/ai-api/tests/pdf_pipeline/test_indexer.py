@@ -55,7 +55,6 @@ def test_retrieve_accounts_returns_most_relevant_first(tmp_path, memory_client):
 
 
 def test_retrieve_is_tenant_scoped(tmp_path, memory_client):
-    """A tenant with no index returns nothing — no cross-tenant leakage."""
     coa = tmp_path / "coa.csv"
     _write_coa(coa)
     indexer.build_index(csv_path=str(coa), tenant_id="acme", embed_fn=fake_embed)
@@ -68,7 +67,6 @@ def test_build_index_skips_empty_chart(tmp_path, memory_client):
     with open(coa, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["account_code", "account_name", "level_2", "level_3", "description"])
         w.writeheader()
-    # No crash on empty chart, and no collection is created.
     indexer.build_index(csv_path=str(coa), tenant_id="acme", embed_fn=fake_embed)
     assert indexer.retrieve_accounts("anything", tenant_id="acme", embed_fn=fake_embed) == []
 
@@ -85,4 +83,4 @@ def test_build_index_is_idempotent(tmp_path, memory_client):
 
     indexer.build_index(csv_path=str(coa), tenant_id="acme", embed_fn=counting_embed)
     indexer.build_index(csv_path=str(coa), tenant_id="acme", embed_fn=counting_embed)
-    assert calls["n"] == 1  # second build is a no-op
+    assert calls["n"] == 1

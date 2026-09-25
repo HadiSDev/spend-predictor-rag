@@ -1,10 +1,4 @@
-"""Orchestrate: search -> draft -> validate -> stage drafts for human review.
-
-Writes passing templates to ``out_dir/<name>.html`` (+ a ``<name>.pdf`` preview),
-failing ones to ``out_dir/_rejected/<name>.html`` (+ ``<name>.reason.txt``), and a
-``report.md`` summary. Nothing is written into render/templates/ — a human moves
-approved templates over manually.
-"""
+"""Orchestrate: search -> draft -> validate -> stage drafts for human review."""
 from __future__ import annotations
 
 import argparse
@@ -28,7 +22,6 @@ class DraftOutcome:
 
 
 def _name_for(ref: Path) -> str:
-    # ref is out_dir/_refs/<query-slug>/<i>.jpg  ->  "<query-slug>-<i>"
     return f"{ref.parent.name}-{ref.stem}"
 
 

@@ -1,4 +1,3 @@
-# apps/ai-api/tests/synthdata/test_erp.py
 from ai_api.models import ExtractedInvoice, LineItem
 from ai_api.synthdata.erp import build_journal
 
@@ -15,11 +14,11 @@ def test_journal_balances_with_vat():
     assert round(sum(e.debit for e in j), 2) == round(sum(e.credit for e in j), 2) == 125.0
     expense = next(e for e in j if e.account_code == "6010")
     assert expense.debit == 100.0
-    assert any(e.account_code == "1300" and e.debit == 25.0 for e in j)   # VAT input
-    assert any(e.account_code == "2000" and e.credit == 125.0 for e in j)  # AP
+    assert any(e.account_code == "1300" and e.debit == 25.0 for e in j)
+    assert any(e.account_code == "2000" and e.credit == 125.0 for e in j)
 
 
 def test_journal_balances_without_vat():
     j = build_journal(_invoice(0.0), "6800", "Travel - Airfare")
     assert round(sum(e.debit for e in j), 2) == round(sum(e.credit for e in j), 2) == 100.0
-    assert not any(e.account_code == "1300" for e in j)  # no VAT line when tax is 0
+    assert not any(e.account_code == "1300" for e in j)

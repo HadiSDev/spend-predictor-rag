@@ -12,7 +12,6 @@ def test_level_1_depends_on_buyer_business():
         vat_number="DE222222222", business_description="Corporate law firm.",
         direct_level_2=frozenset({"Professional Services"}),
     )
-    # Same account (Technology) is Direct for the SaaS buyer, Indirect for the firm.
     assert level_1_for(saas, "Technology") == "Direct"
     assert level_1_for(law, "Technology") == "Indirect"
     assert level_1_for(law, "Professional Services") == "Direct"

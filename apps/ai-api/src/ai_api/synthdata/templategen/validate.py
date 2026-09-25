@@ -1,5 +1,4 @@
-"""Validate a drafted template: renders cleanly + has the contract placeholders
-+ contains no real data. Used to gate drafts before a human reviews them."""
+"""Validate a drafted template: clean render, contract placeholders, no real data."""
 from __future__ import annotations
 
 import re
@@ -7,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from jinja2 import Environment, select_autoescape
+from weasyprint import HTML
 
 from ...models import ExtractedInvoice
 from ..content import enrich_descriptions
@@ -23,7 +23,7 @@ class ValidationResult:
 def sample_render_inputs() -> tuple[ExtractedInvoice, str, RenderSpec]:
     """Deterministic (invoice, buyer_name, render_spec) for rendering — no LLM."""
     plan = sample_plans(1, seed=0)[0]
-    invoice = enrich_descriptions(plan)  # generate_fn=None -> catalog text, no LLM
+    invoice = enrich_descriptions(plan)
     return invoice, plan.buyer.name, plan.render
 
 
@@ -36,13 +36,12 @@ def try_render(html: str, out_path: Path | None = None) -> str | None:
             inv=invoice, buyer_name=buyer_name,
             style=render_spec.style, extras=render_spec,
         )
-        from weasyprint import HTML  # local import keeps module light
         pdf = HTML(string=rendered).write_pdf()
         if out_path is not None:
             out_path = Path(out_path)
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_bytes(pdf)
-    except Exception as exc:  # noqa: BLE001 - reason is the message
+    except Exception as exc:  # noqa: BLE001
         return f"render failed: {exc}"
     return None
 
@@ -70,11 +69,8 @@ _JINJA_RE = re.compile(r"{{.*?}}|{%.*?%}", re.DOTALL)
 def lint_no_real_data(html: str) -> list[str]:
     """Reasons for any sign of copied real data."""
     reasons: list[str] = []
-    # Image-URL / embedded-logo check runs on the FULL html (CSS included).
     if _IMG_URL_RE.search(html):
         reasons.append("external or data: image URL (possible real logo)")
-    # Email / digit checks run on visible text only: strip <style> and Jinja tags
-    # so CSS pixel values and placeholder expressions don't false-positive.
     text = _JINJA_RE.sub(" ", _STYLE_RE.sub(" ", html))
     if _EMAIL_RE.search(text):
         reasons.append("email address in template text")

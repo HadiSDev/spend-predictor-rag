@@ -1,21 +1,15 @@
-"""Invoice generation for the mock ERP.
-
-Produces realistic multi-month invoice data with temporal patterns
-(monthly recurring, seasonal, one-off) and price differences between
-redundant vendors for benchmarking.
-"""
+"""Invoice generation for the mock ERP."""
 
 from __future__ import annotations
 
-import hashlib
+import itertools
 import random
 from datetime import date, timedelta
 
-from .accounts import ACCOUNTS
+from .accounts import account_name
+from .seeding import seeded_random
 from .vendors import VENDOR_SPECS
 
-
-# Map account codes to line descriptions
 ACCOUNT_DESCRIPTIONS: dict[int, list[str]] = {
     6010: [
         "Cloud server - monthly hosting",
@@ -129,12 +123,6 @@ ACCOUNT_DESCRIPTIONS: dict[int, list[str]] = {
 }
 
 
-def _seeded_random(seed: int | str) -> random.Random:
-    if isinstance(seed, str):
-        seed = int(hashlib.md5(seed.encode()).hexdigest()[:8], 16)
-    return random.Random(seed)
-
-
 def _pick_lines(
     rng: random.Random,
     vendor: dict,
@@ -152,7 +140,7 @@ def _pick_lines(
             desc = f"{desc} (M{month_offset})"
         base_price = rng.uniform(500, 15000)
         if is_cheaper:
-            base_price *= 0.85  # 15% cheaper for alternative vendors
+            base_price *= 0.85
         qty = rng.choice([1, 1, 1, 2, 3, 5, 10, 20])
         unit_price = round(base_price / qty, 2)
         net_amount = round(qty * unit_price, 2)
@@ -164,9 +152,7 @@ def _pick_lines(
             "netAmount": net_amount,
             "account": {
                 "accountNumber": account_number,
-                "name": next(
-                    a["name"] for a in ACCOUNTS if a["accountNumber"] == account_number
-                ),
+                "name": account_name(account_number),
             },
             "vatRate": 25.0,
         })
@@ -176,7 +162,6 @@ def _pick_lines(
 def _account_for_vendor(vendor: dict) -> int:
     """Pick the primary expense account for a vendor based on type."""
     group = vendor.get("supplier_group", "")
-    cat = vendor.get("category_level_2", "")
     group_to_account = {
         "IT Services": 6010,
         "Software": 6020,
@@ -203,18 +188,14 @@ def generate(
     avg_invoices_per_month: int = 15,
     start_date: date | None = None,
 ) -> list[dict]:
-    """Generate invoices for the mock ERP.
-
-    Returns list of invoice dicts with embedded lines, matching the
-    ``/api/v1/purchase-invoices`` response schema.
-    """
-    rng = _seeded_random(seed)
+    """Generate invoices for the mock ERP."""
+    rng = seeded_random(seed)
     if start_date is None:
         start_date = date(2025, 7, 1)
 
     invoices: list[dict] = []
-    inv_number = [1000]
-    voucher_number = [5000]
+    invoice_numbers = itertools.count(1001)
+    voucher_numbers = itertools.count(5001)
 
     for month_offset in range(n_months):
         month_date = date(
@@ -233,8 +214,8 @@ def generate(
         vendors_this_month = rng.choices(eligible, k=n_invoices)
 
         for v in vendors_this_month:
-            inv_number[0] += 1
-            voucher_number[0] += 1
+            invoice_number = next(invoice_numbers)
+            voucher = next(voucher_numbers)
             inv_date = month_date + timedelta(days=rng.randint(0, 27))
             if inv_date > date(2026, 12, 31):
                 inv_date = date(2026, 12, 31)
@@ -246,17 +227,12 @@ def generate(
             vat = round(net * 0.25, 2)
             gross = round(net + vat, 2)
 
-            voucher = voucher_number[0]
             invoices.append({
-                "purchaseInvoiceNumber": inv_number[0],
-                # The voucher the scan was posted under. Its GL entries carry the
-                # same voucherId; the entries endpoint reconciles against it.
+                "purchaseInvoiceNumber": invoice_number,
                 "voucherId": voucher,
-                # Reference to the scanned document (the internal File domain
-                # records this on import).
                 "file": {
-                    "fileName": f"invoice_{inv_number[0]}.pdf",
-                    "fileRef": f"scans/{voucher}/invoice_{inv_number[0]}.pdf",
+                    "fileName": f"invoice_{invoice_number}.pdf",
+                    "fileRef": f"scans/{voucher}/invoice_{invoice_number}.pdf",
                 },
                 "supplier": {
                     "supplierNumber": v.vendorNumber,

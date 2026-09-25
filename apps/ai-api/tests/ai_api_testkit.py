@@ -1,11 +1,4 @@
-"""Test helpers shared across ai-api's suite: a scriptable connector and its data.
-
-Kept out of ``conftest.py`` so a test can import them by name. ``tests/`` is not
-a package — both apps have one, and two packages named ``tests`` collide in a
-single pytest session — so ``from .conftest import …`` is not available. This
-module's name is unique across the workspace instead, and pytest puts the
-directory on ``sys.path`` (``pythonpath`` in the pytest config).
-"""
+"""Test helpers shared across ai-api's suite: a scriptable connector and its data."""
 from __future__ import annotations
 
 from datetime import date
@@ -21,9 +14,6 @@ from web_api.connectors.base import (
     ErpInvoiceLineData,
     ErpVendorData,
 )
-
-
-# -- A connector whose behaviour a test can script ---------------------------
 
 ACCOUNTS = [
     ErpAccountData(erp_account_code="6010", erp_account_name="Cloud Hosting"),
@@ -57,21 +47,11 @@ INVOICE = ErpInvoiceData(
 )
 
 
-#: Distinguishes "the test scripted None" from "the test scripted nothing" —
-#: a scan being absent is itself a case worth scripting.
 _UNSET = object()
 
 
 class FakeConnector(ErpConnector):
-    """A connector the tests drive. Class-level switches, reset per test.
-
-    `config` is captured on construction so a test can assert which credentials
-    actually reached the connector.
-
-    `accounts` / `entries` / `scan` override the module constants above for one
-    test. They default to `None` / `_UNSET`, so a test that scripts nothing gets
-    exactly the data every existing test was pinned against.
-    """
+    """A connector the tests drive."""
 
     display_label = "Fake ERP"
     credential_fields = [
@@ -79,7 +59,6 @@ class FakeConnector(ErpConnector):
         CredentialField(name="api_key", label="API key", secret=True, default="fake-key"),
     ]
 
-    # Scripting switches.
     reachable = True
     raise_on_fetch = False
     seen_configs: list[dict] = []
@@ -145,10 +124,6 @@ class FakeConnector(ErpConnector):
 register_connector("fake", FakeConnector)
 
 
-# -- A typed chart and a fully-posted voucher (stand-in line tests) ----------
-
-# A chart that actually declares account types — the module default leaves them
-# null, which is what every pre-existing test is pinned against.
 TYPED_ACCOUNTS = [
     ErpAccountData(erp_account_code="6010", erp_account_name="Cloud Hosting",
                    erp_account_type="expense"),
@@ -172,15 +147,12 @@ def entry(erp_id: str, account: str, debit: float | None = None,
     )
 
 
-# One voucher, fully posted: net expense, its VAT, and the payable that balances
-# it. Only the first is spend.
 BALANCED_VOUCHER = [
     entry("E-1", "6010", debit=800.0, description="Cloud hosting March"),
     entry("E-2", "2610", debit=200.0, description="VAT 25%"),
     entry("E-3", "8010", credit=1000.0, description="Contoso ApS"),
 ]
 
-# The same voucher with its expense split across two accounts.
 SPLIT_VOUCHER = [
     entry("E-1", "6010", debit=500.0, description="Cloud hosting March"),
     entry("E-2", "6020", debit=300.0, description="Licences"),
@@ -188,7 +160,6 @@ SPLIT_VOUCHER = [
     entry("E-4", "8010", credit=1000.0, description="Contoso ApS"),
 ]
 
-# A scan with no lines of its own — the case the stand-ins exist for.
 SCAN_WITHOUT_LINES = ErpInvoiceData(
     erp_id="INV-1", vendor_erp_id="V-1", vendor_name="Contoso ApS",
     invoice_number="2026-001", invoice_date=date(2026, 3, 2), currency="DKK",

@@ -1,57 +1,4 @@
-"""Ask the model to read an invoice it can only see — one page at a time.
-
-The same deployment and the same JSON discipline as the text path — one model,
-one config, one timeout — differing only in what rides in the message: pictures
-instead of a text layer. CrewAI's ``LLM.call`` passes an OpenAI-style content
-list straight through to the provider, so no second client is needed and no
-second place can drift out of sync with :func:`ai_api.config.get_llm`.
-
-**Each page is its own request.** A model handed eight images in one message
-attends to none of them properly, and what degrades first is exactly what an
-invoice is made of: an amount, in a column, in small type. Per-page costs more
-requests and buys back the model's full attention on each. The pages are then
-merged *here*, in code, rather than by asking the model to hold a whole document
-in its head — merging is arithmetic and bookkeeping, which is not what a vision
-model is for.
-
-**A page is a fragment, so :class:`VisionPage` requires nothing.** That is not a
-convenience, it is the fix for the bug that made every real screenshot fail. The
-prompt tells the model to leave what a page does not state as null; page 3 of 5
-names no supplier and prints no total, and the model said so, correctly, in
-well-formed JSON. Validating that against :class:`~ai_api.models.ExtractedInvoice`
-— whose ``vendor_name`` and ``total`` are mandatory, as they should be for a
-whole invoice — threw away a perfectly good reading and reported it as a model
-failure. The whole-invoice requirements apply to the merge, never to a page.
-
-Two more rules make the merge safe:
-
-* A **header** field (supplier, invoice number, currency) is taken from the
-  first page that states it; a **total** from the last. That is where each is
-  printed, and a page that omits one must not erase what another page said.
-* An **unreadable page does not discard the readable ones**. A terms-and-
-  conditions page returning junk must not lose a good first page. Every dropped
-  page is logged — never silently skipped — and reconciliation is the backstop
-  that catches an incomplete read. A document whose pages *all* fail is a
-  failure, because then we have read nothing at all.
-
-**Numbers are transcribed, not interpreted.** The text path removes European
-number ambiguity *before* the model sees it (:mod:`ai_api.documents.numbers`
-rewrites ``1 919,20`` to ``1919.20``, after a real Elgiganten order confirmation
-was read as quantity ``1`` and amount ``919,20``). Pixels cannot be rewritten,
-so this path does the same job on the way back: :class:`VisionLine` takes every
-figure as a **string, exactly as printed**, and
-:func:`~ai_api.documents.numbers.parse_amount` decides what it means. Asking the
-model to normalize separators itself was tried first and lost — a DSB receipt
-printing ``5.780,00`` came back as ``5.78``. Both paths now end at the same
-tested pure function, and neither leaves the decision in a prompt.
-
-What a prompt still cannot fix is *which column* holds the money. An EKWB credit
-memo prints its amounts under a ``Subtotal`` heading beside a ``Sku`` column of
-barcodes, and the model first returned the barcodes and now returns nulls.
-``parse_amount`` refuses a 13-digit article number outright, so the wrong answer
-became no answer — which reconciliation catches — but a small vision model
-reading a wide table remains this path's real limit.
-"""
+"""Ask the model to read an invoice it can only see — one page at a time."""
 from __future__ import annotations
 
 import base64
@@ -60,64 +7,36 @@ import re
 
 from pydantic import BaseModel, Field
 
+from ..config import get_llm
 from ..models import ExtractedInvoice, LineItem
 from ..parsing import json_format_hint, parse_model
-from .extractor import TOTALS_BLOCK_CHARGES
+from .errors import VisionUnreadableError
 from .images import DocumentImage
 from .numbers import parse_amount
+from .prompts import TOTALS_BLOCK_CHARGES
 
 logger = logging.getLogger("ai_api.documents")
 
 
-class VisionUnreadableError(Exception):
-    """Not one page of the document produced a usable answer."""
-
-
-#: Words a model writes when it means "nothing here". A literal `"null"` string
-#: arrived as a real reply's currency; left alone it becomes a currency code.
 _NOT_STATED = {"", "null", "none", "n/a", "na", "nil", "-", "—", "–", "unknown"}
 
-#: Labels that mark a row as a *summary of other rows* rather than a thing
-#: bought. Two DSB receipts, identical in shape, settled this: one was read as a
-#: single `1 Voksen` line and reconciled, the other returned `1 Voksen` **and**
-#: `Samlet pris` — double the posting — and was rejected, keeping its ERP
-#: stand-in. Whether a total is an item is not a judgement worth making twice.
-#:
-#: Danish, English and German, because that is what this ledger's suppliers
-#: invoice in. Deliberately excludes shipping, postage, handling and fees: those
-#: are billed money inside the total, and dropping them would fail every invoice
-#: that carries any.
 _SUMMARY_LABELS = {
-    # Danish
     "samlet pris", "pris i alt", "i alt", "at betale", "total dkk", "subtotal",
     "moms", "beløb", "beløb i alt", "total i alt", "sum i alt",
-    # English
     "total", "sub total", "sub-total", "grand total", "sum", "amount due",
     "balance due", "order total", "total amount", "net total", "total due",
     "vat", "tax", "total excl. vat", "total incl. vat", "items subtotal",
     "item(s) subtotal",
-    # German
     "gesamt", "gesamtbetrag", "zwischensumme", "summe", "mwst", "nettobetrag",
     "rechnungsbetrag",
 }
 
 
 def _is_summary_row(description: str | None) -> bool:
-    """Is this row a total rather than a thing bought?
-
-    Matched on the **whole** label, never as a substring: "Total Station Kit" is
-    a surveying instrument and "Sumatra coffee" is a coffee. Silently deleting a
-    real line would be a far worse bug than the double-count this prevents, so
-    the rule stays narrow and a trailing colon, percentage or currency code is
-    all it will look past.
-    """
+    """Is this row a total rather than a thing bought?"""
     text = (description or "").strip().lower()
     if not text:
-        # Blank is not a summary word. A line with no description is ordinary —
-        # half of Billy's bill lines carry none.
         return False
-    # Trim the decoration a total is printed with: `Total:`, `Moms 25%`,
-    # `Total EUR`, `Sum (incl. VAT)`.
     text = re.sub(r"[\s:.\-–—]+$", "", text)
     text = re.sub(r"\s*\(?\d+([.,]\d+)?\s*%\)?$", "", text).strip()
     text = re.sub(r"\s+(dkk|eur|usd|gbp|sek|nok)$", "", text).strip()
@@ -131,16 +50,7 @@ def _clean(value: str | None) -> str | None:
 
 
 class VisionLine(BaseModel):
-    """One line as the model read it off the page.
-
-    **Every number is a string here, deliberately.** The text path removes
-    European number ambiguity before the model ever sees it; pixels cannot be
-    rewritten, so this path does the same job on the way back — the model
-    transcribes the figure exactly as printed and
-    :func:`~ai_api.documents.numbers.parse_amount` decides what it means. That
-    moves the decision out of a prompt and into a tested pure function, which is
-    the only reason `5.780,00` stops coming back as `5.78`.
-    """
+    """One line as the model read it off the page."""
 
     item_name: str | None = Field(
         default=None,
@@ -161,9 +71,6 @@ class VisionLine(BaseModel):
         "'kr. 58,00' — VAT-inclusive or not, whichever this line's amount column "
         "shows. Never an article number, barcode or product code.",
     )
-    # Read where the document prints them, so nothing downstream has to decide
-    # which convention a column follows. A page printing one number per line
-    # leaves all three null, which is the ordinary case on a receipt.
     subtotal: str | float | None = Field(
         default=None,
         description="This line's amount NET of VAT, exactly as printed, when the "
@@ -182,12 +89,7 @@ class VisionLine(BaseModel):
     vat_rate: str | float | None = Field(default=None, description="VAT percentage, exactly as printed.")
 
     def to_line_item(self) -> LineItem:
-        """The domain line. An unreadable amount becomes no amount, never a guess.
-
-        Every money field goes through `parse_amount`, including the three added
-        for the tax block. Routing one of them around it would put the decision
-        back in the prompt, which is where `5.780,00` became `5.78`.
-        """
+        """Convert to the domain ``LineItem``."""
         return LineItem(
             item_name=_clean(self.item_name),
             description=_clean(self.description),
@@ -204,14 +106,7 @@ class VisionLine(BaseModel):
 
 
 class VisionPage(BaseModel):
-    """What one page of a document states.
-
-    Every field is optional, and that is the point: a page is a fragment. Page 3
-    of 5 names no supplier and prints no total, and a schema that demands them
-    turns the model's correct answer into a parse failure. The fields mirror
-    :class:`~ai_api.models.ExtractedInvoice` so the merge is a field-for-field
-    fold with nothing to translate.
-    """
+    """What one page of a document states."""
 
     vendor_name: str | None = Field(default=None, description="Supplier (seller) company name.")
     supplier_country_code: str | None = Field(default=None, description="Supplier country, ISO 3166-1 alpha-2.")
@@ -238,22 +133,12 @@ _INSTRUCTIONS = (
     "Return every line item visible here, with its name and its amount. "
     "Leave any field this page does not state as null.\n"
     "\n"
-    # The split is stated as a fallback rather than a demand. Asking for two
-    # texts where the document prints one invites the model to manufacture the
-    # second, and an invented description is worse than an absent one.
     "A line's name is the product or service itself — 'Figma Organization seat', "
     "'Consulting', 'DJI Osmo Nano 128GB' — with no quantity, price, date or "
     "contract term in it. If the line prints further prose beyond that name, put "
     "it in the description. If the line prints only one text, put it in the name "
     "and leave the description null. Never invent a description.\n"
     "\n"
-    # Deliberately NOT told to exclude summary rows. That instruction was tried
-    # and made things worse: on a DSB receipt it pushed the model off the product
-    # table ("1 Voksen 58,00") and onto the itinerary above it, returning three
-    # journey legs with no amounts where it had previously returned the item and
-    # its total. Dropping the total is `_is_summary_row`'s job — it is a fact in
-    # tested code, and asking for it here only made the harder judgement (which
-    # table holds the items) come out wrong.
     "Take the line items from the table that carries prices — the one with a "
     "quantity, unit price or amount column. Rows without any money value, such "
     "as a travel itinerary, a delivery schedule or an address block, are not "
@@ -275,13 +160,9 @@ _INSTRUCTIONS = (
     "on a Danish document is 'DKK' — since that may differ from the currency it "
     "was booked in.\n"
     "\n"
-    # The same words the text path sends. Two wordings would drift, and the
-    # symptom would be scanned invoices losing freight that text ones keep.
     + TOTALS_BLOCK_CHARGES
 )
 
-#: Said only when there is more than one page. Telling a single-page document it
-#: is "page 1 of 1" invites the model to hedge about content it can see in full.
 _PAGE_NOTE = (
     "This is page {page} of {total} of one invoice. Report only what this page "
     "shows. Do not carry over or guess at lines printed on the other pages, and "
@@ -295,7 +176,7 @@ def _data_url(image: DocumentImage) -> str:
 
 
 def build_messages(image: DocumentImage, *, page: int = 1, total: int = 1) -> list[dict]:
-    """The chat messages for one page. Public so a prompt change reviews alone."""
+    """The chat messages for one page."""
     text = _INSTRUCTIONS
     if total > 1:
         text += "\n\n" + _PAGE_NOTE.format(page=page, total=total)
@@ -312,14 +193,9 @@ def build_messages(image: DocumentImage, *, page: int = 1, total: int = 1) -> li
 
 
 def _default_complete(messages: list[dict]) -> str:
-    from ..config import get_llm
-
     return get_llm().call(messages)
 
 
-#: Header fields printed once, at the front. First page to state one wins; a
-#: later page's silence must not erase it, and a later page's restatement adds
-#: nothing. `total` is deliberately absent — see `_LAST_WINS`.
 _FIRST_WINS = (
     "vendor_name",
     "supplier_country_code",
@@ -331,17 +207,11 @@ _FIRST_WINS = (
     "currency",
 )
 
-#: Figures printed at the end. An earlier page's total is a running subtotal, so
-#: the last page to state one is the document's own answer.
 _LAST_WINS = ("subtotal", "tax", "total")
 
 
 def _merge(pages: list[VisionPage]) -> ExtractedInvoice:
-    """Fold per-page readings into the one invoice they describe.
-
-    This is where the whole-invoice requirements finally apply: a fragment may
-    omit anything, an invoice may not.
-    """
+    """Fold per-page readings into the one invoice they describe."""
     merged: dict = {}
     for field in _FIRST_WINS:
         merged[field] = next(
@@ -357,55 +227,18 @@ def _merge(pages: list[VisionPage]) -> ExtractedInvoice:
             ),
             None,
         )
-    # `vendor_name` is mandatory on a whole invoice; `total` no longer is.
-    #
-    # It used to be forced to `0.0` here, on the reasoning that reconciliation
-    # would then reject the document against the ledger — visibly, which it was.
-    # But it made "no page stated a total" indistinguishable from "a page stated
-    # zero", and the reconciliation rule now turns on exactly that difference: a
-    # stated total is the figure the lines are judged against, an absent one
-    # falls back to the ledger's. Inventing a zero would send every scan down
-    # the wrong branch of that rule.
     merged["vendor_name"] = merged.get("vendor_name") or ""
-    # Never deduplicated: a supplier who billed the same item twice billed it
-    # twice, and collapsing that is a correction we have no standing to make.
-    # A total is not a line item: `Samlet pris` beside `1 Voksen` doubled a DSB
-    # receipt against its own posting and cost us the document entirely.
-    #
-    # Judged across the whole document, not per page — a multi-page invoice
-    # prints its items early and its total last, and a page-local rule would
-    # keep the total whenever it arrived alone on the final page.
     stated = [item for page in pages for item in page.line_items]
-    # Judged on the line's **label**, wherever the model put it. The name is
-    # where a line's text now lands and `description` is null on nearly every
-    # one, so reading `description` alone silently switched this filter off:
-    # every summary row survived, and a receipt counted its item *and* its
-    # total — the exact doubling the comment above describes, reintroduced by
-    # moving the text one field to the left.
     itemised = [
         item for item in stated
         if not _is_summary_row(item.item_name or item.description)
     ]
-    # …unless the totals were all we were given. The filter exists to stop
-    # double-counting, and with nothing left to double-count it has no work to
-    # do: a lone total can only equal the document's own total, so keeping it
-    # cannot inflate anything, while dropping it throws the document away and
-    # leaves the invoice on an ERP stand-in that says less.
     merged["line_items"] = [item.to_line_item() for item in (itemised or stated)]
     return ExtractedInvoice(**merged)
 
 
 def look_at(prompt: str, images: list[DocumentImage], *, complete=None) -> ExtractedInvoice:
-    """Read the document in ``images``, one page per request, and merge.
-
-    ``prompt`` is accepted for symmetry with the text path's seam and is
-    deliberately unused: the text path's prompt *carries the document*, and
-    there is nothing here to carry. Keeping the signature identical is what lets
-    :func:`ai_api.documents.extractor.extract_lines` treat the two as one shape.
-
-    ``complete`` is the seam the tests stub: it takes chat messages and returns
-    the model's text.
-    """
+    """Read the document in ``images``, one page per request, and merge."""
     ask = complete or _default_complete
     total = len(images)
     pages: list[VisionPage] = []
@@ -415,9 +248,7 @@ def look_at(prompt: str, images: list[DocumentImage], *, complete=None) -> Extra
         try:
             reply = ask(messages)
             pages.append(parse_model(reply, VisionPage))
-        except Exception as exc:  # noqa: BLE001 - one bad page is not a bad document
-            # Logged, never silent: an incomplete read that reconciles by luck
-            # would otherwise look like a clean one.
+        except Exception as exc:  # noqa: BLE001
             logger.warning("vision: page %d of %d could not be read: %s", index, total, exc)
 
     if not pages:

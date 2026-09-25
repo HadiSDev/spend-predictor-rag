@@ -11,7 +11,7 @@ from ai_api.models import (
 
 
 class _FakeResult:
-    """Mirrors LiteAgentOutput: the model now reads `.raw` (free-form text)."""
+    """Stand-in for LiteAgentOutput exposing the free-form `.raw` text."""
 
     def __init__(self, model):
         self.raw = model.model_dump_json()
@@ -81,7 +81,6 @@ def test_flow_snaps_hallucinated_account_code(tmp_path, monkeypatch):
     ledger = tmp_path / "ledger.csv"
     _install_fakes(monkeypatch, ledger)
     monkeypatch.setattr(flow, "extract_text", lambda p: "INVOICE Acme Cloud total 100")
-    # categorizer fabricates a code that is not in the chart
     bogus = AccountChoice(
         account_code="9999", account_name="Made Up", level_1="Indirect", confidence=0.95, rationale="hallucinated"
     )
@@ -90,7 +89,7 @@ def test_flow_snaps_hallucinated_account_code(tmp_path, monkeypatch):
     flow.InvoiceFlow().kickoff(inputs={"pdf_path": "/x/sample.pdf"})
 
     rows = _read(ledger)
-    assert rows[0]["account_code"] == "6010"  # snapped to the top retrieved candidate
+    assert rows[0]["account_code"] == "6010"
     assert "9999" in rows[0]["notes"] and "6010" in rows[0]["notes"]
 
 
@@ -193,7 +192,7 @@ def test_run_all_processes_every_pdf_concurrently(tmp_path, monkeypatch):
 
     def _fake_process(pdf, buyer_context, accounts):
         assert buyer_context == "Acme buyer context"
-        assert accounts == [{"account_code": "6010"}]  # loaded once, shared
+        assert accounts == [{"account_code": "6010"}]
         with lock:
             seen.append(pdf.name)
         return f"{pdf.name}: done"
@@ -223,7 +222,6 @@ def test_flow_uses_buyer_and_product_context(tmp_path, monkeypatch):
     class _CapturingAgent:
         def kickoff(self, prompt, **kwargs):
             captured["prompt"] = prompt
-            from ai_api.models import AccountChoice
             raw = AccountChoice(
                 account_code="6010", account_name="Cloud", level_1="Direct",
                 confidence=0.9, rationale="ok").model_dump_json()

@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from weasyprint import HTML
 
 from ...models import ExtractedInvoice
-
-if TYPE_CHECKING:
-    from ..style import RenderSpec
+from ..style import RenderSpec
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 _env = Environment(
@@ -26,18 +24,10 @@ def list_templates() -> list[str]:
 def render_invoice_pdf(
     invoice: ExtractedInvoice, out_path: Path, *,
     buyer_name: str,
-    render_spec: "RenderSpec | None" = None,
+    render_spec: RenderSpec | None = None,
     template_name: str = "modern",
 ) -> Path:
-    """Render `invoice` to a PDF at `out_path` and return the path.
-
-    When ``render_spec`` is provided its ``template_name``, ``style``, and
-    extra fields are passed into the template context.  Falls back to
-    ``template_name`` (default ``"modern"``) with no style for backward
-    compatibility.
-    """
-    from weasyprint import HTML  # local import keeps module import light
-
+    """Render `invoice` to a PDF at `out_path` and return the path."""
     if render_spec is not None:
         tpl = render_spec.template_name
         ctx = dict(inv=invoice, buyer_name=buyer_name,

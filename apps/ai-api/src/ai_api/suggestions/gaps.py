@@ -1,28 +1,9 @@
-"""Find the categories a company's spend needed and its tree did not have.
-
-The model must now return a category rather than declining, which removes the
-old failure mode — a line stranded forever in `ai_failed` — and creates a new
-obligation. Something has to notice when the tree is the problem, because the
-categorizer no longer says so.
-
-**The signal is a run of low-confidence answers over similar spend.** One line
-answered at 0.3 is an odd purchase. Eleven lines from rail and taxi suppliers all
-answered at 0.3 is a missing category, and the difference between those two is
-the whole judgement this module makes. A tree that grows a node per strange
-invoice is worse than one with a gap in it: the gap is at least visible.
-
-**Nothing here writes a `SpendCategory`.** `web_api/spend_trees/service.py` is
-the only writer of that table — a rename rewrites every descendant's materialized
-path — and acceptance goes through it, invoked by a person. This module writes
-proposals and only proposals, which is also what keeps it inside the one-way
-`ai_api → web_api` dependency.
-"""
+"""Find the categories a company's spend needed and its tree did not have."""
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass, field
-from decimal import Decimal
 
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -38,24 +19,12 @@ from web_api.db.models import (
     Vendor,
 )
 
+from ..config import get_llm
 from ..parsing import json_format_hint, parse_model
 
 logger = logging.getLogger("ai_api.suggestions")
 
-#: How many low-confidence lines a group needs before it is a taxonomy claim
-#: rather than an odd purchase. Three is the smallest number that can show a
-#: pattern; below it the evidence panel would read as one person's bad week.
 MIN_GROUP_SIZE = 3
-
-#: A group is formed per supplier. Not by embedding similarity, deliberately:
-#: the supplier is the strongest and cheapest signal that two lines are the same
-#: kind of spend — every DSB line is travel whatever the ticket says — and it is
-#: an argument a reviewer can check at a glance, which an embedding neighbourhood
-#: is not.
-#:
-#: The cost is real and accepted: eight low-confidence lines from eight different
-#: one-off suppliers that are all in fact the same gap will not group. That is
-#: the conservative direction to fail in.
 
 
 class GapProposal(BaseModel):
@@ -97,13 +66,7 @@ def _normalize(text: str | None) -> str:
 def doubtful_lines(
     session: Session, company_id: str, *, threshold: float | None = None
 ) -> list[InvoiceLine]:
-    """The company's AI-categorized lines the model was not confident about.
-
-    The same predicate `GET /invoice-lines?needs_review=true` selects on, and for
-    the same reason: these are the decisions nobody should be relying on, and a
-    run of them over one supplier is what a missing category looks like from the
-    outside.
-    """
+    """The company's AI-categorized lines the model was not confident about."""
     if threshold is None:
         threshold = web_config.CATEGORIZATION_REVIEW_THRESHOLD
     lines = session.exec(
@@ -121,12 +84,7 @@ def doubtful_lines(
 def group_by_supplier(
     session: Session, lines: list[InvoiceLine]
 ) -> dict[str, list[InvoiceLine]]:
-    """Group doubtful lines by the supplier that billed them.
-
-    Lines whose invoice names no supplier are dropped rather than pooled into an
-    "unknown" group: they have nothing in common but our ignorance, and a
-    proposal argued from them would cite lines that share no property at all.
-    """
+    """Group doubtful lines by the supplier that billed them."""
     invoice_ids = {line.invoice_id for line in lines}
     vendors: dict[str, str | None] = {}
     if invoice_ids:
@@ -145,7 +103,7 @@ def group_by_supplier(
 
 
 def _tree_outline(nodes: list[SpendCategory]) -> str:
-    """The tree as paths, so the model proposes into a shape it can see."""
+    """The tree as one category path per line."""
     return "\n".join(sorted(
         " > ".join(x for x in (n.level_1, n.level_2, n.level_3, n.level_4) if x)
         for n in nodes
@@ -158,7 +116,7 @@ def build_prompt(
     lines: list[InvoiceLine],
     nodes: list[SpendCategory],
 ) -> str:
-    """The prompt for one group. Public so a prompt change is reviewable alone."""
+    """The prompt for one supplier group."""
     items = "\n".join(
         f"- {line.item_name or line.description or '(no description)'}"
         + (f" — landed in {line.level_3 or line.level_2 or line.level_1}"
@@ -189,8 +147,6 @@ def build_prompt(
 
 
 def _default_complete(prompt: str) -> str:
-    from ..config import get_llm
-
     return get_llm().call(prompt)
 
 
@@ -201,11 +157,7 @@ def suggest_gaps(
     complete=None,
     threshold: float | None = None,
 ) -> SuggestionRun:
-    """Propose the categories ``company_id``'s tree is missing. Writes no nodes.
-
-    ``complete`` is the seam: any callable taking a prompt and returning the
-    model's text, so tests need no model running.
-    """
+    """Propose the categories ``company_id``'s tree is missing."""
     run = SuggestionRun()
     company = session.get(Company, company_id)
     if company is None or company.spend_tree_id is None:
@@ -229,9 +181,6 @@ def suggest_gaps(
         return run
 
     existing_names = {_normalize(n.name) for n in nodes}
-    # Every proposal ever settled for this tree, whether accepted or dismissed.
-    # Re-proposing a dismissal re-argues a question the customer has answered,
-    # and a list that does that is one people stop reading.
     settled = {
         _normalize(row.name)
         for row in session.exec(
@@ -253,16 +202,13 @@ def suggest_gaps(
         )
         try:
             proposal = parse_model(ask(prompt), GapProposal)
-        except Exception as exc:  # noqa: BLE001 - one group's failure is not the run's
+        except Exception as exc:  # noqa: BLE001
             logger.warning("could not read a proposal for %s: %s", vendor_id, exc)
             run.notes.append(f"{vendor_id}: {exc}")
             continue
 
         name = _normalize(proposal.name)
         if name in existing_names:
-            # The correct outcome when the categorizer, not the taxonomy, was the
-            # problem — and the reason the prompt invites it rather than forbidding
-            # it. A model told never to name an existing category will invent one.
             run.already_present += 1
             continue
         if name in settled:

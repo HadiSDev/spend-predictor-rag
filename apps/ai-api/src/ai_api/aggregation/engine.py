@@ -1,8 +1,4 @@
-"""SQL-based spend aggregation and rollups.
-
-Provides time-series spend by category/vendor for the dashboard and
-procurement agent inputs. All queries are scoped by tenant_id.
-"""
+"""SQL-based spend aggregation and rollups."""
 
 
 def spend_by_category(tenant_id: str, period: str = "month") -> list[dict]:

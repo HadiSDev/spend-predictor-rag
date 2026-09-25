@@ -19,7 +19,7 @@ def test_buyer_context_cache_miss_then_hit(tmp_path):
     second = web_context.get_buyer_context(**kw)
     assert first == "Acme is a SaaS company."
     assert second == first
-    assert calls == {"scrape": 1, "summarize": 1}  # second call served from cache
+    assert calls == {"scrape": 1, "summarize": 1}
 
 
 def test_buyer_context_blank_when_unconfigured(tmp_path):
@@ -68,5 +68,5 @@ def test_buyer_context_name_only_skips_scrape(tmp_path):
         name="Acme", website="",
         scrape_fn=scrape, summarize_fn=lambda n, t: f"{n}:{t!r}", cache_dir=str(tmp_path)
     )
-    assert calls["scrape"] == 0          # no website → scrape skipped
-    assert out == "Acme:''"              # summarize called with empty text
+    assert calls["scrape"] == 0
+    assert out == "Acme:''"

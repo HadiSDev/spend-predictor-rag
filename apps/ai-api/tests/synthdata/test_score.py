@@ -1,7 +1,7 @@
 import json
 
 from ai_api.models import CategorizedInvoice, ExtractedInvoice, LineItem
-from ai_api.synthdata.score import anls_field, score_fixture, score_fixtures, _num_eq
+from ai_api.synthdata.score import anls_field, score_fixture, score_fixtures
 
 
 def test_anls_field_rewards_near_matches():
@@ -35,7 +35,7 @@ def test_score_fixture_perfect_prediction():
 
 
 def test_score_fixture_handles_pipeline_failure():
-    res = score_fixture(_labels(), None, None)  # pipeline produced nothing
+    res = score_fixture(_labels(), None, None)
     assert res["fields"]["vendor_name"] == 0.0
     assert res["category"]["account_code"] is False
 
@@ -89,7 +89,6 @@ def test_score_fixture_numeric_and_line_items_perfect():
 
 def test_score_fixture_numeric_mismatch():
     labels = _labels()
-    # labels total = 100.0; predict 999.0
     extracted = ExtractedInvoice(**{**labels["invoice"], "total": 999.0})
     res = score_fixture(labels, extracted, None)
     assert res["numeric"]["total"] is False

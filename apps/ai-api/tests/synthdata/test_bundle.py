@@ -2,7 +2,10 @@ import json
 
 from ai_api.models import ExtractedInvoice, LineItem
 from ai_api.synthdata.bundle import (
-    append_manifest, category_from_account, load_fixture, write_labels,
+    append_manifest,
+    category_from_account,
+    load_fixture,
+    write_labels,
 )
 from ai_api.synthdata.erp import build_journal
 from ai_api.synthdata.profiles import PROFILES

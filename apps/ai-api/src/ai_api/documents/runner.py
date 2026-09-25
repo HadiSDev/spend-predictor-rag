@@ -1,18 +1,4 @@
-"""The document-processing stage.
-
-Discovers its work from the database exactly as the sync runner does — no tenant
-and no credentials as arguments — and turns each pending invoice's attached
-document into invoice lines.
-
-    python -m ai_api.documents.runner                     # every pending invoice
-    python -m ai_api.documents.runner --limit 20          # pace a backlog
-    python -m ai_api.documents.runner --company-id <id>   # one tenant
-    python -m ai_api.documents.runner --invoice-id <id>   # one invoice
-
-Failure is isolated per invoice: an unreadable document, an unreachable ERP or a
-model that returned nonsense is recorded on that invoice and the run continues.
-The process exits non-zero if any invoice failed, so a scheduler can see it.
-"""
+"""The document-processing stage."""
 from __future__ import annotations
 
 import argparse
@@ -22,18 +8,18 @@ from decimal import Decimal
 
 from sqlmodel import Session, select
 
+from web_api import integrations as integrations_mod
 from web_api.connectors.base import ErpConnectionError
-from web_api.db.models import Company, DocStatus, ErpIntegration, Invoice
+from web_api.db.models import Company, DocStatus, Invoice
 from web_api.db.session import engine
 from web_api.documents import resolve_document_source
 from web_api.fx import FxService
 from web_api.fx.service import convert as fx_convert
-from web_api import integrations as integrations_mod
 
 from .. import config
-from .extractor import EmptyDocumentError, UnsupportedMediaError, extract_lines
-from .vision import VisionUnreadableError
-from .currency import comparable_total, conversion_rate
+from .currency import conversion_rate
+from .errors import EmptyDocumentError, UnsupportedMediaError, VisionUnreadableError
+from .extractor import extract_lines
 from .reconcile import reconcile
 from .replace import replace_invoice_lines
 
@@ -47,18 +33,11 @@ def _now() -> datetime:
 
 
 def _converted(value: float | None, rate: Decimal) -> Decimal | None:
-    """A figure the document stated, restated in the invoice's currency.
-
-    ``None`` stays ``None``: a document that printed no total printed none, and
-    a zero here would be a claim it never made.
-    """
+    """A figure the document stated, restated in the invoice's currency."""
     if value is None:
         return None
     amount = Decimal(str(value))
     return amount if rate == 1 else fx_convert(amount, rate)
-
-
-# -- Work discovery ----------------------------------------------------------
 
 
 def pending_invoices(
@@ -68,18 +47,7 @@ def pending_invoices(
     invoice_id: str | None = None,
     limit: int | None = None,
 ) -> list[Invoice]:
-    """Invoices waiting for their document to be read.
-
-    Oldest `invoice_date` first, so a backlog drains in the order the spend was
-    incurred rather than in whatever order the rows happen to sit in.
-
-    The selectors only *narrow* what the database produced. Naming an invoice
-    that is not pending finds nothing — the stage cannot create work, only do
-    the work discovery found, which is the same rule the sync runner follows.
-
-    A `processing` invoice whose claim has gone stale is included: its run died
-    holding the claim, and without this it would sit unread forever.
-    """
+    """Invoices waiting for their document to be read."""
     stale_before = _now() - timedelta(minutes=config.DOC_STALE_CLAIM_MINUTES)
     claimable = Invoice.doc_status == DocStatus.PENDING
     abandoned = (Invoice.doc_status == DocStatus.PROCESSING) & (
@@ -94,8 +62,6 @@ def pending_invoices(
         statement = statement.where(Invoice.company_id == company_id)
     if invoice_id is not None:
         statement = statement.where(Invoice.id == invoice_id)
-    # `nulls_last` is not portable across the SQLite suite and PostgreSQL here;
-    # ordering by the id as a tiebreak keeps the order deterministic either way.
     statement = statement.order_by(Invoice.invoice_date, Invoice.id)
     if limit is not None:
         statement = statement.limit(limit)
@@ -103,13 +69,7 @@ def pending_invoices(
 
 
 def _claim(session: Session, invoice: Invoice) -> None:
-    """Take the invoice, in its own committed transaction.
-
-    Committed *before* any work so two overlapping runs — a cron overlapping its
-    predecessor is the ordinary way this happens — cannot both extract the same
-    invoice and race each other's replacement. `doc_processed_at` doubles as the
-    claim's timestamp, which is what lets a died-mid-run claim go stale.
-    """
+    """Take the invoice, in its own committed transaction."""
     invoice.doc_status = DocStatus.PROCESSING
     invoice.doc_processed_at = _now()
     invoice.doc_attempts = (invoice.doc_attempts or 0) + 1
@@ -118,12 +78,7 @@ def _claim(session: Session, invoice: Invoice) -> None:
 
 
 def _fail(session: Session, invoice: Invoice, reason: str) -> None:
-    """Record why this invoice could not be processed, and keep its lines.
-
-    The invoice's existing lines are deliberately untouched: stand-in lines are
-    a correct if coarse answer, and replacing them with nothing would make the
-    voucher's spend disappear from the reports over a document problem.
-    """
+    """Record why this invoice could not be processed, and keep its lines."""
     invoice.doc_status = DocStatus.FAILED
     invoice.doc_error = reason
     session.add(invoice)
@@ -131,17 +86,10 @@ def _fail(session: Session, invoice: Invoice, reason: str) -> None:
     logger.warning("  invoice %s: %s", invoice.id, reason)
 
 
-# -- One invoice -------------------------------------------------------------
-
-
 def process_invoice(
     session: Session, invoice: Invoice, *, extract=extract_lines
 ) -> str:
-    """Read one invoice's document and replace its lines. Returns a status word.
-
-    ``extract`` is the seam the tests stub, so the suite exercises discovery,
-    claiming, reconciliation and replacement without a network or a live model.
-    """
+    """Read one invoice's document and replace its lines."""
     resolved = resolve_document_source(session, invoice)
     if resolved is None:
         _fail(session, invoice, "cannot determine which ERP holds this document")
@@ -166,11 +114,6 @@ def process_invoice(
     try:
         extracted = extract(payload)
     except (UnsupportedMediaError, EmptyDocumentError, VisionUnreadableError) as exc:
-        # A document we cannot open, cannot render, or whose every page the model
-        # failed to read. All three are outcomes of the document, not defects in
-        # us, so each records its own message rather than the run loop's
-        # "extraction crashed" — which would send a reader hunting a bug that is
-        # not there.
         _fail(session, invoice, str(exc))
         return "failed"
 
@@ -182,21 +125,10 @@ def process_invoice(
     base_currency = company.base_currency if company is not None else None
     fx = FxService(session)
 
-    # A null amount is an unstated figure, not a zero — the vision path keeps a
-    # line whose amount it could not read rather than guessing at one. Summing
-    # it as zero would report a shortfall the line never claimed; skipping it
-    # leaves the invoice visibly short, which is what reconciliation is for.
     lines_total = sum(
         (Decimal(str(item.amount)) for item in extracted.lines if item.amount is not None),
         _ZERO,
     )
-    # The document may be denominated differently from the posting — Anthropic
-    # bills in EUR, Cloudflare in USD, both booked in DKK — and comparing those
-    # magnitudes directly rejects a correctly read document for arithmetic that
-    # was never wrong.
-    # One rate for both decisions: what the lines are judged at is what they are
-    # stored at, so the figure that reconciled and the figure in the ledger can
-    # never disagree.
     rate, mismatch = conversion_rate(
         extracted.currency, invoice.currency, invoice.invoice_date, fx
     )
@@ -205,9 +137,6 @@ def process_invoice(
         return "rejected"
     comparable = lines_total * rate
 
-    # What the document said about itself, in the invoice's money — at the very
-    # rate the lines are judged and stored at, so the figure that reconciled and
-    # the figure in the ledger can never disagree.
     document_total = _converted(extracted.total, rate)
     document_subtotal = _converted(extracted.subtotal, rate)
 
@@ -218,10 +147,6 @@ def process_invoice(
         document_total=document_total,
         document_subtotal=document_subtotal,
     )
-    # Only the internal check rejects. A document whose lines add up to the
-    # total printed on the same page is one we read correctly; if the bookkeeper
-    # posted something else, that is exactly what a reviewer should be shown —
-    # and rejecting means they never see the lines at all.
     if not verdict.ok:
         _fail(session, invoice, verdict.reason or "the extracted lines do not reconcile")
         return "rejected"
@@ -244,9 +169,6 @@ def process_invoice(
         "" if verdict.checked else " (no total to reconcile against)",
     )
     return "processed"
-
-
-# -- The run -----------------------------------------------------------------
 
 
 def run_documents(
@@ -275,16 +197,13 @@ def run_documents(
             _claim(session, invoice)
             try:
                 outcome = process_invoice(session, invoice, extract=extract)
-            except Exception as exc:  # noqa: BLE001 - one bad document is not the run
+            except Exception as exc:  # noqa: BLE001
                 session.rollback()
                 _fail(session, invoice, f"extraction crashed: {exc}")
                 outcome = "failed"
             counts[outcome] = counts.get(outcome, 0) + 1
 
     return counts
-
-
-# -- CLI ---------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -313,8 +232,6 @@ def main(argv: list[str] | None = None) -> int:
     print("\n=== documents ===")
     for key, value in counts.items():
         print(f"{key}: {value}")
-    # A scheduler still needs to see that something broke, even though the rest
-    # of the backlog was processed.
     return 1 if counts["failed"] or counts["rejected"] else 0
 
 

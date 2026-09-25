@@ -48,7 +48,6 @@ def test_list_templates_returns_sorted_names():
 
 
 def test_render_with_spec_contains_key_fields_and_extras(tmp_path):
-    """Rendering WITH a RenderSpec produces PDF with vendor/invoice/total/buyer AND extras."""
     Faker.seed(99)
     fake = Faker()
     fake.seed_instance(99)
@@ -62,9 +61,7 @@ def test_render_with_spec_contains_key_fields_and_extras(tmp_path):
         vat_regime="EU",
         available_templates=templates,
     )
-    # Override to a known template so we can predict behavior
     spec.template_name = "modern"
-    # Ensure some optional fields are populated for testing
     spec.po_number = spec.po_number or "PO-TEST-001"
     spec.payment_terms = spec.payment_terms or "Net 30"
 
@@ -78,13 +75,11 @@ def test_render_with_spec_contains_key_fields_and_extras(tmp_path):
     with pdfplumber.open(out) as pdf:
         text = "\n".join((p.extract_text() or "") for p in pdf.pages)
 
-    # Core fields must survive
     assert "Nimbus Cloud Services Inc." in text
     assert "INV-2026-0042" in text
     assert "1200" in text
     assert "Acme Buyer Ltd" in text
 
-    # At least one extra field must appear
     extras_found = any([
         spec.payment_terms and spec.payment_terms in text,
         spec.po_number and spec.po_number in text,
@@ -94,7 +89,6 @@ def test_render_with_spec_contains_key_fields_and_extras(tmp_path):
 
 
 def test_render_with_spec_classic_template(tmp_path):
-    """RenderSpec also works with classic template."""
     Faker.seed(77)
     fake = Faker()
     fake.seed_instance(77)
@@ -124,9 +118,6 @@ def test_render_with_spec_classic_template(tmp_path):
 
 @pytest.mark.parametrize("template", list_templates())
 def test_all_templates_render_key_text(tmp_path, template):
-    """Every discovered template must produce a PDF containing vendor name,
-    invoice number, total amount, and buyer name — guarantees any future
-    drop-in template file is covered automatically."""
     Faker.seed(42)
     fake = Faker()
     fake.seed_instance(42)
