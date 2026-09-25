@@ -1,6 +1,3 @@
-# Workspace root — virtual: it builds nothing and holds no application code.
-# Each app under apps/ is a member with its own manifest; this file only ties
-# them into one lock, one .venv and one test run.
 [tool.uv.workspace]
 members = ["apps/web-api", "apps/ai-api", "apps/mock-erp"]
 
@@ -9,10 +6,6 @@ web-api = { workspace = true }
 ai-api = { workspace = true }
 mock-erp = { workspace = true }
 
-# A plain `uv sync` installs every member (editable) plus the test runner.
-# The members sit in their own group, not in `dev`: `--package X --group dev`
-# unions every group named `dev` in the workspace, so members listed there would
-# drag ai-api into a web-api-only install.
 [dependency-groups]
 dev = ["pytest>=8.0.0"]
 apps = ["web-api", "ai-api", "mock-erp"]
@@ -22,8 +15,5 @@ default-groups = ["dev", "apps"]
 
 [tool.pytest.ini_options]
 testpaths = ["apps/web-api/tests", "apps/ai-api/tests", "apps/mock-erp/tests"]
-# importlib mode, and no tests/__init__.py: both apps have a `tests/` directory,
-# and two packages of that name collide in one session. Helpers a test imports
-# by name live in the uniquely named <app>_testkit.py, which `pythonpath` exposes.
 addopts = "--import-mode=importlib"
 pythonpath = ["apps/web-api/tests", "apps/ai-api/tests"]

@@ -120,5 +120,5 @@ frontend SHALL keep its bun project, lockfile and scripts unchanged inside
 - **WHEN** `uv run alembic -c apps/web-api/alembic.ini upgrade head` runs at the
   repository root
 - **THEN** the migration chain applies exactly as `uv run alembic upgrade head`
-  did before the move, and `apps/web-api/tests/test_migrations.py` passes
+  did before the move, and `apps/web-api/tests/db/test_migrations.py` passes
 
