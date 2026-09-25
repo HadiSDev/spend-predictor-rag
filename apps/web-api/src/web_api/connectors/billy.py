@@ -82,8 +82,8 @@ class BillyConnector(HttpErpConnector):
         CredentialField(name="base_url", label="API base URL", default=DEFAULT_BASE_URL),
     ]
 
-    def __init__(self, config: dict) -> None:
-        super().__init__(config)
+    def __init__(self, config: dict, http_client: httpx.Client | None = None) -> None:
+        super().__init__(config, http_client)
         self.access_token = config.get("access_token") or ""
         self.base_url = config.get("base_url") or DEFAULT_BASE_URL
         self._organization_id: str | None = config.get("organization_id") or None

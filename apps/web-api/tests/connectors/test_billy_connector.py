@@ -89,13 +89,13 @@ class Billy:
             return httpx.Response(200, content=b"%PDF-1.4 scrubbed")
         return httpx.Response(404, json={})
 
-    def connector(self, **config) -> BillyConnector:
+    def connector(self, handler=None, **config) -> BillyConnector:
         settings = {"access_token": "tok-live", "base_url": BASE_URL}
         settings.update(config)
-        c = BillyConnector(settings)
-        c._http = httpx.Client(transport=httpx.MockTransport(self.handler),
-                               base_url=BASE_URL)
-        return c
+        client = httpx.Client(
+            transport=httpx.MockTransport(handler or self.handler), base_url=BASE_URL
+        )
+        return BillyConnector(settings, http_client=client)
 
 
 @pytest.fixture
@@ -137,8 +137,8 @@ def test_test_connection_is_false_when_billy_is_unreachable(billy):
     def dead(request):
         raise httpx.ConnectError("unreachable", request=request)
 
-    connector = BillyConnector({"access_token": "t", "base_url": BASE_URL})
-    connector._http = httpx.Client(transport=httpx.MockTransport(dead), base_url=BASE_URL)
+    client = httpx.Client(transport=httpx.MockTransport(dead), base_url=BASE_URL)
+    connector = BillyConnector({"access_token": "t", "base_url": BASE_URL}, http_client=client)
     assert connector.test_connection() is False
 
 
@@ -168,14 +168,10 @@ def test_an_archived_account_is_inactive(billy, monkeypatch):
     chart["accounts"][0]["isArchived"] = True
     target = str(chart["accounts"][0]["accountNo"])
 
-    connector = billy.connector()
-    connector._http = httpx.Client(
-        transport=httpx.MockTransport(
-            lambda request: httpx.Response(200, json=chart)
-            if request.url.path.endswith("/accounts")
-            else billy.handler(request)
-        ),
-        base_url=BASE_URL,
+    connector = billy.connector(
+        lambda request: httpx.Response(200, json=chart)
+        if request.url.path.endswith("/accounts")
+        else billy.handler(request)
     )
 
     by_code = {a.erp_account_code: a for a in connector.fetch_accounts()}
@@ -493,14 +489,10 @@ def test_an_image_attachment_keeps_its_own_media_type(billy):
     file_body = load("file")
     file_body["file"].update(fileName="receipt.png", fileType="png", isPdf=False)
 
-    connector = billy.connector()
-    connector._http = httpx.Client(
-        transport=httpx.MockTransport(
-            lambda request: httpx.Response(200, json=file_body)
-            if "/files/" in request.url.path
-            else billy.handler(request)
-        ),
-        base_url=BASE_URL,
+    connector = billy.connector(
+        lambda request: httpx.Response(200, json=file_body)
+        if "/files/" in request.url.path
+        else billy.handler(request)
     )
 
     payload = connector.fetch_invoice_document(_bill_voucher(connector))

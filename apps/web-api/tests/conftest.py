@@ -218,9 +218,7 @@ def client(engine, seed, clerk_recorder):
 def mock_erp_connector():
     """A MockErpConnector wired to the mock ERP app, in-process."""
     with TestClient(mock_erp_app) as mock_erp_client:
-        connector = MockErpConnector({"api_key": "mock-secret"})
-        connector._http = mock_erp_client
-        yield connector
+        yield MockErpConnector({"api_key": "mock-secret"}, http_client=mock_erp_client)
 
 
 @pytest.fixture(autouse=True)

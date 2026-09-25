@@ -25,6 +25,7 @@ from ..schemas import (
     VoucherGroupRead,
 )
 from ..reconcile import reconcile_lines
+from .entry_rows import EntryRow, InvoiceHeaderState
 from .invoices import _invoice_read
 
 router = APIRouter(prefix="/api/v1", tags=["erp-entries"])
@@ -78,20 +79,23 @@ _OWN_FIELDS = tuple(
 )
 
 
-def _entry_read(row) -> ErpEntryRead:
-    """Build the response model from a `_entry_select()` row."""
-    (entry, account_code, account_name, vendor_id, vendor_name, account_type,
-     level_1, level_2, level_3) = row
+def _entry_rows(session: Session, statement) -> list[EntryRow]:
+    """Run a `_entry_select()` statement and name its columns."""
+    return [EntryRow(*row) for row in session.exec(statement).all()]
+
+
+def _entry_read(row: EntryRow) -> ErpEntryRead:
+    """Build the response model from an entry row."""
     return ErpEntryRead(
-        **{name: getattr(entry, name) for name in _OWN_FIELDS},
-        erp_account_code=account_code,
-        erp_account_name=account_name,
-        erp_account_type=account_type,
-        vendor_id=vendor_id,
-        vendor_name=vendor_name,
-        spend_category_level_1=level_1,
-        spend_category_level_2=level_2,
-        spend_category_level_3=level_3,
+        **{name: getattr(row.entry, name) for name in _OWN_FIELDS},
+        erp_account_code=row.account_code,
+        erp_account_name=row.account_name,
+        erp_account_type=row.account_type,
+        vendor_id=row.vendor_id,
+        vendor_name=row.vendor_name,
+        spend_category_level_1=row.level_1,
+        spend_category_level_2=row.level_2,
+        spend_category_level_3=row.level_3,
     )
 
 
@@ -183,7 +187,8 @@ def list_erp_entries(
     total = session.exec(
         select(func.count()).select_from(ErpEntry).where(*conditions)
     ).one()
-    rows = session.exec(
+    rows = _entry_rows(
+        session,
         _entry_select()
         .where(*conditions)
         .order_by(
@@ -193,7 +198,7 @@ def list_erp_entries(
         )
         .offset((page - 1) * page_size)
         .limit(page_size)
-    ).all()
+    )
     return Page(
         items=[_entry_read(r) for r in rows],
         page=page,
@@ -257,15 +262,16 @@ def list_voucher_groups(
 
     order = [(company, key) for company, key, _ in keys]
     last_dates = {(company, key): last for company, key, last in keys}
-    rows = session.exec(
+    rows = _entry_rows(
+        session,
         _entry_select()
         .where(*conditions, _GROUP_KEY.in_([key for _, key in order]))
         .order_by(ErpEntry.accounting_date, ErpEntry.id)
-    ).all()
+    )
 
-    buckets: dict[tuple[str, str], list] = {pair: [] for pair in order}
+    buckets: dict[tuple[str, str], list[EntryRow]] = {pair: [] for pair in order}
     for row in rows:
-        entry = row[0]
+        entry = row.entry
         key = f"v:{entry.voucher_id}" if entry.voucher_id is not None else f"e:{entry.id}"
         bucket = buckets.get((entry.company_id, key))
         if bucket is not None:
@@ -308,14 +314,14 @@ _AMOUNT_FIELDS = {
 }
 
 
-def _net_spend(rows: list, debit_field: str, credit_field: str) -> Decimal | None:
+def _net_spend(rows: list[EntryRow], debit_field: str, credit_field: str) -> Decimal | None:
     """The group's signed net spend, or None when it spent nothing."""
-    expense_rows = [r for r in rows if r[5] == _EXPENSE]
+    expense_rows = [r for r in rows if r.account_type == _EXPENSE]
     if not expense_rows:
         return None
     return sum(
         (
-            (getattr(r[0], debit_field) or _ZERO) - (getattr(r[0], credit_field) or _ZERO)
+            (getattr(r.entry, debit_field) or _ZERO) - (getattr(r.entry, credit_field) or _ZERO)
             for r in expense_rows
         ),
         _ZERO,
@@ -323,13 +329,13 @@ def _net_spend(rows: list, debit_field: str, credit_field: str) -> Decimal | Non
 
 
 def _voucher_amount(
-    rows: list, mode: str
+    rows: list[EntryRow], mode: str
 ) -> tuple[Decimal | None, Decimal | None, Decimal | None, str | None, int]:
     """Net spend, debit/credit totals, currency and unconverted count for one voucher."""
     debit_field, credit_field, currency_field = _AMOUNT_FIELDS[mode]
 
     if mode == "base":
-        summable = [r for r in rows if r[0].base_currency is not None]
+        summable = [r for r in rows if r.entry.base_currency is not None]
         unconverted_count = len(rows) - len(summable)
     else:
         summable = rows
@@ -338,12 +344,12 @@ def _voucher_amount(
     if not summable:
         return None, None, None, None, unconverted_count
 
-    debit_total = sum((getattr(r[0], debit_field) or _ZERO for r in summable), _ZERO)
-    credit_total = sum((getattr(r[0], credit_field) or _ZERO for r in summable), _ZERO)
+    debit_total = sum((getattr(r.entry, debit_field) or _ZERO for r in summable), _ZERO)
+    credit_total = sum((getattr(r.entry, credit_field) or _ZERO for r in summable), _ZERO)
     amount = _net_spend(summable, debit_field, credit_field)
-    if amount is None and not any(r[5] for r in summable):
+    if amount is None and not any(r.account_type for r in summable):
         amount = debit_total
-    currency = _shared([getattr(r[0], currency_field) for r in summable])
+    currency = _shared([getattr(r.entry, currency_field) for r in summable])
     return amount, debit_total, credit_total, currency, unconverted_count
 
 
@@ -370,9 +376,6 @@ def _line_read(line: InvoiceLine, currency: str | None) -> InvoiceLineRead:
     )
 
 
-InvoiceHeaderState = tuple[str, str | None, str | None, str | None]
-
-
 def _invoice_header_state(
     session: Session, invoice_ids: set[str]
 ) -> dict[str, InvoiceHeaderState]:
@@ -388,24 +391,27 @@ def _invoice_header_state(
             Invoice.document_invoice_number,
         ).where(Invoice.id.in_(invoice_ids))  # type: ignore[union-attr]
     ).all()
-    return {row[0]: (str(row[1]), row[2], row[3], row[4]) for row in rows}
+    return {
+        invoice_id: InvoiceHeaderState(str(doc_status), doc_error, number, document_number)
+        for invoice_id, doc_status, doc_error, number, document_number in rows
+    }
 
 
-def _group_invoice_id(rows: list) -> str | None:
+def _group_invoice_id(rows: list[EntryRow]) -> str | None:
     """The source invoice the group's postings agree on, if any."""
-    return _shared([r[0].source_invoice_id for r in rows if r[0].source_invoice_id])
+    return _shared([r.entry.source_invoice_id for r in rows if r.entry.source_invoice_id])
 
 
 def _voucher_group(
     company_id: str,
     key: str,
     last_date,
-    rows: list,
+    rows: list[EntryRow],
     mode: str = "base",
     lines: list[InvoiceLineRead] | None = None,
     header: InvoiceHeaderState | None = None,
 ) -> VoucherGroupRead:
-    entries = [r[0] for r in rows]
+    entries = [r.entry for r in rows]
     voucher_id = entries[0].voucher_id if entries else None
     amount, debit_total, credit_total, currency, unconverted_count = _voucher_amount(rows, mode)
 
@@ -419,27 +425,27 @@ def _voucher_group(
         debit_total=debit_total,
         credit_total=credit_total,
         currency=currency,
-        vendor_id=_shared([r[3] for r in rows]),
-        vendor_name=_shared([r[4] for r in rows]),
+        vendor_id=_shared([r.vendor_id for r in rows]),
+        vendor_name=_shared([r.vendor_name for r in rows]),
         unconverted_count=unconverted_count,
         entries=[_entry_read(r) for r in rows],
         lines=lines or [],
-        doc_status=header[0] if header is not None else None,
-        doc_error=header[1] if header is not None else None,
-        invoice_number=header[2] if header is not None else None,
-        document_invoice_number=header[3] if header is not None else None,
+        doc_status=header.doc_status if header is not None else None,
+        doc_error=header.doc_error if header is not None else None,
+        invoice_number=header.invoice_number if header is not None else None,
+        document_invoice_number=header.document_invoice_number if header is not None else None,
     )
 
 
 def _voucher_detail(
-    session: Session, scope: TenantScope, entries: list, mode: str = "base"
+    session: Session, scope: TenantScope, entries: list[EntryRow], mode: str = "base"
 ) -> VoucherDetailRead:
     """Assemble a voucher payload from its postings."""
     if not entries:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voucher not found")
 
     reads = [_entry_read(row) for row in entries]
-    first = entries[0][0]
+    first = entries[0].entry
 
     invoice_id = next((r.source_invoice_id for r in reads if r.source_invoice_id), None)
     invoice_payload = None
@@ -488,19 +494,20 @@ def get_voucher_by_entry(
     session: Session = Depends(get_session),
 ) -> VoucherDetailRead:
     """The voucher a posting belongs to, addressed by the posting."""
-    rows = session.exec(
+    rows = _entry_rows(
+        session,
         _entry_select().where(
             ErpEntry.id == entry_id,
             ErpEntry.company_id.in_(scope.company_ids),
             _sync_enabled_condition(),
         )
-    ).all()
+    )
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
-    voucher_id = rows[0][0].voucher_id
+    voucher_id = rows[0].entry.voucher_id
     if voucher_id is not None:
         return get_voucher_detail(voucher_id, currency_mode=currency_mode, scope=scope, session=session)
-    return _voucher_detail(session, scope, list(rows), mode=currency_mode)
+    return _voucher_detail(session, scope, rows, mode=currency_mode)
 
 
 @router.get("/erp-entries/vouchers/{voucher_id}", response_model=VoucherDetailRead)
@@ -511,7 +518,8 @@ def get_voucher_detail(
     session: Session = Depends(get_session),
 ) -> VoucherDetailRead:
     """One voucher's postings, its invoice with lines, and its document."""
-    rows = session.exec(
+    rows = _entry_rows(
+        session,
         _entry_select()
         .where(
             ErpEntry.voucher_id == voucher_id,
@@ -519,8 +527,8 @@ def get_voucher_detail(
             _sync_enabled_condition(),
         )
         .order_by(ErpEntry.id)
-    ).all()
-    return _voucher_detail(session, scope, list(rows), mode=currency_mode)
+    )
+    return _voucher_detail(session, scope, rows, mode=currency_mode)
 
 
 @router.get("/erp-entries/vouchers/by-entry/{entry_id}/audit",
@@ -575,12 +583,13 @@ def get_erp_entry(
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> ErpEntryRead:
-    row = session.exec(
+    rows = _entry_rows(
+        session,
         _entry_select().where(
             ErpEntry.id == entry_id,
             ErpEntry.company_id.in_(scope.company_ids),
-        )
-    ).first()
-    if row is None:
+        ),
+    )
+    if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
-    return _entry_read(row)
+    return _entry_read(rows[0])

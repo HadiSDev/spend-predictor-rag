@@ -34,9 +34,9 @@ class HttpErpConnector(ErpConnector):
 
     retry_backoff_seconds: float = 0.5
 
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: dict, http_client: httpx.Client | None = None) -> None:
         super().__init__(config)
-        self._http: httpx.Client | None = None
+        self._http = http_client
 
     @abstractmethod
     def _auth_headers(self) -> dict[str, str]:

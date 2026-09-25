@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+import httpx
+
 from .base import (
     CredentialField,
     DocumentPayload,
@@ -40,8 +42,8 @@ class MockErpConnector(HttpErpConnector):
         CredentialField(name="api_key", label="API key", secret=True, default=DEFAULT_API_KEY),
     ]
 
-    def __init__(self, config: dict) -> None:
-        super().__init__(config)
+    def __init__(self, config: dict, http_client: httpx.Client | None = None) -> None:
+        super().__init__(config, http_client)
         self.base_url = config.get("base_url") or DEFAULT_BASE_URL
         self.api_key = config.get("api_key") or DEFAULT_API_KEY
         self._token: str | None = None

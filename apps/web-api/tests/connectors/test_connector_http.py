@@ -22,8 +22,8 @@ class _Probe(HttpErpConnector):
 
     retry_backoff_seconds = 0.0
 
-    def __init__(self, config=None, token="t0"):
-        super().__init__(config or {})
+    def __init__(self, config=None, token="t0", http_client=None):
+        super().__init__(config or {}, http_client)
         self.token = token
         self.auth_calls = 0
 
@@ -57,11 +57,8 @@ class _Probe(HttpErpConnector):
 
 
 def _probe(handler, **kwargs):
-    connector = _Probe(**kwargs)
-    connector._http = httpx.Client(
-        transport=httpx.MockTransport(handler), base_url="http://erp"
-    )
-    return connector
+    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="http://erp")
+    return _Probe(http_client=client, **kwargs)
 
 
 def test_auth_headers_are_re_evaluated_on_every_request():
@@ -240,12 +237,12 @@ def test_cursor_paging_stops_when_the_next_link_is_absent():
 
 
 def test_mock_connector_now_raises_the_rate_limit_error_on_429():
-    connector = MockErpConnector({})
-    connector.retry_backoff_seconds = 0.0
-    connector._http = httpx.Client(
+    client = httpx.Client(
         transport=httpx.MockTransport(lambda request: httpx.Response(429, text="slow")),
         base_url="http://erp",
     )
+    connector = MockErpConnector({}, http_client=client)
+    connector.retry_backoff_seconds = 0.0
 
     with pytest.raises(ErpRateLimitError):
         connector.fetch_accounts()
