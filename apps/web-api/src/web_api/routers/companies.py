@@ -89,11 +89,7 @@ def create_company(
 ) -> CompanyCreateResult:
     """Create a company, connect its ERP, and give it a spend tree — one transaction."""
     organization_id = resolve_target_organization(scope, body.organization_id)
-    try:
-        spend_tree_id = _resolve_tree_for_write(session, organization_id, body.spend_tree_id)
-    except Exception:
-        session.rollback()
-        raise
+    spend_tree_id = _resolve_tree_for_write(session, organization_id, body.spend_tree_id)
 
     company = Company(
         organization_id=organization_id,
@@ -104,12 +100,8 @@ def create_company(
         spend_tree_id=spend_tree_id,
     )
     session.add(company)
-    try:
-        integration = provision_integration(session, company.id, body.integration)
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
+    integration = provision_integration(session, company.id, body.integration)
+    session.commit()
     session.refresh(company)
     session.refresh(integration)
 
@@ -146,11 +138,7 @@ def update_company(
         stale = reassign_company_tree(session, company.id, previous_tree_id, new_tree_id)
 
     session.add(company)
-    try:
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
+    session.commit()
     session.refresh(company)
     return CompanyUpdateResult(
         **_company_read(session, company).model_dump(), stale_lines=stale
@@ -165,12 +153,8 @@ def recompute_company_fx(
 ) -> FxRecomputeResult:
     """Rewrite this company's stored base amounts against its current currency."""
     company = get_managed_company(session, scope, company_id)
-    try:
-        counts = recompute_company(session, company.id)
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
+    counts = recompute_company(session, company.id)
+    session.commit()
     return FxRecomputeResult(
         company_id=company.id,
         base_currency=company.base_currency,
@@ -198,36 +182,32 @@ def recategorize_company_lines(
         )
     ).all()
 
-    try:
-        for line in lines:
-            changes = [
-                {"field": "status", "old": line.status, "new": LineStatus.UNCATEGORIZED.value}
-            ]
-            for field in ("error_message", "rationale"):
-                if getattr(line, field) is not None:
-                    changes.append(
-                        {"field": field, "old": getattr(line, field), "new": None}
-                    )
-            record_audit(
-                session,
-                entity_type="invoice_line",
-                entity_id=line.id,
-                action=REQUEUED_ACTION,
-                actor=SYSTEM_ACTOR,
-                changes=changes,
-            )
-            line.status = LineStatus.UNCATEGORIZED
-            line.error_message = None
-            line.rationale = None
-            session.add(line)
+    for line in lines:
+        changes = [
+            {"field": "status", "old": line.status, "new": LineStatus.UNCATEGORIZED.value}
+        ]
+        for field in ("error_message", "rationale"):
+            if getattr(line, field) is not None:
+                changes.append(
+                    {"field": field, "old": getattr(line, field), "new": None}
+                )
+        record_audit(
+            session,
+            entity_type="invoice_line",
+            entity_id=line.id,
+            action=REQUEUED_ACTION,
+            actor=SYSTEM_ACTOR,
+            changes=changes,
+        )
+        line.status = LineStatus.UNCATEGORIZED
+        line.error_message = None
+        line.rationale = None
+        session.add(line)
 
-        session.flush()
-        for invoice_id in {line.invoice_id for line in lines}:
-            recompute_invoice_status(session, invoice_id)
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
+    session.flush()
+    for invoice_id in {line.invoice_id for line in lines}:
+        recompute_invoice_status(session, invoice_id)
+    session.commit()
     return RecategorizeResult(company_id=company.id, queued=len(lines))
 
 
@@ -288,10 +268,6 @@ def delete_company_endpoint(
     deleted = CompanyDeleteResult(
         id=company.id, name=company.name, **records.__dict__
     )
-    try:
-        delete_company(session, company)
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
+    delete_company(session, company)
+    session.commit()
     return deleted

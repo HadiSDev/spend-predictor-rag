@@ -1,6 +1,7 @@
 """Fixtures for web API tests: in-memory SQLite, seed data, fake Clerk verifier."""
 from __future__ import annotations
 
+from collections.abc import Generator
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -49,12 +50,11 @@ class FakeVerifier:
 
 
 @pytest.fixture
-def engine(monkeypatch):
+def engine():
     eng = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     SQLModel.metadata.create_all(eng)
-    monkeypatch.setattr(deps, "engine", eng)
     return eng
 
 
@@ -202,8 +202,12 @@ def clerk_recorder():
 
 
 @pytest.fixture
-def client(seed, clerk_recorder):
+def client(engine, seed, clerk_recorder):
+    def test_session() -> Generator[Session, None, None]:
+        yield from deps.session_scope(engine)
+
     app = create_app()
+    app.dependency_overrides[deps.get_session] = test_session
     app.dependency_overrides[deps.get_verifier] = lambda: FakeVerifier()
     app.dependency_overrides[get_webhook_verifier] = lambda: SvixWebhookVerifier(TEST_WEBHOOK_SECRET)
     app.dependency_overrides[get_clerk_client] = lambda: clerk_recorder

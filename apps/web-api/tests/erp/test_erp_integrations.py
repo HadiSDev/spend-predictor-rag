@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from web_api import config as web_config
 from web_api import credentials
-from web_api.connectors import register_connector
+from web_api.connectors import ErpAuthError, register_connector
 from web_api.connectors.base import CredentialField, ErpAccountData, ErpConnector
 from web_api.db.models import ErpAccount, ErpCredential, ErpEntry, Invoice
 from web_api_testkit import auth
@@ -60,6 +60,11 @@ class _BadConn(_FakeConn):
         raise RuntimeError("boom: unreachable")
 
 
+class _BadAuthConn(_FakeConn):
+    def test_connection(self) -> bool:
+        raise ErpAuthError("token tok_secret_123 expired")
+
+
 class _BrandedConn(_FakeConn):
     """Declares the optional brand metadata, so the catalog can project it."""
 
@@ -72,6 +77,7 @@ class _BrandedConn(_FakeConn):
 register_connector("faketest", _FakeConn)
 register_connector("faketest_bad", _BadConn)
 register_connector("faketest_branded", _BrandedConn)
+register_connector("faketest_badauth", _BadAuthConn)
 
 
 @pytest.fixture(autouse=True)
@@ -202,7 +208,16 @@ def test_connection_failure_is_200_not_500(client, seed):
     r = client.post(f"/api/v1/erp-integrations/{iid}/test-connection", headers=auth("tokA"))
     assert r.status_code == 200
     body = r.json()
-    assert body["ok"] is False and "boom" in body["message"]
+    assert body["ok"] is False
+    assert body["message"] == "Connection test failed"
+    assert "boom" not in body["message"]
+
+
+def test_connection_failure_names_rejected_credentials(client, seed):
+    iid = _create(client, "tokA", seed["comp_a"], erp_type="faketest_badauth").json()["id"]
+    r = client.post(f"/api/v1/erp-integrations/{iid}/test-connection", headers=auth("tokA"))
+    assert r.status_code == 200
+    assert r.json() == {"ok": False, "message": "The ERP rejected the credentials"}
 
 
 def test_refresh_adds_new_and_preserves_selection(client, seed, monkeypatch):

@@ -1,6 +1,7 @@
 """ERP integration controller: integration CRUD + connection actions + account selection."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -8,7 +9,14 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from web_api.db.models import ErpAccount, ErpCredential, ErpEntry, ErpIntegration, User
-from ..connectors import connector_catalog, get_connector
+from ..connectors import (
+    ErpAuthError,
+    ErpConnectionError,
+    ErpDataError,
+    ErpRateLimitError,
+    connector_catalog,
+    get_connector,
+)
 from ..credentials import decrypt_config, encrypt_config
 from ..auth.deps import (
     TenantScope,
@@ -39,6 +47,15 @@ from ..schemas import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["erp-integrations"])
+logger = logging.getLogger(__name__)
+
+CONNECTION_FAILED = "Connection test failed"
+_CONNECTION_FAILURE_MESSAGES: dict[type[Exception], str] = {
+    ErpAuthError: "The ERP rejected the credentials",
+    ErpConnectionError: "The ERP could not be reached",
+    ErpRateLimitError: "The ERP is rate limiting requests; try again shortly",
+    ErpDataError: "The ERP returned an unexpected response",
+}
 
 
 def _now() -> datetime:
@@ -249,22 +266,18 @@ def replace_integration(
                 ).model_dump(mode="json"),
             )
 
-    try:
-        outgoing.disconnected_at = _now()
-        session.add(outgoing)
-        incoming = provision_integration(
-            session,
-            outgoing.company_id,
-            IntegrationSpec(
-                erp_type=body.erp_type,
-                label=body.label,
-                credentials=body.credentials,
-            ),
-        )
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
+    outgoing.disconnected_at = _now()
+    session.add(outgoing)
+    incoming = provision_integration(
+        session,
+        outgoing.company_id,
+        IntegrationSpec(
+            erp_type=body.erp_type,
+            label=body.label,
+            credentials=body.credentials,
+        ),
+    )
+    session.commit()
 
     session.refresh(incoming)
     return _read(incoming)
@@ -283,8 +296,19 @@ def test_connection(
         connector.authorize()
         ok = connector.test_connection()
     except Exception as exc:  # noqa: BLE001
-        return ConnectionTestResult(ok=False, message=str(exc))
-    return ConnectionTestResult(ok=bool(ok), message=None if ok else "Connection test failed")
+        logger.warning(
+            "Connection test failed for integration %s", integration.id, exc_info=True
+        )
+        return ConnectionTestResult(ok=False, message=_connection_failure_message(exc))
+    return ConnectionTestResult(ok=bool(ok), message=None if ok else CONNECTION_FAILED)
+
+
+def _connection_failure_message(exc: Exception) -> str:
+    """A client-safe message for a failed connection test."""
+    for error_type, message in _CONNECTION_FAILURE_MESSAGES.items():
+        if isinstance(exc, error_type):
+            return message
+    return CONNECTION_FAILED
 
 
 @router.post("/erp-integrations/{integration_id}/refresh-accounts",

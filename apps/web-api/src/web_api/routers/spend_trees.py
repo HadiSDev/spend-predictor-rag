@@ -141,7 +141,6 @@ def create_spend_tree(
                 session, scope.organization_id, body.name, max_depth=body.max_depth
             )
     except service.SpendTreeError as error:
-        session.rollback()
         raise _http(error) from error
 
     session.commit()
@@ -160,7 +159,6 @@ def update_spend_tree(
     try:
         service.update_tree(session, tree, name=body.name, max_depth=body.max_depth)
     except service.SpendTreeError as error:
-        session.rollback()
         raise _http(error) from error
     session.commit()
     session.refresh(tree)
@@ -178,7 +176,6 @@ def archive_spend_tree(
     try:
         service.archive_tree(session, tree)
     except service.SpendTreeError as error:
-        session.rollback()
         raise _http(error) from error
     session.commit()
     session.refresh(tree)
@@ -197,7 +194,6 @@ def delete_spend_tree(
     try:
         stale = service.delete_tree(session, tree, confirm=confirm)
     except service.SpendTreeError as error:
-        session.rollback()
         raise _http(error) from error
     session.commit()
     return SpendTreeDeleteResult(stale_lines=stale)
@@ -217,11 +213,9 @@ def import_spend_tree(
     try:
         plan = importer.plan_import(session, tree, content, mode=mode)
     except service.SpendTreeError as error:
-        session.rollback()
         raise _http(error) from error
 
     if plan.affected_lines and not confirm:
-        session.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -255,7 +249,6 @@ def create_spend_category(
             description=body.description, sort_order=body.sort_order,
         )
     except service.SpendTreeError as error:
-        session.rollback()
         raise _http(error) from error
     session.commit()
     session.refresh(node)
@@ -278,7 +271,6 @@ def update_spend_category(
             description=body.description, sort_order=body.sort_order,
         )
     except service.SpendTreeError as error:
-        session.rollback()
         raise _http(error) from error
     session.commit()
     session.refresh(node)
@@ -296,7 +288,6 @@ def delete_spend_category(
         node = service.get_node(session, node_id, scope.organization_id)
         stale = service.delete_node(session, node)
     except service.SpendTreeError as error:
-        session.rollback()
         raise _http(error) from error
     session.commit()
     return SpendTreeDeleteResult(stale_lines=stale)
@@ -425,7 +416,6 @@ def accept_spend_tree_suggestion(
             session, tree, row.name, parent_id=parent.id, description=row.description,
         )
     except service.SpendTreeError as error:
-        session.rollback()
         raise _http(error) from error
 
     row.state = SuggestionState.ACCEPTED

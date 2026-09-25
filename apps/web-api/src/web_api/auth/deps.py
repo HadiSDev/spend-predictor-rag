@@ -7,6 +7,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException, status
+from sqlalchemy import Engine
 from sqlmodel import Session, select
 
 from web_api.db.models import Company, ErpIntegration, Organization, User
@@ -42,8 +43,18 @@ def get_verifier() -> TokenVerifier:
 
 
 def get_session() -> Generator[Session, None, None]:
-    with Session(engine) as session:
-        yield session
+    """A request-scoped session on the application database."""
+    yield from session_scope(engine)
+
+
+def session_scope(bind: Engine) -> Generator[Session, None, None]:
+    """A session that rolls back when the work using it fails."""
+    with Session(bind) as session:
+        try:
+            yield session
+        except Exception:
+            session.rollback()
+            raise
 
 
 def get_principal(
