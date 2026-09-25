@@ -17,7 +17,10 @@ describe('updateInvoiceMutation', () => {
     const { api, calls } = fakeApi()
     const options = updateInvoiceMutation(api, new QueryClient())
 
-    await options.mutationFn!({ id: 'inv1', body: { invoice_number: 'INV-2' } }, {} as never)
+    await options.mutationFn!(
+      { id: 'inv1', body: { invoice_number: 'INV-2' } },
+      {} as never,
+    )
 
     expect(calls.patch).toHaveBeenCalledWith('/api/v1/invoices/inv1', {
       invoice_number: 'INV-2',
@@ -46,7 +49,10 @@ describe('verifyInvoiceLineMutation', () => {
     const { api, calls } = fakeApi()
     const options = verifyInvoiceLineMutation(api, new QueryClient())
 
-    await options.mutationFn!({ id: 'l1', corrections: { level_2: 'Furniture' } }, {} as never)
+    await options.mutationFn!(
+      { id: 'l1', corrections: { level_2: 'Furniture' } },
+      {} as never,
+    )
 
     expect(calls.post).toHaveBeenCalledWith('/api/v1/invoice-lines/l1/verify', {
       level_2: 'Furniture',

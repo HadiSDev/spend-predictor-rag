@@ -7,7 +7,9 @@ import { ProfilePanel } from '#/components/settings/profile/profile-panel'
 import { SecurityPanel } from '#/components/settings/profile/security-panel'
 import { usePrincipal } from '#/lib/auth/auth'
 
-export const Route = createFileRoute('/_authed/settings/profile')({ component: ProfileSection })
+export const Route = createFileRoute('/_authed/settings/profile')({
+  component: ProfileSection,
+})
 
 function ProfileSection() {
   const { user, isLoaded } = useUser()
@@ -27,11 +29,16 @@ function ProfileSection() {
   return (
     <div className="flex flex-col gap-6">
       <ProfilePanel
-        defaultValues={{ firstName: user.firstName ?? '', lastName: user.lastName ?? '' }}
+        defaultValues={{
+          firstName: user.firstName ?? '',
+          lastName: user.lastName ?? '',
+        }}
         displayName={user.fullName || user.username || principal.name}
         email={email}
         imageUrl={user.hasImage ? user.imageUrl : undefined}
-        onSave={({ firstName, lastName }) => user.update({ firstName, lastName })}
+        onSave={({ firstName, lastName }) =>
+          user.update({ firstName, lastName })
+        }
         onUploadImage={(file) => user.setProfileImage({ file })}
         onRemoveImage={() => user.setProfileImage({ file: null })}
       />

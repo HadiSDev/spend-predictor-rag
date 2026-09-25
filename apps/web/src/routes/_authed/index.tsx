@@ -3,7 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, Skeleton } from '#/components/ui'
 import { DashboardBody } from '#/components/dashboard/body'
 import { useApi } from '#/lib/auth/auth'
-import { entriesSummaryOptions, spendByCategoryOptions } from '#/lib/api/reports'
+import {
+  entriesSummaryOptions,
+  spendByCategoryOptions,
+} from '#/lib/api/reports'
 
 export const Route = createFileRoute('/_authed/')({
   component: DashboardPage,

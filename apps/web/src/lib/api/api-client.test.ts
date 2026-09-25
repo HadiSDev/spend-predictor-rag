@@ -23,7 +23,9 @@ describe('createApiClient', () => {
     const fetchMock = mockFetch(jsonResponse({ id: 'c1', name: 'Acme' }, 201))
     const api = createApiClient(async () => 'tok-123')
 
-    const created = await api.post<{ id: string }>('/api/v1/companies', { name: 'Acme' })
+    const created = await api.post<{ id: string }>('/api/v1/companies', {
+      name: 'Acme',
+    })
 
     expect(created.id).toBe('c1')
     const [url, init] = fetchMock.mock.calls[0]
@@ -81,7 +83,9 @@ describe('createApiClient', () => {
     mockFetch(new Response('nope', { status: 500 }))
     const api = createApiClient(async () => null)
 
-    const error = (await api.get('/api/v1/companies').catch((e: unknown) => e)) as ApiError
+    const error = (await api
+      .get('/api/v1/companies')
+      .catch((e: unknown) => e)) as ApiError
 
     expect(error.detail).toContain('500')
   })
@@ -111,7 +115,9 @@ describe('createApiClient', () => {
     mockFetch(jsonResponse({ detail: 'Document not found' }, 404))
     const api = createApiClient(async () => 'tok-123')
 
-    const error = (await api.getBlob('/api/v1/documents/missing').catch((e: unknown) => e)) as ApiError
+    const error = (await api
+      .getBlob('/api/v1/documents/missing')
+      .catch((e: unknown) => e)) as ApiError
 
     expect(error).toBeInstanceOf(ApiError)
     expect(error.status).toBe(404)
@@ -154,7 +160,9 @@ describe('createApiClient 401 retry', () => {
     const getToken = tokenGetter()
     const api = createApiClient(getToken)
 
-    const result = await api.post<{ id: string }>('/api/v1/companies', { name: 'Acme' })
+    const result = await api.post<{ id: string }>('/api/v1/companies', {
+      name: 'Acme',
+    })
 
     expect(result.id).toBe('c1')
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -186,7 +194,9 @@ describe('createApiClient 401 retry', () => {
     const getToken = tokenGetter()
     const api = createApiClient(getToken)
 
-    const error = (await api.get('/api/v1/companies').catch((e: unknown) => e)) as ApiError
+    const error = (await api
+      .get('/api/v1/companies')
+      .catch((e: unknown) => e)) as ApiError
 
     expect(error).toBeInstanceOf(ApiError)
     expect(error.status).toBe(401)
@@ -195,11 +205,15 @@ describe('createApiClient 401 retry', () => {
   })
 
   it('does not retry a 403 — that is a permission answer, not a stale token', async () => {
-    const fetchMock = mockFetch(jsonResponse({ detail: 'Insufficient permissions' }, 403))
+    const fetchMock = mockFetch(
+      jsonResponse({ detail: 'Insufficient permissions' }, 403),
+    )
     const getToken = tokenGetter()
     const api = createApiClient(getToken)
 
-    const error = (await api.get('/api/v1/companies').catch((e: unknown) => e)) as ApiError
+    const error = (await api
+      .get('/api/v1/companies')
+      .catch((e: unknown) => e)) as ApiError
 
     expect(error).toBeInstanceOf(ApiError)
     expect(error.status).toBe(403)

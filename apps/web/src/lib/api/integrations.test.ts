@@ -12,16 +12,23 @@ describe('replaceIntegrationMutation', () => {
     await options.mutationFn!(
       {
         id: 'old-1',
-        body: { erp_type: 'billy', label: 'Main', credentials: { access_token: 't' } },
+        body: {
+          erp_type: 'billy',
+          label: 'Main',
+          credentials: { access_token: 't' },
+        },
       },
       {} as never,
     )
 
-    expect(post).toHaveBeenCalledWith('/api/v1/erp-integrations/old-1/replace', {
-      erp_type: 'billy',
-      label: 'Main',
-      credentials: { access_token: 't' },
-    })
+    expect(post).toHaveBeenCalledWith(
+      '/api/v1/erp-integrations/old-1/replace',
+      {
+        erp_type: 'billy',
+        label: 'Main',
+        credentials: { access_token: 't' },
+      },
+    )
   })
 
   it('passes confirm through when the caller has acknowledged', async () => {

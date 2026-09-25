@@ -17,10 +17,10 @@ set at 40px.
 
 ## Provenance
 
-| File | Source | Notes |
-| --- | --- | --- |
+| File        | Source                                                                    | Notes                                                                                                                                                                                                     |
+| ----------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `billy.svg` | `https://www.billy.dk/assets/new_identity/logos/billy-by-shine_white.svg` | Billy's own mark. Only the **symbol** is used — the "billy by Shine" wordmark beside it in the source file is illegible at 40px. Placed on Billy's `#002E33`, the brand colour their site uses behind it. |
-| `mock.svg` | Drawn here | The Debug ERP is ours, so its mark is too: a shell prompt on slate, to read as a development tool rather than a product a customer could buy. |
+| `mock.svg`  | Drawn here                                                                | The Debug ERP is ours, so its mark is too: a shell prompt on slate, to read as a development tool rather than a product a customer could buy.                                                             |
 
 Third-party marks are used **nominatively** — to identify which system an
 integration connects to, which is ordinary for an integrations page — and are not

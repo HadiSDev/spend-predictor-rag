@@ -4,27 +4,37 @@ import { applyServerError, serverErrorMessage } from './form-errors'
 
 describe('serverErrorMessage', () => {
   it('uses the web API detail', () => {
-    expect(serverErrorMessage(new ApiError(409, 'generic', { detail: 'Slug already in use' }))).toBe(
-      'Slug already in use',
-    )
+    expect(
+      serverErrorMessage(
+        new ApiError(409, 'generic', { detail: 'Slug already in use' }),
+      ),
+    ).toBe('Slug already in use')
   })
 
   it('prefers Clerk’s long message', () => {
     const clerkError = {
-      errors: [{ message: 'is taken', longMessage: 'That email address is taken.' }],
+      errors: [
+        { message: 'is taken', longMessage: 'That email address is taken.' },
+      ],
     }
     expect(serverErrorMessage(clerkError)).toBe('That email address is taken.')
   })
 
   it('falls back to a generic message for an unknown failure', () => {
-    expect(serverErrorMessage({})).toBe('Something went wrong. Please try again.')
+    expect(serverErrorMessage({})).toBe(
+      'Something went wrong. Please try again.',
+    )
   })
 })
 
 describe('applyServerError', () => {
   it('maps a Clerk paramName onto the matching field', () => {
     const setError = vi.fn()
-    const error = { errors: [{ message: 'Incorrect password', meta: { paramName: 'password' } }] }
+    const error = {
+      errors: [
+        { message: 'Incorrect password', meta: { paramName: 'password' } },
+      ],
+    }
 
     applyServerError(error, setError, { fields: ['password', 'newPassword'] })
 
@@ -50,11 +60,14 @@ describe('applyServerError', () => {
 
   it('honours an explicit mapping for errors that name no field', () => {
     const setError = vi.fn()
-    const error = new ApiError(409, 'generic', { detail: 'Slug already in use' })
+    const error = new ApiError(409, 'generic', {
+      detail: 'Slug already in use',
+    })
 
     applyServerError(error, setError, {
       fields: ['name', 'slug'],
-      fieldFor: (e) => (e instanceof ApiError && e.status === 409 ? 'slug' : undefined),
+      fieldFor: (e) =>
+        e instanceof ApiError && e.status === 409 ? 'slug' : undefined,
     })
 
     expect(setError).toHaveBeenCalledWith('slug', {
@@ -65,7 +78,9 @@ describe('applyServerError', () => {
 
   it('falls back to a form-level error', () => {
     const setError = vi.fn()
-    const error = new ApiError(403, 'generic', { detail: 'Insufficient permissions' })
+    const error = new ApiError(403, 'generic', {
+      detail: 'Insufficient permissions',
+    })
 
     const message = applyServerError(error, setError, { fields: ['name'] })
 
