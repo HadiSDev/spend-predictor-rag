@@ -1,5 +1,3 @@
-# The project name, not the folder name, prefixes containers, the network and
-# the mock ERP image — so they read "steelyard" wherever the repo is checked out.
 name: steelyard
 
 services:
