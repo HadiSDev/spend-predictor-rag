@@ -628,6 +628,8 @@ export interface AuditLogRead {
 /** An audit row with the thing it happened to already named. */
 export interface VoucherAuditRead extends AuditLogRead {
   entity_label: string
+  /** The user's name when a person made the change; null for the system. */
+  actor_name?: string | null
 }
 
 /** One line that argued for a suggestion. */

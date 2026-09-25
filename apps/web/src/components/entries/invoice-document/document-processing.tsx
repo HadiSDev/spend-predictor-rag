@@ -14,7 +14,7 @@ const DESCRIPTIONS: Record<DocStatus, string> = {
   failed: 'Could not be read. Its lines still stand in for its postings.',
 }
 
-const VARIANTS: Record<
+export const DOC_STATUS_VARIANT: Record<
   DocStatus,
   'outline' | 'info' | 'success' | 'destructive'
 > = {
@@ -25,7 +25,7 @@ const VARIANTS: Record<
   failed: 'destructive',
 }
 
-const LABELS: Record<DocStatus, string> = {
+export const DOC_STATUS_LABEL: Record<DocStatus, string> = {
   not_applicable: 'No document',
   pending: 'Queued',
   processing: 'Processing',
@@ -65,7 +65,9 @@ export function DocumentProcessing({
     <section className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-foreground">Document</h3>
-        <Badge variant={VARIANTS[status]}>{LABELS[status]}</Badge>
+        <Badge variant={DOC_STATUS_VARIANT[status]}>
+          {DOC_STATUS_LABEL[status]}
+        </Badge>
       </div>
       <p className="text-sm text-muted-foreground">{DESCRIPTIONS[status]}</p>
       {invoice.doc_error ? (

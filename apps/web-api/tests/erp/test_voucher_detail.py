@@ -165,6 +165,22 @@ def test_voucher_audit_merges_invoice_and_line_rows_newest_first(client, voucher
     assert all(r["entity_label"] for r in rows)
 
 
+def test_voucher_audit_names_the_user_behind_each_change(client, engine, voucher_seed):
+    client.post(f"/api/v1/invoice-lines/{voucher_seed['line_a1']}/verify",
+                json={}, headers=auth("tokA"))
+    with Session(engine) as s:
+        s.add(AuditLog(entity_type="invoice_line", entity_id=voucher_seed["line_a2"],
+                       action="ai_categorize", actor="system", changes=[]))
+        s.commit()
+
+    rows = client.get(f"/api/v1/erp-entries/vouchers/{voucher_seed['voucher']}/audit",
+                      headers=auth("tokA")).json()
+
+    by_action = {r["action"]: r for r in rows}
+    assert by_action["verify"]["actor_name"] == "Alice"
+    assert by_action["ai_categorize"]["actor_name"] is None
+
+
 def test_voucher_audit_by_entry_matches_direct_lookup(client, voucher_seed):
     client.post(f"/api/v1/invoice-lines/{voucher_seed['line_a1']}/verify",
                 json={"level_2": "Technology"}, headers=auth("tokA"))

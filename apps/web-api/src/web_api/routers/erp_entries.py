@@ -8,7 +8,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import String, func, literal, nulls_last, or_
 from sqlmodel import Session, select
 
-from web_api.db.models import AuditLog, ErpAccount, ErpEntry, File, Invoice, InvoiceLine, Vendor
+from web_api.db.models import (
+    AuditLog,
+    ErpAccount,
+    ErpEntry,
+    File,
+    Invoice,
+    InvoiceLine,
+    User,
+    Vendor,
+)
 from web_api.db.models.enums import EXPENSE_ACCOUNT_TYPE
 from .. import config
 from ..auth.deps import TenantScope, get_session, resolve_company_ids, tenant_scope
@@ -568,13 +577,23 @@ def _voucher_audit(session: Session, detail: VoucherDetailRead) -> list[VoucherA
         .where(AuditLog.entity_type.in_(["invoice", "invoice_line"]))
         .order_by(AuditLog.seq.desc())
     ).all()
+    actor_names = _user_names(session, {row.actor for row in rows})
     return [
         VoucherAuditRead(
             **AuditLogRead.model_validate(row).model_dump(),
             entity_label=labels.get(row.entity_id, row.entity_type),
+            actor_name=actor_names.get(row.actor),
         )
         for row in rows
     ]
+
+
+def _user_names(session: Session, user_ids: set[str]) -> dict[str, str]:
+    """`{user_id: name}` for the audit actors that are users."""
+    if not user_ids:
+        return {}
+    users = session.exec(select(User.id, User.name).where(User.id.in_(user_ids))).all()
+    return {user_id: name for user_id, name in users}
 
 
 @router.get("/erp-entries/{entry_id}", response_model=ErpEntryRead)

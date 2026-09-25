@@ -22,3 +22,4 @@ class VoucherAuditRead(AuditLogRead):
     """An audit row with the thing it happened to already named."""
 
     entity_label: str
+    actor_name: str | None = None

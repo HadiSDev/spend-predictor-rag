@@ -34,7 +34,7 @@ import type {
 } from '#/lib/api/types'
 import { InvoiceDocument } from '#/components/entries/invoice-document/invoice-document'
 import type { LineCorrections } from '#/components/entries/lines/line-editor'
-import { VoucherActivityTab } from './voucher-activity-tab'
+import { VoucherActivityTab } from './activity/voucher-activity-tab'
 import { VoucherDetailsTab } from './voucher-details-tab'
 import { VoucherLinesTab } from './voucher-lines-tab'
 import { VoucherPostingsTab } from './voucher-postings-tab'
