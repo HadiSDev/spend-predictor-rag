@@ -1,13 +1,4 @@
-"""Spend trees: the organization's categorization taxonomies.
-
-Reads are open to any authenticated member — a reviewer picking a category needs
-the tree, and gating that behind management would make the selector unusable for
-exactly the people who use it most. Writes are management-gated.
-
-Scoping is by organization on every route, and a tree outside the caller's is
-`404`, never `403`: the existence of another tenant's tree is not ours to
-disclose.
-"""
+"""Spend trees: the organization's categorization taxonomies."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -25,7 +16,7 @@ from web_api.db.models import (
     SuggestionState,
     Vendor,
 )
-from ..deps import TenantScope, get_session, require_management, tenant_scope
+from ..auth.deps import TenantScope, get_session, require_management, tenant_scope
 from ..schemas import (
     SpendCategoryCreate,
     SpendCategoryRead,
@@ -52,12 +43,7 @@ _STATUS_BY_CODE = {
 
 
 def _http(error: service.SpendTreeError) -> HTTPException:
-    """Map a service rule violation to its status code.
-
-    One mapping, in one place: the service states the rule and its severity, and
-    every route reports it identically — the same reason `_entry_conditions()`
-    is shared across the entry listings.
-    """
+    """Map a service rule violation to its status code."""
     detail: object = error.message
     if isinstance(error, importer.ImportRejected):
         detail = {
@@ -122,12 +108,7 @@ def get_spend_tree(
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> SpendTreeDetailRead:
-    """One tree with all its nodes.
-
-    The whole tree in one response on purpose: it is hundreds of nodes at most,
-    and the selector's column navigation and search are both instant only if the
-    client already holds it.
-    """
+    """One tree with all its nodes."""
     return _tree_read(session, _get_tree(session, scope, tree_id), with_nodes=True)
 
 
@@ -136,16 +117,7 @@ def ensure_default_spend_tree(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> SpendTreeDetailRead:
-    """The organization's copy of the platform template, created if absent.
-
-    Idempotent, and `200` rather than `201` because the usual answer is "here is
-    the one you already have". Exists because copy-on-first-use otherwise has
-    exactly one trigger — creating a company — which leaves an organization that
-    predates spend trees with no way to obtain the default at all.
-
-    Declared above `POST /spend-trees` so the literal path is matched before the
-    generic one.
-    """
+    """The organization's copy of the platform template, created if absent."""
     tree = service.ensure_default_tree(session, scope.organization_id)
     session.commit()
     session.refresh(tree)
@@ -201,7 +173,7 @@ def archive_spend_tree(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> SpendTreeRead:
-    """Soft-archive. Refused while a company still categorizes against it."""
+    """Soft-archive."""
     tree = _get_tree(session, scope, tree_id)
     try:
         service.archive_tree(session, tree)
@@ -220,13 +192,7 @@ def delete_spend_tree(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> SpendTreeDeleteResult:
-    """Delete a tree and its nodes.
-
-    Refused while a company is assigned. When categorized lines point at its
-    nodes, refused with `409` and the count until `confirm=true` — those lines
-    keep every stored level and simply become stale, but that is the caller's
-    to accept.
-    """
+    """Delete a tree and its nodes."""
     tree = _get_tree(session, scope, tree_id)
     try:
         stale = service.delete_tree(session, tree, confirm=confirm)
@@ -246,17 +212,7 @@ def import_spend_tree(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> SpendTreeImportResult:
-    """Load a CSV of `level_1..level_4` (+ `description`, `code`) into a tree.
-
-    Validated wholly before anything is written; a file with one bad row is
-    rejected in full with a per-row report and leaves the tree untouched.
-
-    A `replace` that would remove nodes categorized lines point at is refused
-    with `409` and the affected count until the caller passes `confirm=true` —
-    the removal is not destructive to the lines (they keep every stored level),
-    but it does leave that many needing a fresh decision, and that is the
-    caller's to accept.
-    """
+    """Load a CSV of `level_1..level_4` (+ `description`, `code`) into a tree."""
     tree = _get_tree(session, scope, tree_id)
     try:
         plan = importer.plan_import(session, tree, content, mode=mode)
@@ -282,9 +238,6 @@ def import_spend_tree(
     result = importer.apply_import(session, tree, plan)
     session.commit()
     return SpendTreeImportResult(**result)
-
-
-# -- Nodes -------------------------------------------------------------------
 
 
 @router.post("/spend-trees/{tree_id}/nodes", response_model=SpendCategoryRead,
@@ -318,9 +271,6 @@ def update_spend_category(
 ) -> SpendCategory:
     try:
         node = service.get_node(session, node_id, scope.organization_id)
-        # `parent_id: None` means "move to the top level", so a move is applied
-        # only when the field was actually sent — the reason this reads
-        # `model_fields_set` rather than testing for None.
         if "parent_id" in body.model_fields_set:
             service.move_node(session, node, body.parent_id)
         service.update_node(
@@ -341,7 +291,7 @@ def delete_spend_category(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> SpendTreeDeleteResult:
-    """Delete a leaf. Lines pointing at it keep their levels and go stale."""
+    """Delete a leaf."""
     try:
         node = service.get_node(session, node_id, scope.organization_id)
         stale = service.delete_node(session, node)
@@ -350,14 +300,6 @@ def delete_spend_category(
         raise _http(error) from error
     session.commit()
     return SpendTreeDeleteResult(stale_lines=stale)
-
-
-# -- Gap suggestions ---------------------------------------------------------
-#
-# A suggestion is a proposal and never a write. `service.py` stays the only
-# writer of `SpendCategory` — a rename rewrites every descendant's materialized
-# path — so accepting one goes through `add_node` exactly as the node editor
-# does. Nothing here creates a node by any other route.
 
 
 def _path_of(node: SpendCategory | None) -> str | None:
@@ -410,9 +352,6 @@ def _suggestion_read(
         parent_id=row.parent_id, parent_path=_path_of(parent),
         name=row.name, description=row.description, rationale=row.rationale,
         state=row.state, created_category_id=row.created_category_id,
-        # A suggestion whose parent has been deleted is still a record of a real
-        # observation, so it is readable — but there is nothing left to hang it
-        # under, so it cannot be accepted.
         acceptable=row.state == SuggestionState.PENDING and parent is not None,
         evidence=evidence, evidence_count=len(ids),
         created_at=row.created_at,
@@ -422,12 +361,7 @@ def _suggestion_read(
 def _get_suggestion(
     session: Session, scope: TenantScope, suggestion_id: str
 ) -> SpendCategorySuggestion:
-    """One suggestion, scoped through the tree it belongs to.
-
-    Tenancy is derived from the tree exactly as `SpendCategory`'s is — the row
-    carries no organization of its own, and reaching it through `_get_tree` means
-    there is one place that decides whose it is.
-    """
+    """One suggestion, scoped through the tree it belongs to."""
     row = session.get(SpendCategorySuggestion, suggestion_id)
     if row is None:
         raise HTTPException(
@@ -447,11 +381,7 @@ def list_spend_tree_suggestions(
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> list[SpendCategorySuggestionRead]:
-    """This tree's suggestions, pending by default.
-
-    Readable by any member, like the tree itself: a reviewer judging a proposal
-    needs to see it, and seeing one grants nothing. Acting on it is gated below.
-    """
+    """This tree's suggestions, pending by default."""
     tree = _get_tree(session, scope, tree_id)
     stmt = select(SpendCategorySuggestion).where(
         SpendCategorySuggestion.spend_tree_id == tree.id
@@ -518,18 +448,7 @@ def reopen_spend_tree_suggestion(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> SuggestionResolveResult:
-    """Put a dismissed suggestion back in front of the reviewer.
-
-    This exists so the dismiss control can offer a real undo rather than a
-    warning that the decision was final. A dismissal is cheap to make by mistake
-    — it is one click beside an accept — and irreversible removal of a proposal
-    the customer wanted is worse than the small cost of a reopen route.
-
-    Only a dismissal reopens. An accepted suggestion has created a node, and
-    "undoing" it would either leave the node orphaned from its suggestion or
-    delete a real category behind the reviewer's back; deleting the node is the
-    node editor's job and says what it does.
-    """
+    """Put a dismissed suggestion back in front of the reviewer."""
     row = _get_suggestion(session, scope, suggestion_id)
     if row.state != SuggestionState.DISMISSED:
         raise HTTPException(
@@ -553,12 +472,7 @@ def dismiss_spend_tree_suggestion(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> SuggestionResolveResult:
-    """Refuse the proposal, and remember the refusal.
-
-    Remembered rather than deleted: the suggester reads settled proposals so it
-    does not re-argue a question the customer has answered, and a list that
-    re-argues is one people stop opening.
-    """
+    """Refuse the proposal, and remember the refusal."""
     row = _get_suggestion(session, scope, suggestion_id)
     if row.state == SuggestionState.ACCEPTED:
         raise HTTPException(

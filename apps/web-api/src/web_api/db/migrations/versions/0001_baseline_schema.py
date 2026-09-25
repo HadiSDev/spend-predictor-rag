@@ -4,72 +4,6 @@ Revision ID: 0001_baseline_schema
 Revises:
 Create Date: 2026-08-09
 
-**This is a squash.** It replaces the original chain ``0001_add_clerk_external_ids``
-… ``0020_erp_account_natural_key`` with a single migration that creates the whole
-schema those twenty ended at. The old files are gone from this directory;
-``0001``–``0019`` remain in git history — read them there if you need to know
-*why* a column looks the way it does. ``0020_erp_account_natural_key`` was never
-committed, so its source is preserved out of band at
-``.superpowers/sdd/2026-08-08-voucher-detail-panel/migration-backup/`` (that
-directory is gitignored) along with a copy of the whole original chain.
-
-**Why the squash.** The original chain had no initial schema migration at all:
-its base revision opened with ``ALTER TABLE organizations`` and not one of the
-twenty contained a ``create_table`` for a base table. The schema was created
-out-of-band by ``SQLModel.metadata.create_all()``, so ``alembic upgrade head``
-against a fresh database failed immediately (``UndefinedTable: relation
-"organizations" does not exist``), and running ``create_all`` first and *then*
-upgrading failed just as fast on ``DuplicateColumn``. No one could stand up a
-new database from the migrations. After this squash ``alembic upgrade head``
-works from an empty database, which is the point.
-
-**Existing databases must be stamped with ``--purge``, not upgraded.** A database
-already at ``0020_erp_account_natural_key`` (the dev database, and any deployed
-one) already *has* this schema — running ``upgrade`` there would try to create
-tables that exist. Bring it across with::
-
-    uv run alembic stamp 0001_baseline_schema --purge
-
-which only rewrites ``alembic_version``. Only a genuinely empty database should
-ever run ``upgrade`` on this revision.
-
-``--purge`` is required, not optional, and a plain ``stamp`` **will fail on every
-existing database**::
-
-    FAILED: Can't locate revision identified by '0020_erp_account_natural_key'
-
-The reason is inherent to squashing: before writing the new version, ``stamp``
-resolves the revision the database is *currently* at — and that revision's script
-is one of the twenty this migration deleted, so Alembic cannot find it. ``--purge``
-clears ``alembic_version`` outright instead of trying to interpret what is in it,
-which is exactly right here: the old value names history that no longer exists.
-(Empirically confirmed — the plain command was run against a real database at
-``0020`` and failed with the error above.)
-
-**Two things ``create_all``/autogenerate cannot express are hand-added below**,
-and both are load-bearing:
-
-1. ``audit_log.seq`` — the model declares ``server_default=FetchedValue()``,
-   which deliberately renders *no* DDL (that is what makes the ORM omit ``seq``
-   from its INSERTs so the database's own default applies). Autogenerate
-   therefore emits a bare ``seq BIGINT NOT NULL`` with no default and no
-   sequence, and every audit write fails with ``NotNullViolation`` — precisely
-   the bug the original ``0019_audit_log_seq`` was written to fix. The real
-   sequence, the column default and the unique constraint are created
-   explicitly. (``0019``'s data backfill is deliberately *not* carried over: a
-   freshly created table is empty.)
-2. ``erp_accounts`` unique ``(erp_integration_id, erp_account_code)`` — added by
-   the original ``0020``. The model now declares it too, so autogenerate emits
-   it; it is asserted here anyway rather than left to depend on that.
-   ``0020``'s duplicate-merge logic is not carried over — it was a one-time
-   dedupe of rows a fresh database does not have.
-
-**PostgreSQL only**, like the rest of this directory. ``env.py`` reads
-``DATABASE_URL``, which is always a ``postgresql://`` URL in this project. The
-test suite never runs migrations: it builds its schema with
-``SQLModel.metadata.create_all()`` against in-memory SQLite, where
-``db/models/audit_log.py`` supplies its own fallback for ``seq``. The dialect
-assertion below fails loudly rather than half-succeeding somewhere else.
 """
 from __future__ import annotations
 
@@ -82,13 +16,9 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
-# audit_log.seq — see the module docstring. Names match the original
-# 0019_audit_log_seq exactly, so a database stamped across from that migration
-# and one built from this baseline are indistinguishable.
 _AUDIT_SEQUENCE = "audit_log_seq_seq"
 _AUDIT_SEQ_UNIQUE = "uq_audit_log_seq"
 
-# erp_accounts natural key — name matches the original 0020, same reason.
 _ERP_ACCOUNT_UNIQUE = "uq_erp_accounts_integration_code"
 
 
@@ -112,8 +42,6 @@ def upgrade() -> None:
     sa.Column('actor', sa.String(), nullable=False),
     sa.Column('changes', sa.JSON(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    # No server_default here on purpose: the model's FetchedValue() renders no
-    # DDL, so the real nextval() default is attached explicitly further down.
     sa.Column('seq', sa.BigInteger(), nullable=False),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('seq', name=_AUDIT_SEQ_UNIQUE)
@@ -264,8 +192,6 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['erp_integration_id'], ['erp_integrations.id'], ),
     sa.PrimaryKeyConstraint('id'),
-    # The natural key the original 0020 added. An ERP account is identified by
-    # (integration, code); without this the chart of accounts can be stored twice.
     sa.UniqueConstraint('erp_integration_id', 'erp_account_code', name=_ERP_ACCOUNT_UNIQUE)
     )
     op.create_table('erp_credentials',
@@ -374,10 +300,6 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
 
-    # --- audit_log.seq: the part no autogenerate can produce ------------------
-    # `OWNED BY` ties the sequence's lifetime to the column, so dropping the
-    # table (or the column) drops the sequence with it. Nothing is backfilled:
-    # the table was created empty a few statements ago.
     op.execute(f"CREATE SEQUENCE {_AUDIT_SEQUENCE} OWNED BY audit_log.seq")
     op.execute(
         f"ALTER TABLE audit_log ALTER COLUMN seq SET DEFAULT nextval('{_AUDIT_SEQUENCE}')"

@@ -9,12 +9,12 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from web_api.db.models import (
-    DocStatus, ErpAccount, ErpEntry, ErpIntegration, File, Invoice, InvoiceLine, Vendor,
+    DocStatus, ErpIntegration, File, Invoice, InvoiceLine, Vendor,
 )
 from web_api.connectors.base import ErpConnectionError
 from .. import integrations
 from ..audit import INVOICE_AUDIT_FIELDS, INVOICE_BASE_FX_FIELDS, diff_changes, record_audit
-from ..deps import TenantScope, get_session, require_management, resolve_company_ids, tenant_scope
+from ..auth.deps import TenantScope, get_session, require_management, resolve_company_ids, tenant_scope
 from ..documents import resolve_document_source
 from ..reconcile import reconcile_lines, totals_agree
 from ..schemas import (
@@ -27,9 +27,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["invoices"])
 
 
-#: The supplier fields an invoice may override, paired with the `Vendor` column
-#: each falls back to. One mapping so the resolution and the override marker
-#: cannot drift apart.
 _SUPPLIER_FIELDS: tuple[tuple[str, str], ...] = (
     ("supplier_name", "name"),
     ("supplier_country_code", "country_code"),
@@ -38,8 +35,7 @@ _SUPPLIER_FIELDS: tuple[tuple[str, str], ...] = (
 
 
 def _get_scoped_invoice(session: Session, scope: TenantScope, invoice_id: str) -> Invoice:
-    """Fetch an invoice the caller may reach, or 404. Never a window into another
-    tenant: a foreign invoice is indistinguishable from a missing one."""
+    """Fetch an invoice the caller may reach, or 404."""
     invoice = session.get(Invoice, invoice_id)
     if invoice is None or invoice.company_id not in scope.company_ids:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
@@ -57,16 +53,7 @@ def _vendors_for(session: Session, invoices: list[Invoice]) -> dict[str, Vendor]
 
 
 def _resolve_supplier(invoice: Invoice, vendor: Vendor | None) -> tuple[dict, list[str]]:
-    """The supplier this invoice states, and which parts of it are a human's.
-
-    `override ?? vendor.value`, computed here rather than in each client: the
-    fallback is a rule, and a rule reimplemented per client is a rule that will
-    eventually differ between two of them.
-
-    An override is reported even when it equals the catalog value — it is still
-    a human's assertion about this document, and marking it is what lets the UI
-    offer the catalog value back.
-    """
+    """The supplier this invoice states, and which parts of it are a human's."""
     resolved: dict = {}
     overridden: list[str] = []
     for field, vendor_field in _SUPPLIER_FIELDS:
@@ -82,20 +69,13 @@ def _resolve_supplier(invoice: Invoice, vendor: Vendor | None) -> tuple[dict, li
 def _invoice_read(
     invoice: Invoice, file: File | None, vendor: Vendor | None = None
 ) -> InvoiceRead:
-    """Build an `InvoiceRead`, resolving the file and the supplier.
-
-    `file` and `vendor` are looked up by the caller (batched for a list, direct
-    for a detail) rather than through the ORM relationships here, so neither
-    path risks a lazy-load per row.
-    """
+    """Build an `InvoiceRead`, resolving the file and the supplier."""
     data = InvoiceRead.model_validate(invoice).model_dump()
     data["file_name"] = file.filename if file is not None else None
     data["has_document"] = file is not None
     resolved, overridden = _resolve_supplier(invoice, vendor)
     data.update(resolved)
     data["supplier_overrides"] = overridden
-    # Computed here so a list row and an invoice detail cannot disagree about
-    # it. Pure arithmetic over columns already on the row — no extra query.
     data["totals_agree"] = totals_agree(invoice)
     return InvoiceRead.model_validate(data)
 
@@ -135,9 +115,6 @@ def list_invoices(
             f.id: f
             for f in session.exec(select(File).where(File.id.in_(file_ids))).all()
         }
-    # Batched for the same reason the files are: the supplier is resolved on
-    # every row, and a per-row lookup would be one query per invoice on a page
-    # of two hundred.
     vendors_by_id = _vendors_for(session, rows)
     items = [
         _invoice_read(r, files_by_id.get(r.file_id), vendors_by_id.get(r.vendor_id))
@@ -171,14 +148,7 @@ def get_invoice(
 def _apply_header_corrections(
     session: Session, invoice: Invoice, corrections: dict
 ) -> list[dict]:
-    """Apply header corrections in place, clear what they invalidate, audit.
-
-    Shared by `PATCH /invoices/{id}` and `POST /invoices/{id}/verify` so the two
-    cannot diverge in what they write, what they clear or what they record — the
-    only difference between them is verification, which the caller adds.
-
-    Returns the audit diff so the caller can tell an `edit` from a `noop`.
-    """
+    """Apply header corrections in place, clear what they invalidate, audit."""
     if corrections.get("vendor_id") is not None:
         if session.get(Vendor, corrections["vendor_id"]) is None:
             raise HTTPException(
@@ -190,17 +160,6 @@ def _apply_header_corrections(
     for field, value in corrections.items():
         setattr(invoice, field, value)
 
-    # The base/FX columns were derived from the pre-correction
-    # currency/total/tax; once one of those changes, the derived figures no
-    # longer describe anything real. Per CLAUDE.md's currency-conversion
-    # rules — "no rate ⇒ stored unconverted, never converted at a substitute
-    # rate" and the base-currency-change precedent of leaving history
-    # "visibly stale, not silently wrong" — we null them out rather than
-    # recompute inline: this endpoint makes no network call, and an inline
-    # reconversion is exactly what that philosophy rejects. The row then
-    # reads honestly as "not converted" until an explicit recompute
-    # (`POST /companies/{id}/recompute-fx`) runs. Do not "fix" this by
-    # adding an inline FX call here.
     if any(getattr(invoice, f) != before[f] for f in ("currency", "total", "tax")):
         invoice.base_currency = None
         invoice.base_total = None
@@ -211,15 +170,6 @@ def _apply_header_corrections(
     session.add(invoice)
     after = {f: getattr(invoice, f) for f in INVOICE_AUDIT_FIELDS + INVOICE_BASE_FX_FIELDS}
 
-    # "edit" only when a value actually moved; a PATCH that resubmits the
-    # current value (or an empty body) is a "noop" — distinct from a real
-    # correction so the audit feed never shows a change that didn't happen.
-    # The diff also covers the base/FX fields above, so a cleared conversion
-    # shows up in the trail even when the caller never asked for it directly.
-    #
-    # Because the correction is written **in place**, over the ERP's or the
-    # extractor's own value, this diff's `old` is the only surviving record of
-    # what was originally stated. There is no shadow column behind it.
     return diff_changes(before, after, INVOICE_AUDIT_FIELDS + INVOICE_BASE_FX_FIELDS)
 
 
@@ -238,15 +188,7 @@ def update_invoice(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> InvoiceRead:
-    """Correct a parsed invoice header (management only).
-
-    Not gated on provenance. An ERP-posted header is as correctable as an
-    extracted one: the extraction that produced either can be wrong, and the
-    bookkeeper's own posting can be too. What keeps the correction from being
-    erased by the next sync is the row's `verified_fields` (set by `verify`
-    below), not a refusal to write here — and what keeps the ERP's original
-    figure recoverable is the audit entry, not a second column.
-    """
+    """Correct a parsed invoice header (management only)."""
     invoice = _get_scoped_invoice(session, scope, invoice_id)
     changes = _apply_header_corrections(
         session, invoice, body.model_dump(exclude_unset=True)
@@ -267,21 +209,7 @@ def verify_invoice(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> InvoiceRead:
-    """Verify a parsed invoice header (management only), optionally correcting it.
-
-    The header counterpart of `POST /invoice-lines/{id}/verify`, and the same
-    shape deliberately: one mental model covers both review surfaces.
-
-    Verification is a distinct action from a correction because a human who
-    reads a parsed field and leaves it alone has said something the extractor
-    needs to hear — a `PATCH` cannot express "I looked, and it was right". That
-    signal is what turns routine review into labelled data.
-
-    The fields marked verified are the ones the caller **sent**, not the ones
-    that changed: submitting `total: 2400` when 2400 is already stored is a
-    human asserting that figure is correct. The audit action still says `noop`,
-    because no value moved — the two records answer different questions.
-    """
+    """Verify a parsed invoice header (management only), optionally correcting it."""
     invoice = _get_scoped_invoice(session, scope, invoice_id)
     corrections = body.model_dump(exclude_unset=True) if body is not None else {}
     changes = _apply_header_corrections(session, invoice, corrections)
@@ -306,21 +234,9 @@ def reprocess_invoice_document(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> InvoiceRead:
-    """Queue this invoice's document to be read again (management only).
-
-    The explicit way back from a failed extraction, and the only one: a sync
-    deliberately does not requeue a `failed` invoice, because a document that
-    has already proved unreadable does not become readable by being synced
-    again. Resetting the attempt count is the point — the ceiling is what
-    stopped the stage retrying, and a human asking for it is new information.
-
-    Permitted on a `processed` invoice too, so a bad extraction can be redone
-    once the extractor improves.
-    """
+    """Queue this invoice's document to be read again (management only)."""
     invoice = _get_scoped_invoice(session, scope, invoice_id)
     if invoice.file_id is None:
-        # A pending invoice that can never succeed would sit in the queue
-        # forever, so this is refused rather than accepted as a no-op.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This invoice has no attached document, so there is nothing to process.",
@@ -349,11 +265,7 @@ def reprocess_invoice_document(
 
 
 def _resolve_document_source(session: Session, invoice: Invoice) -> tuple[ErpIntegration, str]:
-    """The HTTP face of `web_api.documents.resolve_document_source`.
-
-    The rule itself lives in the domain because the ai_api document stage reads
-    the same bytes from the same place; only the 404 is this layer's.
-    """
+    """The HTTP face of `web_api.documents.resolve_document_source`."""
     resolved = resolve_document_source(session, invoice)
     if resolved is None:
         raise HTTPException(
@@ -369,12 +281,7 @@ def get_invoice_document(
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Stream the invoice's scanned document, fetched live from the ERP.
-
-    Not stored locally: the document lives in the ERP, and copying it here would
-    create a second source of truth to keep in sync. The trade-off is that this
-    hits the ERP on every open — the first place to add a cache if it hurts.
-    """
+    """Stream the invoice's scanned document, fetched live from the ERP."""
     invoice = _get_scoped_invoice(session, scope, invoice_id)
     if invoice.file_id is None:
         raise HTTPException(
@@ -385,10 +292,6 @@ def get_invoice_document(
     try:
         connector = integrations.connector_for_integration(session, integration)
     except RuntimeError as exc:
-        # Credentials could not be decrypted (e.g. WEB_API_CREDENTIAL_ENC_KEY
-        # rotated or unset). Our problem, not the caller's to see the detail of
-        # — logged for an operator, reported to the client as a retryable
-        # unavailability rather than a bare 500.
         logger.error(
             "could not build connector for integration %s (invoice %s): %s",
             integration.id, invoice_id, exc,
@@ -400,8 +303,6 @@ def get_invoice_document(
     try:
         payload = connector.fetch_invoice_document(voucher_id)
     except ErpConnectionError as exc:
-        # The ERP's raw error text (stack trace, internal hostname, ...) stays
-        # server-side; the client gets a fixed, safe message.
         logger.warning(
             "document fetch failed for invoice %s (integration %s, voucher %s): %s",
             invoice_id, integration.id, voucher_id, exc,

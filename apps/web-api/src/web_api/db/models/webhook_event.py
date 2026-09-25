@@ -8,11 +8,7 @@ from ._base import _ts, _uuid
 
 
 class WebhookEvent(SQLModel, table=True):
-    """Idempotency + audit record for an inbound provider webhook.
-
-    A given (provider, event_id) appears at most once; event_id is the
-    idempotency key (for Clerk this is the Svix message id).
-    """
+    """Idempotency + audit record for an inbound provider webhook."""
 
     __tablename__ = "webhook_events"
 

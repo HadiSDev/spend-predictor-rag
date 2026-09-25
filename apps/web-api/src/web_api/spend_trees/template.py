@@ -1,41 +1,9 @@
-"""The platform's default spend-tree template.
-
-This is the single definition of the built-in taxonomy. It used to live as
-``_META`` in ``ai_api/sync/categorizer.py``, keyed by *mock ERP account code* —
-which made it not a spend tree at all but a mock chart of accounts wearing one,
-in the wrong package, invisible to the customer, and uneditable.
-
-Three levels, ``Direct``/``Indirect`` at the first. It is **copied** into an
-organization on first use rather than shared: a customer will rename
-``Facilities & Office`` on day two and that must not touch another tenant.
-
-``keywords`` are the curated synonyms the deterministic keyword categorizer
-matches on. They are carried here, attached to a node by ``code``, rather than
-stored as a column: they are a property of *this taxonomy*, not of a spend-tree
-node in general, and a customer's own node has none. That asymmetry disappears
-when the Qdrant/LLM categorizer lands, which embeds name + description and needs
-no curated synonyms at all.
-"""
+"""The platform's default spend-tree template."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 
-#: Bumped when the node set below changes. Recorded on every copy as
-#: ``SpendTree.template_version``.
-#:
-#: **A bump never reaches into an existing copy.** A tree is copied into an
-#: organization once and is theirs to edit from then on: a node this file adds
-#: might duplicate one they have already made under another name, and a node it
-#: renames might be one they deliberately renamed first. An organization that
-#: wants the newer taxonomy obtains it the way it obtains any tree — by creating
-#: one — not by having theirs rewritten underneath their categorized lines.
-#:
-#: Version 2 added ``Ground Transport``, ``Financial Services`` and ``Insurance``.
-#: Not guessed: the first real customer had already built all three by hand, at
-#: these codes and with these descriptions, because version 1's only travel
-#: leaves were airfare, lodging and meals and a commuter rail ticket had nowhere
-#: to go. The categorizer was blamed for saying so.
 TEMPLATE_VERSION = "2"
 
 TEMPLATE_NAME = "Default spend tree"
@@ -64,9 +32,6 @@ def _leaf(path: tuple[str, ...], code: str, description: str, keywords: set[str]
     return TemplateNode(path=path, code=code, description=description, keywords=frozenset(keywords))
 
 
-#: Every node, interior and leaf, in the order it should be presented. Interior
-#: nodes are listed explicitly rather than implied by their children's paths, so
-#: sibling order is stated rather than falling out of dictionary iteration.
 DEFAULT_TEMPLATE: tuple[TemplateNode, ...] = (
     TemplateNode(("Direct",), description="Spend that goes into what the company sells"),
     TemplateNode(("Direct", "Direct Costs")),
@@ -232,8 +197,6 @@ DEFAULT_TEMPLATE: tuple[TemplateNode, ...] = (
 )
 
 
-#: Curated synonyms by node ``code``. The categorizer attaches these to a
-#: template-seeded node; a custom node matches on its own name/description.
 KEYWORDS_BY_CODE: dict[str, frozenset[str]] = {
     node.code: node.keywords for node in DEFAULT_TEMPLATE if node.code
 }

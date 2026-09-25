@@ -1,17 +1,8 @@
 """Categories a company's tree is missing, proposed with their evidence.
 
-A suggestion is a proposal, never a write: accepting one creates the node through
-`spend_trees/service.py` like any other, and dismissing one is remembered so the
-next run does not re-argue a settled question.
-
-The foreign keys are `NO ACTION` like every other one in this schema — there is
-no cascade anywhere, deliberately, so that deleting something a suggestion points
-at fails loudly rather than orphaning quietly. `company_deletion.py` is where a
-purge is written out table by table, and this table is added to it in the same
-change.
-
 Revision ID: 0008_spend_category_suggestions
 Revises: 0007_vendor_description_source
+
 """
 from __future__ import annotations
 
@@ -48,8 +39,6 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["parent_id"], ["spend_categories.id"]),
         sa.ForeignKeyConstraint(["created_category_id"], ["spend_categories.id"]),
     )
-    # The listing is always "this tree's pending suggestions", which is the only
-    # query this table serves.
     op.create_index(
         "ix_spend_category_suggestions_tree_state",
         "spend_category_suggestions",

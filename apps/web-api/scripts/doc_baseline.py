@@ -1,19 +1,4 @@
-"""Record where every invoice's document stands, before and after a change.
-
-Writes nothing. It exists so a claim like "this change fixed four of the six
-failures" is a measurement against a file rather than a recollection.
-
-Two halves, because they cost very different amounts:
-
-* the **ledger half** — posted total, posted tax, the lines currently stored and
-  what they sum to — comes straight from the database and always runs;
-* the **extraction half** — what the model reads off the document *now* — needs
-  the deployment and the ERP, and is only attempted with ``--extract``.
-
-The failures carry their own arithmetic already: `doc_error` records the sum the
-extraction produced and the totals it was judged against, so the six rejected
-invoices are measurable without re-reading a single document.
-"""
+"""Record where every invoice's document stands, before and after a change."""
 from __future__ import annotations
 
 import argparse

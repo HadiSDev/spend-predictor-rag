@@ -4,7 +4,6 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from . import register_connector
 from .base import (
     CredentialField,
     DocumentPayload,
@@ -23,19 +22,11 @@ DEFAULT_API_KEY = "mock-secret"
 
 
 class MockErpConnector(HttpErpConnector):
-    """Connector that talks to the mock-erp-api server.
-
-    Config:
-        base_url: str  (default http://localhost:8001)
-        api_key: str   (default mock-secret)
-    """
+    """Connector that talks to the mock-erp-api server."""
 
     display_label = "Debug ERP"
     brand_slug = "mock"
     description = "A local fake ERP for development and demos."
-    # Numbered pages against a reported total — the shape the debug server
-    # serves. Spelled out rather than inherited so the server's contract is
-    # readable here, next to the mappers that depend on it.
     paginator = PageNumberPaginator(
         items_key="collection",
         total_path=("pagination", "total"),
@@ -44,8 +35,6 @@ class MockErpConnector(HttpErpConnector):
         page_size=100,
         first_page=1,
     )
-    # Both optional: the defaults below are what the debug server expects, so an
-    # integration with no credentials at all is valid.
     credential_fields = [
         CredentialField(name="base_url", label="Base URL", default=DEFAULT_BASE_URL),
         CredentialField(name="api_key", label="API key", secret=True, default=DEFAULT_API_KEY),
@@ -58,15 +47,11 @@ class MockErpConnector(HttpErpConnector):
         self._token: str | None = None
         self._invoice_by_voucher: dict[str, dict] | None = None
 
-    # -- HTTP seams ----------------------------------------------------------
-
     def _base_url(self) -> str:
         return self.base_url
 
     def _auth_headers(self) -> dict[str, str]:
         return {"x-app-secret-token": self.api_key}
-
-    # -- Connector interface -------------------------------------------------
 
     def authorize(self) -> str:
         self._token = self.api_key
@@ -149,7 +134,6 @@ class MockErpConnector(HttpErpConnector):
     def fetch_entries(
         self, since: date | None = None, account_codes: set[str] | None = None
     ) -> list[ErpEntryData]:
-        # Empty selection means "no accounts chosen" — fetch nothing.
         if account_codes is not None and len(account_codes) == 0:
             return []
         params: dict[str, Any] = {}
@@ -168,8 +152,6 @@ class MockErpConnector(HttpErpConnector):
                     entry_type=r.get("entryType", "journal_entry"),
                     erp_account_code=str(r.get("account", {}).get("accountNumber", "")),
                     accounting_date=date.fromisoformat(accounting_date) if accounting_date else None,
-                    # Absent on a posting with no line behind it (VAT, payable),
-                    # so the None has to survive rather than becoming "None".
                     source_line_erp_id=(
                         str(r["lineNumber"]) if r.get("lineNumber") is not None else None
                     ),
@@ -183,12 +165,7 @@ class MockErpConnector(HttpErpConnector):
         return result
 
     def fetch_invoice_scan(self, voucher_id: str) -> ErpInvoiceData | None:
-        """Return the invoice scan for a voucher, or None if it has no scan.
-
-        The mock keys purchase invoices by their ``voucherId``. The full invoice
-        list is fetched once and cached, so repeated per-voucher lookups during a
-        sync do not re-hit the ERP.
-        """
+        """Return the invoice scan for a voucher, or None if it has no scan."""
         if self._invoice_by_voucher is None:
             raw_list = self._paginate("/api/v1/purchase-invoices")
             self._invoice_by_voucher = {
@@ -210,6 +187,3 @@ class MockErpConnector(HttpErpConnector):
             media_type="application/pdf",
             filename=filename or f"voucher_{voucher_id}.pdf",
         )
-
-
-register_connector("mock", MockErpConnector)

@@ -1,8 +1,4 @@
-"""User endpoints for the admin panel: current principal + org member directory.
-
-Both are read-only. Roles are managed in Clerk (the webhook keeps `User.role` in
-sync); this API never edits membership or roles.
-"""
+"""User endpoints for the admin panel: current principal + org member directory."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
@@ -10,7 +6,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from web_api.db.models import User
-from ..deps import TenantScope, current_user, get_session, tenant_scope
+from ..auth.deps import TenantScope, current_user, get_session, tenant_scope
 from ..schemas import Page, UserRead
 
 router = APIRouter(prefix="/api/v1", tags=["users"])

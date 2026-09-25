@@ -1,9 +1,4 @@
-"""Vendor list for the admin panel — the suppliers the caller's org transacts with.
-
-`Vendor` is a global catalog, so returning every row would leak other tenants'
-suppliers. This endpoint returns only the distinct vendors referenced by the
-caller's invoices, preserving tenant isolation.
-"""
+"""Vendor list for the admin panel — the suppliers the caller's org transacts with."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
@@ -11,7 +6,7 @@ from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from web_api.db.models import Invoice, Vendor
-from ..deps import TenantScope, get_session, resolve_company_ids, tenant_scope
+from ..auth.deps import TenantScope, get_session, resolve_company_ids, tenant_scope
 from ..schemas import Page, VendorRead
 
 router = APIRouter(prefix="/api/v1", tags=["vendors"])
@@ -30,7 +25,6 @@ def list_vendors(
     if not company_ids:
         return Page(items=[], page=page, page_size=page_size, total=0)
 
-    # Distinct vendors referenced by the org's invoices.
     referenced = (
         select(Invoice.vendor_id)
         .where(Invoice.company_id.in_(company_ids), Invoice.vendor_id.is_not(None))

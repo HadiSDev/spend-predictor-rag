@@ -8,13 +8,7 @@ from ._base import _ts, _uuid
 
 
 class ErpCredential(SQLModel, table=True):
-    """Encrypted connection config for an ErpIntegration.
-
-    Kept separate from ``erp_integrations`` so secrets stay off the hot read path.
-    ``encrypted_config`` is a Fernet token over the JSON config (base_url, api_key,
-    …); it is only ever decrypted server-side to build a connector and is never
-    serialized to API clients. One active credential per integration.
-    """
+    """Encrypted connection config for an ErpIntegration."""
 
     __tablename__ = "erp_credentials"
 

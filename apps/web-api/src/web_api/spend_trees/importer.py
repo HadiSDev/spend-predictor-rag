@@ -1,15 +1,4 @@
-"""CSV import: a customer's existing taxonomy, in one file.
-
-The governing rule is **validate wholly, then write wholly**. A file with one
-bad row is rejected in full and the tree is left exactly as it was. A
-half-loaded taxonomy is worse than none: the missing half is invisible, and
-every categorization that lands in the gap looks like a considered decision.
-
-Columns: ``level_1``, ``level_2``, ``level_3``, ``level_4``, ``description``,
-optional ``code``. A row states a **full path**, so interior nodes are implied
-by their descendants and materialized here — that is how spreadsheets of
-taxonomies are actually written, one leaf per line.
-"""
+"""CSV import: a customer's existing taxonomy, in one file."""
 from __future__ import annotations
 
 import csv
@@ -19,37 +8,13 @@ from dataclasses import dataclass
 from sqlmodel import Session, select
 
 from ..db.models import InvoiceLine, SpendCategory, SpendTree
+from .import_errors import ImportRejected, RowError
 from .service import SpendTreeError, node_path, tree_nodes
 
 _LEVEL_COLUMNS = ("level_1", "level_2", "level_3", "level_4")
 
-#: Import modes. ``merge`` adds and updates; ``replace`` also removes nodes the
-#: file does not mention.
 MERGE = "merge"
 REPLACE = "replace"
-
-
-@dataclass(frozen=True)
-class RowError:
-    """One rejected row, addressed by its line number *in the file*.
-
-    The file's line number, not the row index: a user fixes a spreadsheet by
-    going to a line, and an off-by-header index sends them to the wrong one.
-    """
-
-    line: int
-    message: str
-
-
-class ImportRejected(SpendTreeError):
-    """The file did not validate. Nothing was written."""
-
-    def __init__(self, errors: list[RowError]) -> None:
-        super().__init__(
-            f"{len(errors)} row(s) could not be imported; nothing was changed.",
-            code="invalid",
-        )
-        self.errors = errors
 
 
 @dataclass(frozen=True)
@@ -65,11 +30,8 @@ class ImportPlan:
     """What an import would do, computed before anything is written."""
 
     rows: list[ParsedRow]
-    #: Every path the file implies, interior nodes included, shallowest first.
     paths: list[tuple[str, ...]]
-    #: Existing nodes whose path the file does not mention (``replace`` only).
     removed: list[SpendCategory]
-    #: Invoice lines pointing at a node in ``removed``.
     affected_lines: list[InvoiceLine]
 
 
@@ -81,7 +43,7 @@ def _clean(value: str | None) -> str | None:
 
 
 def parse(content: str) -> tuple[list[ParsedRow], list[RowError]]:
-    """Parse the file. Returns rows and the errors that are visible per row."""
+    """Parse the file."""
     reader = csv.DictReader(io.StringIO(content))
     if reader.fieldnames is None:
         return [], [RowError(1, "The file is empty.")]
@@ -103,15 +65,13 @@ def parse(content: str) -> tuple[list[ParsedRow], list[RowError]]:
     seen_codes: dict[str, int] = {}
 
     for index, raw in enumerate(reader):
-        line = index + 2  # 1-based, past the header row
+        line = index + 2
         values = {key: _clean(raw.get(key)) for key in _LEVEL_COLUMNS}
         levels = [values[key] for key in _LEVEL_COLUMNS]
 
         if all(value is None for value in levels):
-            continue  # a blank line in a spreadsheet is not an error
+            continue
 
-        # A gap means the row does not describe a path: `level_3` with no
-        # `level_2` has no parent to hang from.
         path: list[str] = []
         gap = False
         for depth, value in enumerate(levels, start=1):
@@ -157,12 +117,7 @@ def parse(content: str) -> tuple[list[ParsedRow], list[RowError]]:
 def plan_import(
     session: Session, tree: SpendTree, content: str, mode: str = MERGE
 ) -> ImportPlan:
-    """Validate the whole file against the tree. Raises before any write.
-
-    Nothing here touches the session's write path — the caller gets a plan it can
-    show a user (how many rows, how many nodes would go, how many lines would be
-    left stale) and only then applies it.
-    """
+    """Validate the whole file against the tree."""
     if mode not in (MERGE, REPLACE):
         raise SpendTreeError(f"Unknown import mode '{mode}'.")
 
@@ -179,7 +134,6 @@ def plan_import(
     if errors:
         raise ImportRejected(sorted(errors, key=lambda e: (e.line, e.message)))
 
-    # Interior nodes the file only implies. A taxonomy spreadsheet lists leaves.
     implied: set[tuple[str, ...]] = set()
     for row in rows:
         for length in range(1, len(row.path) + 1):
@@ -207,13 +161,7 @@ def _lines_for(session: Session, node_ids: list[str]) -> list[InvoiceLine]:
 
 
 def apply_import(session: Session, tree: SpendTree, plan: ImportPlan) -> dict:
-    """Write a validated plan. Adds to the caller's session; does not commit.
-
-    Nodes are keyed by path, so a re-import of the same file updates in place
-    and an ``InvoiceLine`` pointing at a node keeps pointing at it. Removal
-    clears the pointer and leaves the line's stored levels — the same rule a
-    reassignment follows.
-    """
+    """Write a validated plan."""
     by_path = {node_path(node): node for node in tree_nodes(session, tree.id)}
     row_by_path = {row.path: row for row in plan.rows}
 
@@ -241,8 +189,6 @@ def apply_import(session: Session, tree: SpendTree, plan: ImportPlan) -> dict:
             by_path[path] = node
             created += 1
         elif row is not None:
-            # Only a row the file actually carried may overwrite a node's own
-            # fields; an implied interior node states nothing about them.
             node.code = row.code
             node.description = row.description
             node.sort_order = order
@@ -254,7 +200,6 @@ def apply_import(session: Session, tree: SpendTree, plan: ImportPlan) -> dict:
         line.spend_category_id = None
         session.add(line)
         stale += 1
-    # Deepest first, so a parent is never deleted while a child still points at it.
     for node in sorted(plan.removed, key=lambda n: n.depth, reverse=True):
         session.delete(node)
 

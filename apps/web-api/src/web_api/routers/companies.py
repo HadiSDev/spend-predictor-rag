@@ -10,7 +10,7 @@ from web_api.db.models import Company, InvoiceLine, LineStatus, SpendTree
 from ..audit import record_audit
 from ..db.models.audit_log import SYSTEM_ACTOR
 from ..company_deletion import company_records, delete_company
-from ..deps import (
+from ..auth.deps import (
     TenantScope,
     get_managed_company,
     get_session,
@@ -41,12 +41,7 @@ router = APIRouter(prefix="/api/v1", tags=["companies"])
 
 
 def _company_read(session: Session, company: Company) -> CompanyRead:
-    """A company payload with its spend tree's name resolved.
-
-    Resolved server-side for the same reason `ErpEntryRead` resolves its
-    account: the row carries a foreign key, and a client showing "which taxonomy
-    is this company on" would otherwise need a second request per company.
-    """
+    """A company payload with its spend tree's name resolved."""
     payload = CompanyRead.model_validate(company)
     if company.spend_tree_id:
         tree = session.get(SpendTree, company.spend_tree_id)
@@ -57,13 +52,7 @@ def _company_read(session: Session, company: Company) -> CompanyRead:
 def _resolve_tree_for_write(
     session: Session, organization_id: str, spend_tree_id: str | None
 ) -> str:
-    """The tree a company write should land on.
-
-    Omitted means the organization's copy of the default template, created here
-    if this is its first company — so a company is never left without a taxonomy
-    to categorize against, exactly as it is never left without an ERP
-    connection. A tree from another organization is a 422, not a silent fallback.
-    """
+    """The tree a company write should land on."""
     if spend_tree_id is None:
         return tree_service.ensure_default_tree(session, organization_id).id
 
@@ -98,17 +87,11 @@ def create_company(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> CompanyCreateResult:
-    """Create a company, connect its ERP, and give it a spend tree — one transaction.
-
-    A company with no integration syncs nothing and a company with no taxonomy
-    categorizes nothing, so both are settled here and committed together: a
-    failure anywhere leaves no company, no integration, and no half-seeded tree.
-    """
+    """Create a company, connect its ERP, and give it a spend tree — one transaction."""
     organization_id = resolve_target_organization(scope, body.organization_id)
     try:
         spend_tree_id = _resolve_tree_for_write(session, organization_id, body.spend_tree_id)
     except Exception:
-        # `ensure_default_tree` may have seeded a tree before a later failure.
         session.rollback()
         raise
 
@@ -121,8 +104,6 @@ def create_company(
         spend_tree_id=spend_tree_id,
     )
     session.add(company)
-    # Model ids are client-side uuids, so the integration can reference the
-    # company before any flush — one commit covers all three rows.
     try:
         integration = provision_integration(session, company.id, body.integration)
         session.commit()
@@ -145,19 +126,7 @@ def update_company(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> CompanyUpdateResult:
-    """Partial update, including `base_currency` and `spend_tree_id`.
-
-    A base-currency change is saved on its own: already-converted rows keep the
-    currency they were converted to until an explicit recompute rewrites them.
-    Reports group by the stored base currency, so the in-between state shows up
-    as two rows — visibly stale rather than silently wrong.
-
-    A **spend-tree change** is different: it is applied in the same transaction
-    as the update, re-pointing every line whose stored path exists in the new
-    tree and clearing the rest. Nothing is rewritten and no verification is
-    lost; the response reports how many lines were left needing review, because
-    the caller has to learn that at the moment they cause it.
-    """
+    """Partial update, including `base_currency` and `spend_tree_id`."""
     company = get_managed_company(session, scope, company_id)
     changes = body.model_dump(exclude_unset=True)
 
@@ -194,12 +163,7 @@ def recompute_company_fx(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> FxRecomputeResult:
-    """Rewrite this company's stored base amounts against its current currency.
-
-    Each row is reconverted at *its own* historical rate — this restates nothing
-    at today's rate. Run it after switching base currency, or after enabling FX
-    over data that was ingested unconverted.
-    """
+    """Rewrite this company's stored base amounts against its current currency."""
     company = get_managed_company(session, scope, company_id)
     try:
         counts = recompute_company(session, company.id)
@@ -216,8 +180,6 @@ def recompute_company_fx(
     )
 
 
-#: The audit action for a line put back in the categorizer's queue. Defined
-#: beside its writer, as `withdrawn_by_erp` and `superseded_by_extraction` are.
 REQUEUED_ACTION = "requeued_for_categorization"
 
 
@@ -227,23 +189,7 @@ def recategorize_company_lines(
     scope: TenantScope = Depends(require_management),
     session: Session = Depends(get_session),
 ) -> RecategorizeResult:
-    """Return this company's `ai_failed` lines to `uncategorized`.
-
-    **This queues; it does not categorize.** `web_api` does not import `ai_api`,
-    so the categorizer runs only in the sync — and it processes exactly the
-    `uncategorized` lines, which is what makes a status reset sufficient to
-    requeue and why no flag or queue table is needed.
-
-    Without this, `ai_failed` is terminal: the sync never retries a failure, so
-    a line lost to a categorizer that has since improved could never be reached
-    again short of hand-written SQL.
-
-    Only `ai_failed` is eligible. `verified` is human authority and requeueing it
-    would license an overwrite; `ai_categorized` did not fail, and resetting it
-    would discard a usable result to re-derive it. Origin is deliberately not a
-    filter — a stand-in line's spend is real spend, and most of a real ledger is
-    stand-ins.
-    """
+    """Return this company's `ai_failed` lines to `uncategorized`."""
     company = get_managed_company(session, scope, company_id)
     lines = session.exec(
         select(InvoiceLine).where(
@@ -257,14 +203,6 @@ def recategorize_company_lines(
             changes = [
                 {"field": "status", "old": line.status, "new": LineStatus.UNCATEGORIZED.value}
             ]
-            # Both describe an attempt that is no longer this line's state;
-            # left in place they report a queued line as still failing.
-            #
-            # `rationale` matters more than `error_message`, and was missed at
-            # first. The line editor renders it with no reference to status, so a
-            # requeued line went on showing a paragraph arguing why it could not
-            # be categorized — written by a categorizer that has since been
-            # fixed, about a question it is about to be asked again.
             for field in ("error_message", "rationale"):
                 if getattr(line, field) is not None:
                     changes.append(
@@ -283,8 +221,6 @@ def recategorize_company_lines(
             line.rationale = None
             session.add(line)
 
-        # In the same transaction: an invoice must never claim to be categorized
-        # while the lines it rolls up from are sitting in the queue.
         session.flush()
         for invoice_id in {line.invoice_id for line in lines}:
             recompute_invoice_status(session, invoice_id)
@@ -332,20 +268,7 @@ def delete_company_endpoint(
     scope: TenantScope = Depends(require_system_admin),
     session: Session = Depends(get_session),
 ) -> CompanyDeleteResult:
-    """Destroy a company and everything scoped to it. There is no undo.
-
-    For a company that should not exist — a typo, a trial that never synced, a
-    test tenant, or one a customer asked to have removed. **Not** for retiring
-    one whose ledger still means something: `POST /companies/{id}/deactivate`
-    does that, keeps every record, and can be reversed.
-
-    Refused with `409` and the counts until `confirm=true`, unless the company
-    holds nothing — there is no point gating a preview of zero, and a dialog
-    over nothing teaches the operator to click through the one that matters.
-
-    System admin only. An org admin may deactivate; destroying a ledger is not
-    something a support conversation can put right.
-    """
+    """Destroy a company and everything scoped to it."""
     company = get_managed_company(session, scope, company_id)
     records = company_records(session, company.id)
 
@@ -362,8 +285,6 @@ def delete_company_endpoint(
             ).model_dump(mode="json"),
         )
 
-    # Name and id are read before the delete: afterwards the object is gone from
-    # the session and the response would have nothing to identify what went.
     deleted = CompanyDeleteResult(
         id=company.id, name=company.name, **records.__dict__
     )
@@ -371,8 +292,6 @@ def delete_company_endpoint(
         delete_company(session, company)
         session.commit()
     except Exception:
-        # Atomic by construction — a failure part-way leaves the company exactly
-        # as it was, rather than half a tenant with dangling children.
         session.rollback()
         raise
     return deleted

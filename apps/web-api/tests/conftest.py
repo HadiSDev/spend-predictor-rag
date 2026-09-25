@@ -1,8 +1,4 @@
-"""Fixtures for web API tests: in-memory SQLite, seed data, fake Clerk verifier.
-
-No live Clerk or Postgres required — the DB engine is monkeypatched to SQLite
-and the token verifier is overridden via FastAPI ``dependency_overrides``.
-"""
+"""Fixtures for web API tests: in-memory SQLite, seed data, fake Clerk verifier."""
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
@@ -13,6 +9,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
+from mock_erp.main import app as mock_erp_app
+from web_api import config as web_config
+from web_api.app import create_app
+from web_api.auth import ClerkPrincipal, TokenVerificationError, deps
+from web_api.auth.clerk_client import get_clerk_client
+from web_api.connectors.mock import MockErpConnector
 from web_api.db.models import (
     Company,
     ErpAccount,
@@ -23,26 +25,18 @@ from web_api.db.models import (
     InvoiceLine,
     Organization,
 )
-from web_api import deps
-from web_api_testkit import TEST_WEBHOOK_SECRET
-from web_api.app import create_app
-from web_api.auth import ClerkPrincipal, TokenVerificationError
-from web_api.clerk_client import get_clerk_client
 from web_api.routers.webhooks import SvixWebhookVerifier, get_webhook_verifier
+from web_api_testkit import TEST_WEBHOOK_SECRET
 
-# Tokens map to Clerk principals. Org ids match the seeded organizations so a
-# provisioned user lands in the right tenant.
 PRINCIPALS: dict[str, ClerkPrincipal] = {
     "tokA": ClerkPrincipal("userA", "clerk_orgA", "Org A", "org:admin", "a@a.com", "Alice"),
     "tokB": ClerkPrincipal("userB", "clerk_orgB", "Org B", "org:member", "b@b.com", "Bob"),
     "tok_weirdrole": ClerkPrincipal("userD", "clerk_orgA", "Org A", "org:billing", None, None),
     "tok_noorg": ClerkPrincipal("userC", None, None, None, None, None),
     "tok_empty": ClerkPrincipal("userE", "clerk_orgEmpty", "Empty Org", "org:admin", "e@e.com", "Eve"),
-    # Additional Org A roles for the authorization matrix.
     "tok_moderatorA": ClerkPrincipal("userMod", "clerk_orgA", "Org A", "org:moderator", "mod@a.com", "Mod"),
     "tok_memberA": ClerkPrincipal("userMem", "clerk_orgA", "Org A", "org:member", "mem@a.com", "Mem"),
     "tok_viewerA": ClerkPrincipal("userVie", "clerk_orgA", "Org A", "org:viewer", "vie@a.com", "Vie"),
-    # Platform system admin (low org role, but is_system_admin=True) in Org A.
     "tok_sysadmin": ClerkPrincipal("userSys", "clerk_orgA", "Org A", "org:member", "sys@a.com", "Sys", is_system_admin=True),
 }
 
@@ -74,14 +68,11 @@ def seed(engine):
         s.add(org_a)
         s.add(org_b)
         s.commit()
-        # Both report in DKK, which is what their seeded invoices are posted in.
         comp_a = Company(organization_id=org_a.id, name="Acme A", base_currency="DKK")
         comp_b = Company(organization_id=org_b.id, name="Beta B", base_currency="DKK")
         s.add(comp_a)
         s.add(comp_b)
         s.commit()
-        # DKK invoices for DKK-reporting companies: converted at rate 1, the
-        # ordinary case, so base-currency reads and reports have data to work on.
         inv_a = Invoice(company_id=comp_a.id, invoice_number="A1",
                         invoice_date=date(2025, 7, 1), currency="DKK",
                         total=Decimal("100.00"), status="uncategorized",
@@ -126,15 +117,7 @@ def seed(engine):
 
 @pytest.fixture
 def voucher_seed(engine, seed):
-    """Extends ``seed`` with a connected ERP integration + a real voucher for Org A.
-
-    General-purpose, for any test that needs an invoice traceable back to an
-    ERP integration through its postings: a connected ``ErpIntegration``, one
-    ``ErpAccount``, a ``File`` linked to ``seed['inv_a']``, and three postings
-    on voucher ``"4821"`` — a purchase-invoice entry (linking the voucher to
-    the invoice), a payment entry (excluded from entry listings, but still a
-    real posting), and a lone posting with no voucher at all.
-    """
+    """Extends ``seed`` with a connected ERP integration + a real voucher for Org A."""
     ids = dict(seed)
     with Session(engine) as s:
         integ = ErpIntegration(
@@ -222,61 +205,21 @@ def clerk_recorder():
 def client(seed, clerk_recorder):
     app = create_app()
     app.dependency_overrides[deps.get_verifier] = lambda: FakeVerifier()
-    # Real Svix verification against the test secret; outbound recorded, not sent.
     app.dependency_overrides[get_webhook_verifier] = lambda: SvixWebhookVerifier(TEST_WEBHOOK_SECRET)
     app.dependency_overrides[get_clerk_client] = lambda: clerk_recorder
     return TestClient(app)
 
 
-
-
-# --- Suite-wide guards ----------------------------------------------------
-# These lived in a repository-root conftest.py while both APIs shared one test
-# tree. Each app now carries the ones its own session needs, so the web-api
-# suite never imports ai_api (the root conftest's categorizer guard used to).
-
-
 @pytest.fixture
 def mock_erp_connector():
-    """A MockErpConnector wired to the mock ERP app, in-process.
-
-    Mirrors ``tests/test_mock_erp.py``'s ``connector_over_app`` fixture:
-    ``TestClient`` is a synchronous ``httpx.Client`` bound to the ASGI app
-    (entering it fires startup, i.e. the data generator). Assigning it as
-    the connector's own ``_http`` — an attribute the connector already
-    lazily builds itself — gives every fetch a real HTTP round-trip through
-    the actual FastAPI handlers, without a live server and without touching
-    any private httpx internals.
-    """
-    from fastapi.testclient import TestClient
-    from mock_erp.main import app
-    from web_api.connectors.mock import MockErpConnector
-
-    client = TestClient(app)
-    client.__enter__()
-    connector = MockErpConnector({"api_key": "mock-secret"})
-    connector._http = client
-    yield connector
-    client.__exit__(None, None, None)
+    """A MockErpConnector wired to the mock ERP app, in-process."""
+    with TestClient(mock_erp_app) as mock_erp_client:
+        connector = MockErpConnector({"api_key": "mock-secret"})
+        connector._http = mock_erp_client
+        yield connector
 
 
 @pytest.fixture(autouse=True)
 def offline_fx(monkeypatch):
-    """No test ever fetches a rate over the network.
-
-    `FX_ENABLED` is read from the environment, and the environment includes the
-    developer's own `.env`. Switching FX on for real work therefore reached into
-    the suite: two tests asserting the off-by-default posture began failing, and
-    — far worse — `default_provider()` started handing back the Frankfurter
-    client, so a full run made outbound HTTP requests. The codebase promises the
-    opposite in as many words: "tests and offline runs make no outbound
-    request."
-
-    Forcing it off costs no coverage. Every test that wants rates injects its
-    own `StubProvider` into `FxService`; only `default_provider()` consults this
-    flag, and what those two tests assert is precisely the default. A test that
-    genuinely needs the flag on can monkeypatch it back.
-    """
-    from web_api import config as web_config
-
+    """No test ever fetches a rate over the network."""
     monkeypatch.setattr(web_config, "FX_ENABLED", False)

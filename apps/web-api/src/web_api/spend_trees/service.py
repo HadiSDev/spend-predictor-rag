@@ -1,15 +1,4 @@
-"""The only writer of ``SpendCategory``.
-
-Every mutation goes through here because the node carries two representations of
-the same fact — the adjacency list (``parent_id``/``depth``/``name``) and the
-materialized path (``level_1..level_4``) — and nothing else keeps them in step.
-A rename written straight to the ORM would leave every descendant's path
-claiming an ancestor name that no longer exists.
-
-None of these functions commit. They add to the caller's session and let the
-caller own the transaction, the same contract ``integrations.provision_integration``
-uses, so a company update and the reassignment it causes are one transaction.
-"""
+"""The only writer of ``SpendCategory``."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -20,32 +9,22 @@ from ..db.models import Company, InvoiceLine, SpendCategory, SpendTree
 from ..db.models.enums import SpendTreeSource
 from .template import DEFAULT_TEMPLATE, TEMPLATE_MAX_DEPTH, TEMPLATE_NAME, TEMPLATE_VERSION
 
-#: The deepest a tree may ever go. A custom tree declares 3 or 4; the default
-#: template is pinned to 3.
 MAX_SUPPORTED_DEPTH = 4
 
 _LEVEL_FIELDS = ("level_1", "level_2", "level_3", "level_4")
 
 
 class SpendTreeError(Exception):
-    """A spend-tree rule was violated. Routers map this to a status code."""
+    """A spend-tree rule was violated."""
 
     def __init__(self, message: str, *, code: str = "invalid") -> None:
         super().__init__(message)
         self.message = message
-        #: "invalid" → 422, "conflict" → 409, "not_found" → 404.
         self.code = code
 
 
-# -- Path materialization ----------------------------------------------------
-
-
 def _apply_path(node: SpendCategory, path: tuple[str, ...]) -> None:
-    """Write a node's depth and its materialized level path.
-
-    ``level_n`` is set exactly when ``depth >= n``; every column below the node's
-    own depth is cleared, so a node moved shallower does not keep a stale tail.
-    """
+    """Write a node's depth and its materialized level path."""
     node.depth = len(path)
     for index, field in enumerate(_LEVEL_FIELDS):
         setattr(node, field, path[index] if index < len(path) else None)
@@ -73,12 +52,7 @@ def _children_by_parent(session: Session, tree_id: str) -> dict[str | None, list
 
 
 def _rewrite_paths(session: Session, tree_id: str, root: SpendCategory | None = None) -> None:
-    """Rebuild materialized paths from parentage, for a subtree or a whole tree.
-
-    Walked iteratively rather than recursively: depth is capped at 4, but a
-    cycle introduced by a bad move would otherwise blow the stack instead of
-    being caught by :func:`_assert_no_cycle`.
-    """
+    """Rebuild materialized paths from parentage, for a subtree or a whole tree."""
     grouped = _children_by_parent(session, tree_id)
 
     if root is None:
@@ -125,15 +99,8 @@ def _assert_no_cycle(session: Session, node: SpendCategory, new_parent: SpendCat
         cursor = session.get(SpendCategory, cursor.parent_id)
 
 
-# -- Lookups -----------------------------------------------------------------
-
-
 def get_tree(session: Session, tree_id: str, organization_id: str) -> SpendTree:
-    """A tree of the caller's organization, or ``not_found``.
-
-    Scoping is by organization, not by "does it exist": a tree in another
-    organization must be indistinguishable from one that was never created.
-    """
+    """A tree of the caller's organization, or ``not_found``."""
     tree = session.get(SpendTree, tree_id)
     if tree is None or tree.organization_id != organization_id:
         raise SpendTreeError("Spend tree not found.", code="not_found")
@@ -183,9 +150,6 @@ def _next_sort_order(session: Session, tree_id: str, parent_id: str | None) -> i
         )
     ).all()
     return max((s.sort_order for s in siblings), default=-1) + 1
-
-
-# -- Tree mutations ----------------------------------------------------------
 
 
 def create_tree(
@@ -241,7 +205,7 @@ def update_tree(
 
 
 def archive_tree(session: Session, tree: SpendTree) -> SpendTree:
-    """Soft-archive. A tree a company still uses is never archivable."""
+    """Soft-archive."""
     assigned = session.exec(
         select(Company).where(Company.spend_tree_id == tree.id)
     ).all()
@@ -263,22 +227,7 @@ def tree_line_references(session: Session, tree_id: str) -> list[InvoiceLine]:
 
 
 def delete_tree(session: Session, tree: SpendTree, confirm: bool = False) -> int:
-    """Delete a tree and its nodes. Returns how many lines were left stale.
-
-    Hard, not soft — unlike a Company, which is soft-deactivated because it owns
-    financial records. A tree owns none: an ``InvoiceLine`` keeps its
-    ``level_1..level_4`` whatever happens to the node it pointed at, which is
-    the whole point of storing the path beside the pointer. A tree made by
-    mistake should be removable, not hidden in an archive list forever.
-
-    Two guards, both the same rules node deletion follows:
-
-    - a tree a company is still assigned is refused outright — reassign first,
-      because a company with a dangling tree id categorizes nothing;
-    - a tree whose nodes categorized lines point at needs ``confirm``, since
-      those lines lose their pointer and go stale. They keep every stored level:
-      the record of what was decided survives.
-    """
+    """Delete a tree and its nodes."""
     assigned = session.exec(
         select(Company).where(Company.spend_tree_id == tree.id)
     ).all()
@@ -300,7 +249,6 @@ def delete_tree(session: Session, tree: SpendTree, confirm: bool = False) -> int
     for line in affected:
         line.spend_category_id = None
         session.add(line)
-    # Deepest first, so a parent is never removed while a child still points at it.
     for node in sorted(tree_nodes(session, tree.id), key=lambda n: n.depth, reverse=True):
         session.delete(node)
     session.delete(tree)
@@ -308,12 +256,7 @@ def delete_tree(session: Session, tree: SpendTree, confirm: bool = False) -> int
 
 
 def clone_tree(session: Session, source: SpendTree, name: str, max_depth: int | None = None) -> SpendTree:
-    """Copy a tree's nodes into a new custom tree in the same organization.
-
-    The copy is always ``custom``: a clone of the default template is the user's
-    own taxonomy from the moment it exists, and calling it a template copy would
-    make the organization appear to hold two.
-    """
+    """Copy a tree's nodes into a new custom tree in the same organization."""
     target_depth = max_depth if max_depth is not None else source.max_depth
     clone = create_tree(
         session, source.organization_id, name, max_depth=target_depth,
@@ -346,9 +289,6 @@ def clone_tree(session: Session, source: SpendTree, name: str, max_depth: int | 
         session.flush()
         id_map[original.id] = copy.id
     return clone
-
-
-# -- Node mutations ----------------------------------------------------------
 
 
 def add_node(
@@ -420,7 +360,6 @@ def rename_node(session: Session, node: SpendCategory, name: str) -> SpendCatego
     node.name = name
     session.add(node)
     session.flush()
-    # The rename changes every descendant's path, not just this node's.
     _rewrite_paths(session, node.spend_tree_id, node)
     return node
 
@@ -496,13 +435,7 @@ def lines_referencing(session: Session, node_ids: list[str]) -> list[InvoiceLine
 
 
 def delete_node(session: Session, node: SpendCategory) -> int:
-    """Delete a leaf. Returns how many invoice lines lost their category pointer.
-
-    A node with children is refused rather than cascaded: deleting a subtree by
-    deleting its root is easy to do by accident and impossible to undo. Lines
-    pointing at the node keep every stored level — the pointer goes, the record
-    of what was decided stays, and the line reads as stale.
-    """
+    """Delete a leaf."""
     children = session.exec(
         select(SpendCategory).where(SpendCategory.parent_id == node.id)
     ).all()
@@ -519,9 +452,6 @@ def delete_node(session: Session, node: SpendCategory) -> int:
         session.add(line)
     session.delete(node)
     return len(affected)
-
-
-# -- The default template ----------------------------------------------------
 
 
 def seed_template(session: Session, tree: SpendTree) -> None:
@@ -544,14 +474,7 @@ def seed_template(session: Session, tree: SpendTree) -> None:
 
 
 def ensure_default_tree(session: Session, organization_id: str) -> SpendTree:
-    """The organization's copy of the default template, created if absent.
-
-    Idempotent per organization: an org holds at most one template copy, so a
-    second call returns the first one rather than seeding a duplicate taxonomy.
-    Copy-on-use rather than eager creation at provisioning time — JIT
-    provisioning builds an org from a Clerk token and has no business seeding a
-    taxonomy.
-    """
+    """The organization's copy of the default template, created if absent."""
     existing = session.exec(
         select(SpendTree).where(
             SpendTree.organization_id == organization_id,

@@ -1,9 +1,4 @@
-"""FastAPI application factory for the Clerk-authenticated web API.
-
-Run either way:
-    uvicorn web_api.app:app --reload --reload-dir apps/web-api/src --port 8100
-    uv run apps/web-api/src/web_api/app.py   # launches uvicorn (dev, reloads apps/web-api/src/)
-"""
+"""FastAPI application factory for the Clerk-authenticated web API."""
 from __future__ import annotations
 
 from fastapi import FastAPI
@@ -77,7 +72,6 @@ app = create_app()
 
 
 if __name__ == "__main__":
-
     src_dir = str(pathlib.Path(__file__).resolve().parents[1])
     uvicorn.run(
         "web_api.app:app",

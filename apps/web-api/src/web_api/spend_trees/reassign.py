@@ -1,22 +1,4 @@
-"""What happens to a company's categorized lines when its spend tree changes.
-
-The rule, in one sentence: **nothing a human or the AI decided is rewritten,
-requeued, or deleted** — only the pointer into a tree the company no longer uses
-is cleared, and the line becomes visibly stale.
-
-Two things follow from that and both are deliberate:
-
-- **Re-resolution is exact-match only.** A line whose stored path equals a node's
-  path in the new tree, name for name, keeps a resolving category. Anything
-  looser is the guessing the sync's derived entry→line link explicitly refuses,
-  and getting it wrong silently reassigns a verified category to a different
-  node.
-- **It runs synchronously, inside the caller's transaction.** The caller must
-  learn the consequence at the moment they cause it — a dialog reading "this
-  leaves 412 lines needing review" is the whole safety of the feature. A
-  company's line count is bounded by its ledger; if this ever becomes slow the
-  answer is a job with a progress endpoint, not silent asynchrony.
-"""
+"""What happens to a company's categorized lines when its spend tree changes."""
 from __future__ import annotations
 
 from sqlalchemy import or_
@@ -27,8 +9,6 @@ from ..db.models import InvoiceLine, SpendCategory
 from ..db.models.audit_log import SYSTEM_ACTOR
 from .service import node_path
 
-#: Recorded as the audit action, so the trail distinguishes "the taxonomy moved"
-#: from a human edit or an AI categorization.
 REASSIGN_ACTION = "spend_tree_reassigned"
 
 _LEVEL_FIELDS = ("level_1", "level_2", "level_3", "level_4")
@@ -50,15 +30,7 @@ def reassign_company_tree(
     from_tree_id: str | None,
     to_tree_id: str | None,
 ) -> int:
-    """Re-point or clear a company's line categories after a tree change.
-
-    Returns the number of lines left **stale** — categorized, but no longer
-    pointing at a node. A line that re-resolves is not counted: nothing about it
-    needs review.
-
-    Does not commit; the caller owns the transaction, so the company update and
-    its consequence land together or not at all.
-    """
+    """Re-point or clear a company's line categories after a tree change."""
     lines = session.exec(
         select(InvoiceLine).where(
             InvoiceLine.company_id == company_id,
@@ -78,7 +50,6 @@ def reassign_company_tree(
     stale = 0
     for line in lines:
         previous = line.spend_category_id
-        # Exact, case-sensitive, whole-path. Never fuzzy — see the module docstring.
         resolved = by_path.get(_line_path(line))
         if resolved == previous:
             continue
@@ -103,12 +74,7 @@ def reassign_company_tree(
 
 
 def count_stale(session: Session, company_id: str) -> int:
-    """How many of a company's lines carry a decision that resolves to nothing.
-
-    The same predicate ``InvoiceLineRead.category_stale`` uses. Staleness is
-    computed, never stored: no second thing to keep in step, and it is correct
-    after a reassignment, a node deletion, or a replace import alike.
-    """
+    """How many of a company's lines carry a decision that resolves to nothing."""
     return len(
         session.exec(
             select(InvoiceLine).where(

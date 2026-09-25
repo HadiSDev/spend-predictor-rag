@@ -1,13 +1,4 @@
-"""Provisioning an ERP integration for a company.
-
-Shared by the two paths that can create one — `POST /api/v1/erp-integrations`
-and `POST /api/v1/companies` — so both apply the same validation rules and
-neither drifts from the other.
-
-The helper **adds without committing**: the caller owns the transaction, which is
-what lets company creation persist the company, its integration, and its
-credential in a single commit.
-"""
+"""Provisioning an ERP integration for a company."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -34,11 +25,7 @@ def _unprocessable(detail: str) -> HTTPException:
 
 
 def validate_credentials(erp_type: str, credentials: dict) -> None:
-    """Check a credentials map against the connector's declared fields.
-
-    Undeclared keys are rejected rather than stored: a typo like ``apikey``
-    would otherwise surface much later as an opaque auth failure during sync.
-    """
+    """Check a credentials map against the connector's declared fields."""
     cls = connector_class(erp_type)
     if cls is None:
         raise _unprocessable(
@@ -69,15 +56,7 @@ def provision_integration(
     company_id: str,
     spec: IntegrationSpec,
 ) -> ErpIntegration:
-    """Validate and stage an integration (plus its credential) for ``company_id``.
-
-    Adds to the session without committing — the caller commits. Raises 422
-    before adding anything if the connector or credentials are invalid.
-
-    No `ErpCredential` row is written when the credentials map is empty, so a
-    connector whose fields all have defaults can be connected without the
-    credential encryption key being configured.
-    """
+    """Validate and stage an integration (plus its credential) for ``company_id``."""
     validate_credentials(spec.erp_type, spec.credentials)
 
     integration = ErpIntegration(
@@ -99,11 +78,7 @@ def provision_integration(
 
 
 def connector_config(session: Session, integration: ErpIntegration) -> dict:
-    """The integration's decrypted credentials, or ``{}`` for connector defaults.
-
-    No credential row is the normal case for a connector whose fields all have
-    defaults (the Debug ERP is one), so it is not an error.
-    """
+    """The integration's decrypted credentials, or ``{}`` for connector defaults."""
     credential = session.exec(
         select(ErpCredential).where(ErpCredential.erp_integration_id == integration.id)
     ).first()

@@ -1,15 +1,4 @@
-"""Converting money into a company's base currency at a historical rate.
-
-The rule this module exists to enforce: an amount is converted at the rate in
-force on **its own transaction date**, or it is not converted at all. There is no
-fallback to today's rate and no fallback to a neighbouring currency — a figure
-that looks authoritative and is not would be worse than a missing one.
-
-Rates are cached in `fx_rates` against EUR, so any pair is derived as
-``rate(EUR→B) / rate(EUR→A)`` and n currencies cost n rows per date rather
-than n². `FxService` adds a per-instance memo in front of that, so one date
-resolves to at most one provider call per run no matter how many rows need it.
-"""
+"""Converting money into a company's base currency at a historical rate."""
 from __future__ import annotations
 
 import logging
@@ -26,11 +15,9 @@ logger = logging.getLogger(__name__)
 
 EUR = "EUR"
 _ONE = Decimal(1)
-_RATE_SCALE = Decimal("0.00000001")  # Numeric(18, 8)
-_MONEY_SCALE = Decimal("0.01")  # Numeric(14, 2)
+_RATE_SCALE = Decimal("0.00000001")
+_MONEY_SCALE = Decimal("0.01")
 
-# What happened to a row we were asked to convert. Callers report these as
-# counts; nothing branches on them.
 CONVERTED = "converted"
 UNCONVERTED = "unconverted"
 UNCHANGED = "unchanged"
@@ -45,51 +32,29 @@ def normalize_currency(code: str | None) -> str | None:
 
 
 def convert(amount: Decimal | None, rate: Decimal) -> Decimal | None:
-    """Apply a rate to an amount, rounded half-up to the money scale.
-
-    Deliberately takes the *stored* (8dp) rate rather than a full-precision
-    quotient: a stored base amount must be reproducible from the stored original
-    amount and the stored rate, and it only is if both sides round the same way.
-    """
+    """Apply a rate to an amount, rounded half-up to the money scale."""
     if amount is None:
         return None
     return (Decimal(amount) * rate).quantize(_MONEY_SCALE, rounding=ROUND_HALF_UP)
 
 
 class FxService:
-    """Resolves historical rates for one unit of work.
-
-    Holds a per-instance memo, so it is meant to be created per sync run, per
-    request, or per recompute — not kept alive for the life of the process.
-    """
+    """Resolves historical rates for one unit of work."""
 
     def __init__(self, session: Session, provider: RateProvider | None = None) -> None:
         self.session = session
         self.provider = provider if provider is not None else default_provider()
-        # requested date -> EUR rate set, or None when it could not be resolved.
-        # The None entries matter as much as the hits: they stop a dead provider
-        # from being asked once per row.
         self._memo: dict[date, Optional[tuple[date, dict[str, Decimal]]]] = {}
-
-    # -- rates ---------------------------------------------------------------
 
     def get_rate(
         self, from_currency: str | None, to_currency: str | None, on_date: date | None
     ) -> tuple[Decimal, date] | None:
-        """Return ``(rate, published_date)`` for ``from → to`` on ``on_date``.
-
-        The rate is units of `to` per 1 unit of `from`, so
-        ``base = amount * rate``. Returns None when the date is missing, either
-        currency is missing or unknown to the rate source, or no rate could be
-        obtained — the caller then leaves the row unconverted.
-        """
+        """Return ``(rate, published_date)`` for ``from → to`` on ``on_date``."""
         source = normalize_currency(from_currency)
         target = normalize_currency(to_currency)
         if source is None or target is None or on_date is None:
             return None
         if source == target:
-            # No lookup needed, and none wanted: an amount already in the base
-            # currency is converted at 1 on its own date.
             return _ONE, on_date
 
         resolved = self._eur_rates(on_date)
@@ -128,9 +93,6 @@ class FxService:
             return None
         published, rates = fetched
 
-        # Cache under the date served and, when they differ, under the date
-        # asked for — so the same weekend is answered from the cache next time
-        # and still reports the publication it really came from.
         self._write_cache(on_date, published, rates)
         if published != on_date:
             self._write_cache(published, published, rates)
@@ -159,8 +121,6 @@ class FxService:
                 )
             )
 
-    # -- rows ----------------------------------------------------------------
-
     def convert_row(
         self,
         row,
@@ -170,20 +130,7 @@ class FxService:
         on_date: date | None,
         amount_fields: Iterable[tuple[str, str]],
     ) -> str:
-        """Write a row's base amounts, rate and rate date. Returns the outcome.
-
-        A row is left exactly as it is when its conversion is already the one we
-        would write — that is what makes a re-sync free of write churn.
-
-        "Already the one we would write" means the stored base amounts are still
-        *reproducible* from the posted amounts at the stored rate, not merely
-        that some rate is present. A row is upserted in place by a deterministic
-        id, so its posted amounts can change under a conversion that was correct
-        for the old ones; trusting the mere presence of a rate froze the base
-        amounts of an earlier posting onto the new one, which then rendered as a
-        figure from an unrelated row — even with the sign inverted, when the old
-        posting used the other side of the ledger.
-        """
+        """Write a row's base amounts, rate and rate date."""
         amount_fields = tuple(amount_fields)
         if (
             row.fx_rate is not None
@@ -217,12 +164,6 @@ class FxService:
         row.fx_rate = None
         row.fx_rate_date = None
 
-    # -- the three convertible shapes ---------------------------------------
-    #
-    # Which date and which currency each row converts at lives here and nowhere
-    # else, so the runner, the recompute and any future caller cannot disagree
-    # about it.
-
     def convert_invoice(self, invoice: Invoice, base_currency: str) -> str:
         return self.convert_row(
             invoice,
@@ -240,7 +181,7 @@ class FxService:
         currency: str | None,
         invoice_date: date | None,
     ) -> str:
-        """A line has no date or currency of its own — both come from its invoice."""
+        """Convert a line using its invoice's date and currency."""
         return self.convert_row(
             line,
             base_currency=base_currency,

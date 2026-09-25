@@ -1,13 +1,4 @@
-"""Rewriting a company's stored base amounts.
-
-Needed twice: when a customer switches base currency (every stored figure is now
-in the wrong one) and when rates have been corrected or were never fetched at all
-(an outage, or FX enabled after the fact).
-
-Each row is still converted at *its own* historical rate — recomputing is not
-restating history at today's rate, which is the whole point of storing the rate
-date in the first place.
-"""
+"""Rewriting a company's stored base amounts."""
 from __future__ import annotations
 
 import logging
@@ -20,8 +11,6 @@ from .service import CONVERTED, UNCHANGED, UNCONVERTED, FxService
 
 logger = logging.getLogger(__name__)
 
-# Rows are streamed and flushed in batches: a company with a year of postings is
-# more rows than we want to hold changed-but-unwritten in one unit of work.
 BATCH_SIZE = 500
 
 
@@ -32,12 +21,7 @@ def recompute_company(
     fx: FxService | None = None,
     batch_size: int = BATCH_SIZE,
 ) -> dict[str, int]:
-    """Recompute one company's base amounts. Returns per-outcome counts.
-
-    Posted currencies and amounts are never touched — only the derived columns.
-    The caller owns the transaction: this flushes but does not commit, matching
-    ``provision_integration``.
-    """
+    """Recompute one company's base amounts."""
     company = session.get(Company, company_id)
     if company is None:
         raise LookupError(f"no such company: {company_id}")
@@ -46,8 +30,6 @@ def recompute_company(
     base_currency = company.base_currency
     counts = {CONVERTED: 0, UNCONVERTED: 0, UNCHANGED: 0}
 
-    # An invoice's date and currency are what its lines convert at, so lines are
-    # walked per invoice rather than as their own flat scan.
     invoices = session.exec(
         select(Invoice).where(Invoice.company_id == company_id)
     ).all()

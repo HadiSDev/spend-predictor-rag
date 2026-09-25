@@ -1,15 +1,4 @@
-"""Invoice status rollup — derive ``Invoice.status`` from its lines.
-
-Kept as a shared helper so both the AI sync runner (ai_api) and the human verify
-endpoint (web_api) recompute the invoice the same way, in the same transaction
-as the line change that triggered it. Deriving (rather than storing an
-independent value) keeps the invoice and its lines from drifting apart.
-
-Rollup:
-- ``uncategorized`` while no line has been categorized yet,
-- ``categorized`` once any line has an AI result (or a mix in progress),
-- ``verified`` once the invoice has lines and every line is ``verified``.
-"""
+"""Invoice status rollup — derive ``Invoice.status`` from its lines."""
 from __future__ import annotations
 
 from sqlmodel import Session, select
@@ -19,10 +8,7 @@ from .db.models.enums import InvoiceStatus, LineStatus
 
 
 def recompute_invoice_status(session: Session, invoice_id: str) -> InvoiceStatus | None:
-    """Recompute and persist an invoice's rolled-up status. Returns the new value.
-
-    Does not commit — the caller owns the transaction.
-    """
+    """Recompute and persist an invoice's rolled-up status."""
     invoice = session.get(Invoice, invoice_id)
     if invoice is None:
         return None

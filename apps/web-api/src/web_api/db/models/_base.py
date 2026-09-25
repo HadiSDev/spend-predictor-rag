@@ -4,7 +4,6 @@ from __future__ import annotations
 from uuid import uuid4
 
 from sqlalchemy import Column, DateTime, func
-from sqlmodel import SQLModel
 
 
 def _uuid() -> str:

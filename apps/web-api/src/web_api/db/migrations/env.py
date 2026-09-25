@@ -1,8 +1,4 @@
-"""Alembic migration environment.
-
-Targets the SQLModel metadata (all ORM models are imported for their side
-effect of registering tables) and reads the database URL from the app config.
-"""
+"""Alembic migration environment."""
 from __future__ import annotations
 
 from logging.config import fileConfig
@@ -11,7 +7,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
-import web_api.db.models  # noqa: F401 - populate SQLModel.metadata
+import web_api.db.models  # noqa: F401
 from web_api.config import DATABASE_URL
 
 config = context.config

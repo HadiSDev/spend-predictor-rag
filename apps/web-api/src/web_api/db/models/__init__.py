@@ -1,5 +1,3 @@
-# Import all models so SQLModel.metadata is populated.
-# Each file uses string forward refs so import order is irrelevant.
 from .audit_log import AuditLog
 from .company import Company
 from .enums import DocStatus, InvoiceStatus, LineOrigin, LineStatus, SpendTreeSource

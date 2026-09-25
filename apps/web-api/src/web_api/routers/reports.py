@@ -1,9 +1,4 @@
-"""Aggregate reporting endpoints — read-only, tenant-scoped, grouped by currency.
-
-Ledger sums come from `ErpEntry`; category/vendor spend from the invoice layer.
-All endpoints resolve the caller's company scope (optionally narrowed by a
-validated `company_id`) and delegate the SQL rollups to `web_api.reporting`.
-"""
+"""Aggregate reporting endpoints — read-only, tenant-scoped, grouped by currency."""
 from __future__ import annotations
 
 from datetime import date
@@ -12,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
 from .. import reporting
-from ..deps import TenantScope, get_session, resolve_company_ids, tenant_scope
+from ..auth.deps import TenantScope, get_session, resolve_company_ids, tenant_scope
 from ..schemas import (
     CategorySpendRow,
     CurrencyMode,

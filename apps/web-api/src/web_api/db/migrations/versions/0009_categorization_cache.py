@@ -1,21 +1,8 @@
 """Remember what the categorizer already answered.
 
-Most lines on a real ledger are repeats — the same monthly ticket from the same
-supplier — and each one is a model call of several seconds.
-
-The unique key is `(question_key, tree_hash)`, and the tree hash is the
-load-bearing half: a cached answer is a pointer into a taxonomy, and a customer
-who renames or removes a node has changed what it means. Without the hash the
-cache would keep serving answers against a tree that no longer exists, with
-nothing to notice it by.
-
-Owned by `ai_api` but migrated here, because this is where the migration chain
-lives and a table that exists only via `create_all()` is a table that has never
-been proven to build from empty — which is what the squashed baseline exists to
-stop happening again.
-
 Revision ID: 0009_categorization_cache
 Revises: 0008_spend_category_suggestions
+
 """
 from __future__ import annotations
 
@@ -49,10 +36,6 @@ def upgrade() -> None:
     op.create_index(
         "ix_categorization_cache_question_key", "categorization_cache", ["question_key"]
     )
-    # No foreign key on `spend_category_id`, deliberately. Every other FK in this
-    # schema is NO ACTION, so one here would make deleting a spend category fail
-    # on a *cache* row — a customer's tree edit refused by an optimization. A
-    # dangling pointer is instead resolved on read: the entry is dropped.
 
 
 def downgrade() -> None:

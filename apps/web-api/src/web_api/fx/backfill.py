@@ -1,15 +1,4 @@
-"""Ops entry point for recomputing stored base amounts.
-
-    python -m web_api.fx.backfill                      # every active company
-    python -m web_api.fx.backfill --company-id <id>    # just one
-    python -m web_api.fx.backfill --include-inactive
-
-Use after enabling FX over existing data, after a rate correction, or after a
-customer switches base currency and the request-time recompute is too large to
-sit in an HTTP call. Needs `FX_ENABLED=true` to fetch anything it does not
-already have cached — without it the run is a no-op that reports every row as
-unconverted.
-"""
+"""Ops entry point for recomputing stored base amounts."""
 from __future__ import annotations
 
 import argparse
@@ -53,8 +42,6 @@ def main(argv: list[str] | None = None) -> int:
             logger.error("No matching companies.")
             return 1
 
-        # One service across the whole run: a rate date shared by two companies
-        # is fetched once.
         fx = FxService(session)
         failed = False
         for company in companies:
@@ -62,7 +49,6 @@ def main(argv: list[str] | None = None) -> int:
                 counts = recompute_company(session, company.id, fx=fx)
                 session.commit()
             except Exception as exc:
-                # One company's failure is not the run's: the rest still get done.
                 session.rollback()
                 logger.error("[%s] FAILED: %s", company.name, exc)
                 failed = True

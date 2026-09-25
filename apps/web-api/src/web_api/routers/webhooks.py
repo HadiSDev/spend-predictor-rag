@@ -10,8 +10,8 @@ from svix.webhooks import Webhook, WebhookVerificationError
 
 from web_api import config
 from web_api.db.models import WebhookEvent
-from ..clerk_sync import handle_clerk_event
-from ..deps import get_session
+from ..auth.clerk_sync import handle_clerk_event
+from ..auth.deps import get_session
 
 logger = logging.getLogger("web_api.webhooks")
 
@@ -25,11 +25,7 @@ class WebhookError(Exception):
 
 
 class SvixWebhookVerifier:
-    """Verifies a Svix-signed payload against the configured signing secret.
-
-    Returns the parsed event dict, or raises ``WebhookError``. Injected as a
-    dependency so tests can supply their own secret or a fake.
-    """
+    """Verifies a Svix-signed payload against the configured signing secret."""
 
     def __init__(self, signing_secret: str) -> None:
         self._wh = Webhook(signing_secret) if signing_secret else None
@@ -46,7 +42,6 @@ class SvixWebhookVerifier:
 
 
 def get_webhook_verifier() -> SvixWebhookVerifier:
-    """The webhook verifier. Overridden in tests via ``dependency_overrides``."""
     return SvixWebhookVerifier(config.CLERK_WEBHOOK_SIGNING_SECRET)
 
 
@@ -61,7 +56,6 @@ async def clerk_webhook(
     try:
         event = verifier.verify(body, headers)
     except WebhookError:
-        # Signature is the authentication — reject unverified deliveries.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature")
 
     event_id = headers.get("svix-id") or event.get("id")
@@ -80,14 +74,14 @@ async def clerk_webhook(
         session.add(record)
         try:
             session.commit()
-        except IntegrityError:  # concurrent redelivery won the race
+        except IntegrityError:
             session.rollback()
             return {"status": "already_processed"}
         session.refresh(record)
 
     try:
         handle_clerk_event(session, event_type, data)
-    except Exception as exc:  # noqa: BLE001 — record failure, ack so Svix backs off
+    except Exception as exc:  # noqa: BLE001
         session.rollback()
         record.error = str(exc)
         record.processed = False

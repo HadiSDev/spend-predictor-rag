@@ -1,11 +1,4 @@
-"""ERP entry (raw GL posting) read endpoints — flat list, voucher groups, detail.
-
-All three read the same joined shape: an entry plus its account and, through the
-source invoice, its supplier. `_entry_select`/`_entry_read` are the only path
-that builds an `ErpEntryRead`, so a posting looks identical wherever it is
-fetched, and `_entry_conditions` is the only place filters are expressed, so the
-flat list and the grouped list can never drift apart.
-"""
+"""ERP entry (raw GL posting) read endpoints — flat list, voucher groups, detail."""
 from __future__ import annotations
 
 from datetime import date
@@ -18,7 +11,7 @@ from sqlmodel import Session, select
 from web_api.db.models import AuditLog, ErpAccount, ErpEntry, File, Invoice, InvoiceLine, Vendor
 from web_api.db.models.enums import EXPENSE_ACCOUNT_TYPE
 from .. import config
-from ..deps import TenantScope, get_session, resolve_company_ids, tenant_scope
+from ..auth.deps import TenantScope, get_session, resolve_company_ids, tenant_scope
 from ..schemas import (
     AuditLogRead,
     CurrencyMode,
@@ -38,61 +31,23 @@ router = APIRouter(prefix="/api/v1", tags=["erp-entries"])
 
 _ZERO = Decimal("0")
 
-# The grouping key. A voucher id groups postings together; an entry without one
-# falls back to its own id so it forms a group of one, rather than every
-# voucherless posting in the tenant collapsing into a single bucket. The
-# prefixes keep the two namespaces from ever colliding.
 _GROUP_KEY = func.coalesce(
     literal("v:", String) + ErpEntry.voucher_id,
     literal("e:", String) + ErpEntry.id,
 )
 
-# Entry types this product does not read. A payment settles an invoice already
-# accounted for — the money moves, nothing is spent — so it is noise in a spend
-# tool, and its postings land on the payable and bank accounts a customer has no
-# reason to enable for sync in the first place. Excluded from every entry
-# listing rather than filtered per request, because there is no view in which we
-# want them back.
-#
-# Deliberately narrow: `credit_note` (a refund) and `journal_entry` (accruals,
-# corrections) stay, since both move real spend.
 _EXCLUDED_ENTRY_TYPES = ("payment",)
 
 
 def _sync_enabled_condition():
-    """A posting is visible only if its account is still selected for sync.
-
-    Task 7b: the human developer ruled that `sync_enabled` gates voucher
-    lookups exactly as it gates the listings, not only the listings — a
-    deselected account is not part of the customer's spend picture regardless
-    of how the row is reached. Two consequences follow and are accepted, not
-    bugs: a voucher whose postings are *all* on deselected accounts 404s from
-    the detail endpoints (indistinguishable from a voucher that never
-    existed), and a partially-deselected voucher shows a total its visible
-    postings alone do not sum to, because the hidden posting still moved
-    money.
-
-    Deliberately standalone rather than routed through `_entry_conditions()`:
-    that function carries its own separate, not-yet-committed `sync_enabled`
-    filter for the listing endpoints. This predicate depends on nothing but
-    the `ErpAccount.sync_enabled` column so the two additions don't collide.
-    """
+    """A posting is visible only if its account is still selected for sync."""
     return ErpEntry.erp_account_id.in_(
         select(ErpAccount.id).where(ErpAccount.sync_enabled == True)  # noqa: E712
     )
 
 
 def _entry_select():
-    """Base select yielding `(entry, account_code, account_name, vendor_id,
-    vendor_name, account_type, level_1, level_2, level_3)`.
-
-    The account join is inner — `erp_account_id` is a non-null FK. The vendor is
-    reached through the source invoice and both hops are optional, and the
-    source line is optional too, so those are outer joins.
-
-    Index 5 (`account_type`) is read positionally by `_net_spend`; new columns
-    are appended after it for that reason.
-    """
+    """Base select yielding each entry with its account, vendor and category columns."""
     return (
         select(
             ErpEntry,
@@ -101,8 +56,6 @@ def _entry_select():
             Vendor.id,
             Vendor.name,
             ErpAccount.erp_account_type,
-            # The line's category. Read off the line rather than the entry: a
-            # posting is never categorized, its line is.
             InvoiceLine.level_1,
             InvoiceLine.level_2,
             InvoiceLine.level_3,
@@ -110,13 +63,10 @@ def _entry_select():
         .join(ErpAccount, ErpAccount.id == ErpEntry.erp_account_id)
         .outerjoin(Invoice, Invoice.id == ErpEntry.source_invoice_id)
         .outerjoin(Vendor, Vendor.id == Invoice.vendor_id)
-        # Outer, and many-entries-to-one-line: most postings (VAT, the payable,
-        # journal entries) have no line at all, and the ones that do may share it.
         .outerjoin(InvoiceLine, InvoiceLine.id == ErpEntry.source_invoice_line_id)
     )
 
 
-# The response fields an ErpEntry can supply itself; the rest come from the join.
 _OWN_FIELDS = tuple(
     name
     for name in ErpEntryRead.model_fields
@@ -157,29 +107,10 @@ def _entry_conditions(
     vendor_id: str | None = None,
     needs_review: bool | None = None,
 ) -> list:
-    """The WHERE clause shared by every entry listing. Filters compose (AND).
-
-    The excluded-type rule lives here rather than in each endpoint, so the flat
-    list and the voucher groups cannot disagree about what exists. An explicit
-    `entry_type=payment` therefore returns an empty page rather than overriding
-    it — the exclusion is a product rule, not a default.
-
-    The same goes for the account selection: both listings show only entries on
-    accounts the customer has enabled, so a voucher of nothing but deselected
-    postings yields no group at all.
-    """
+    """The WHERE clause shared by every entry listing."""
     conditions = [
         ErpEntry.company_id.in_(company_ids),
         ErpEntry.entry_type.notin_(_EXCLUDED_ENTRY_TYPES),
-        # Only accounts the customer selected for sync. `sync_enabled` gates the
-        # *fetch*, but an account is enabled when first discovered and disabling
-        # it deletes nothing, so anything pulled before it was switched off stays
-        # in the database — and without this would keep showing on a page whose
-        # settings say that account is not part of their spend picture.
-        #
-        # A subquery rather than a join predicate: the same conditions build the
-        # `select(count()).select_from(ErpEntry)` total, which has no account
-        # join to hang it on.
         ErpEntry.erp_account_id.in_(
             select(ErpAccount.id).where(ErpAccount.sync_enabled == True)  # noqa: E712
         ),
@@ -192,30 +123,17 @@ def _entry_conditions(
         conditions.append(ErpEntry.source_invoice_id == source_invoice_id)
     if status_filter is not None:
         conditions.append(ErpEntry.status == status_filter)
-    # A null accounting_date compares NULL against a bound, so undated entries
-    # drop out of any bounded range — which is what "in this period" means.
     if date_from is not None:
         conditions.append(ErpEntry.accounting_date >= date_from)
     if date_to is not None:
         conditions.append(ErpEntry.accounting_date <= date_to)
     if vendor_id is not None:
-        # Entries carry no vendor; the supplier is a property of the invoice the
-        # posting came from. An unlinked posting therefore has no known supplier
-        # and matches no vendor filter.
         conditions.append(
             ErpEntry.source_invoice_id.in_(
                 select(Invoice.id).where(Invoice.vendor_id == vendor_id)
             )
         )
     if needs_review is not None:
-        # Resolved through the *invoice*, not through `source_invoice_line_id`.
-        #
-        # The page shows a voucher and expands it into the whole invoice's lines,
-        # so "this voucher has something to review" is a statement about the
-        # invoice. Going by the posting's own line would hide a doubtful line
-        # from the very voucher that displays it, since most postings carry no
-        # line link at all — input VAT, the payable and every journal entry
-        # belong to a voucher rather than to a line.
         doubtful_invoices = select(InvoiceLine.invoice_id).where(
             InvoiceLine.status == "ai_categorized",
             or_(
@@ -224,9 +142,6 @@ def _entry_conditions(
             ),
         )
         holds_one = ErpEntry.source_invoice_id.in_(doubtful_invoices)
-        # An unlinked posting is *not* review work when asking for it, and is
-        # ordinary work when asking for the complement — `NOT IN` over a NULL
-        # column yields NULL and would drop those rows from both answers.
         conditions.append(
             holds_one
             if needs_review
@@ -271,13 +186,6 @@ def list_erp_entries(
     rows = session.exec(
         _entry_select()
         .where(*conditions)
-        # Newest first, then a voucher's postings together. Grouping by voucher
-        # within a date is what lets this flat list read as a ledger instead of
-        # one voucher's rows scattered among every other posting that day. The
-        # trailing id makes the order total, so a page boundary can neither
-        # repeat nor skip a row. `nulls_last` on both keys because a missing
-        # date is not a recent one, and because SQLite and PostgreSQL disagree
-        # on where NULLs fall by default.
         .order_by(
             nulls_last(ErpEntry.accounting_date.desc()),
             nulls_last(ErpEntry.voucher_id),
@@ -294,8 +202,6 @@ def list_erp_entries(
     )
 
 
-# Declared before `/erp-entries/{entry_id}`: FastAPI matches in declaration
-# order, so the parameterized route would otherwise swallow "vouchers" and 404.
 @router.get("/erp-entries/vouchers", response_model=Page[VoucherGroupRead])
 def list_voucher_groups(
     company_id: str | None = Query(default=None),
@@ -312,12 +218,7 @@ def list_voucher_groups(
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> Page[VoucherGroupRead]:
-    """Voucher groups, with totals in the company's base currency by default.
-
-    `currency_mode=original` sums the as-posted amounts instead, reproducing the
-    behaviour from before base currency existed. Either way, each entry inside a
-    group carries both figures, so a client can always explain the total.
-    """
+    """Voucher groups, with totals in the company's base currency by default."""
     company_ids = resolve_company_ids(scope, company_id)
     if not company_ids:
         return Page(items=[], page=page, page_size=page_size, total=0)
@@ -333,9 +234,6 @@ def list_voucher_groups(
         needs_review=needs_review,
     )
 
-    # Query 1 — the page of groups. Only the ordering aggregate is selected;
-    # totals are derived from the entries themselves in query 2, so what the
-    # group claims and what it lists can never disagree.
     grouped = (
         select(
             ErpEntry.company_id,
@@ -350,8 +248,6 @@ def list_voucher_groups(
     ).one()
     keys = session.exec(
         grouped
-        # NULLS LAST explicitly: Postgres sorts NULLs first on DESC, SQLite last.
-        # Without this, undated groups move depending on the backend.
         .order_by(nulls_last(func.max(ErpEntry.accounting_date).desc()), _GROUP_KEY)
         .offset((page - 1) * page_size)
         .limit(page_size)
@@ -359,9 +255,6 @@ def list_voucher_groups(
     if not keys:
         return Page(items=[], page=page, page_size=page_size, total=total)
 
-    # Query 2 — every entry belonging to the page's groups, in one round-trip.
-    # Filtering on the key alone can over-fetch when two companies share a
-    # voucher id; bucketing on the (company, key) pair separates them again.
     order = [(company, key) for company, key, _ in keys]
     last_dates = {(company, key): last for company, key, last in keys}
     rows = session.exec(
@@ -378,9 +271,6 @@ def list_voucher_groups(
         if bucket is not None:
             bucket.append(row)
 
-    # Query 3 — the lines and processing state of the page's invoices, batched.
-    # The grouping, the totals and the pagination above are untouched by this:
-    # lines are additive payload, never an input to which vouchers are returned.
     group_invoices = {
         pair: _group_invoice_id(buckets[pair]) for pair in order
     }
@@ -403,26 +293,15 @@ def list_voucher_groups(
 
 
 def _shared(values: list) -> object | None:
-    """The one value every entry agrees on, or None if they disagree.
-
-    Nothing in the schema forces a voucher's postings to share a currency or a
-    supplier. Reporting the first row's value as the group's would quietly
-    invent agreement, so disagreement is reported as "unknown" instead.
-    """
+    """The one value every entry agrees on, or None if they disagree."""
     distinct = {v for v in values}
     if len(distinct) == 1:
         return next(iter(distinct))
     return None
 
 
-# The account type that means "this is money spent". Defined in the domain
-# because the sync runner's stand-in lines must count exactly the same postings
-# this figure does — see `EXPENSE_ACCOUNT_TYPE`.
 _EXPENSE = EXPENSE_ACCOUNT_TYPE
 
-# Which columns a group's totals are summed from, per currency mode. Keeping the
-# two side by side is what lets one set of grouping logic serve both without
-# either mode quietly acquiring the other's behaviour.
 _AMOUNT_FIELDS = {
     "original": ("debit_amount", "credit_amount", "currency"),
     "base": ("base_debit_amount", "base_credit_amount", "base_currency"),
@@ -430,18 +309,7 @@ _AMOUNT_FIELDS = {
 
 
 def _net_spend(rows: list, debit_field: str, credit_field: str) -> Decimal | None:
-    """The group's signed net spend, or None when it spent nothing.
-
-    Deliberately not `debit_total - credit_total`: a voucher balances by
-    construction, so that difference is always zero. Spend is the movement on
-    the *expense* accounts only — which also makes a credit note come out
-    negative on its own, since a refund credits the account it originally
-    debited.
-
-    `erp_account_type` is optional on the connector DTO. When no account in the
-    group declares one, the caller falls back to the voucher's magnitude rather
-    than reporting an empty column for every row.
-    """
+    """The group's signed net spend, or None when it spent nothing."""
     expense_rows = [r for r in rows if r[5] == _EXPENSE]
     if not expense_rows:
         return None
@@ -457,29 +325,7 @@ def _net_spend(rows: list, debit_field: str, credit_field: str) -> Decimal | Non
 def _voucher_amount(
     rows: list, mode: str
 ) -> tuple[Decimal | None, Decimal | None, Decimal | None, str | None, int]:
-    """The net spend, debit/credit totals, currency and unconverted count for
-    one voucher's rows, in the given `currency_mode`.
-
-    The single place this is computed: `/erp-entries/vouchers` (a page of
-    groups) and `/erp-entries/vouchers/{id}` (one voucher's full detail) both
-    call this rather than each totalling its own rows, so the group a table
-    row shows and the total a detail panel opened from that row shows cannot
-    disagree — the same discipline `_entry_select`/`_entry_read` already give
-    the shape of an entry.
-
-    Returns `(amount, debit_total, credit_total, currency, unconverted_count)`.
-    In base mode, only converted postings can be summed. An unconverted one is
-    counted and left out — folding its posted amount in would add DKK to EUR,
-    and dropping it silently would understate the voucher. `amount` is signed
-    net spend: debit − credit over the *expense* rows only (not
-    `debit_total − credit_total`, which is zero for any balanced voucher), None
-    when the voucher moved money without spending any (a payment) — unless no
-    row declares an account type at all, in which case "no expense account" is
-    ignorance rather than a fact and the voucher's magnitude is reported
-    instead of nothing. `currency` is `_shared`'s verdict on the summed rows:
-    the one they agree on, or None when they disagree (including when nothing
-    was summable at all).
-    """
+    """Net spend, debit/credit totals, currency and unconverted count for one voucher."""
     debit_field, credit_field, currency_field = _AMOUNT_FIELDS[mode]
 
     if mode == "base":
@@ -490,8 +336,6 @@ def _voucher_amount(
         unconverted_count = 0
 
     if not summable:
-        # Nothing convertible in the whole group: say so, rather than reporting
-        # 0.00 in a currency none of these postings are in.
         return None, None, None, None, unconverted_count
 
     debit_total = sum((getattr(r[0], debit_field) or _ZERO for r in summable), _ZERO)
@@ -504,24 +348,13 @@ def _voucher_amount(
 
 
 def _invoice_lines_for(session: Session, invoice_ids: set[str]) -> dict[str, list[InvoiceLineRead]]:
-    """Every listed voucher's invoice lines, in one round-trip.
-
-    The Entries table renders a voucher's *lines* when it is expanded, so they
-    travel with the page. Fetching them per expanded row would make the page's
-    cost a function of how much the user explores, and would show a spinner
-    inside a row that is already on screen.
-    """
+    """Every listed voucher's invoice lines, in one round-trip."""
     if not invoice_ids:
         return {}
     rows = session.exec(
-        # The invoice's currency comes along: a line is denominated in it and
-        # carries none of its own, so without it the client cannot say what
-        # `amount` is in.
         select(InvoiceLine, Invoice.currency)
         .join(Invoice, Invoice.id == InvoiceLine.invoice_id)
         .where(InvoiceLine.invoice_id.in_(invoice_ids))  # type: ignore[union-attr]
-        # An invoice reads top to bottom, so its lines come back in the order
-        # their source stated them; the id is only a tiebreak.
         .order_by(InvoiceLine.invoice_id, InvoiceLine.sequence, InvoiceLine.id)
     ).all()
     by_invoice: dict[str, list[InvoiceLineRead]] = {}
@@ -537,21 +370,13 @@ def _line_read(line: InvoiceLine, currency: str | None) -> InvoiceLineRead:
     )
 
 
-#: What a voucher shows from its invoice's header, batched into one round-trip:
-#: `(doc_status, doc_error, invoice_number, document_invoice_number)`.
 InvoiceHeaderState = tuple[str, str | None, str | None, str | None]
 
 
 def _invoice_header_state(
     session: Session, invoice_ids: set[str]
 ) -> dict[str, InvoiceHeaderState]:
-    """`{invoice_id: InvoiceHeaderState}`, in one round-trip.
-
-    Both invoice numbers travel, not one resolved value: which to *show* is the
-    client's presentation choice, and collapsing them here would throw away the
-    disagreement — which is exactly the case worth seeing, since the as-posted
-    number is often a fallback identifier rather than the supplier's.
-    """
+    """`{invoice_id: InvoiceHeaderState}`, in one round-trip."""
     if not invoice_ids:
         return {}
     rows = session.exec(
@@ -567,12 +392,7 @@ def _invoice_header_state(
 
 
 def _group_invoice_id(rows: list) -> str | None:
-    """The source invoice the group's postings agree on, if any.
-
-    `_shared` rather than "the first one that has one": a voucher whose postings
-    name two different invoices is not a voucher whose lines we can show, and
-    picking one arbitrarily would list one invoice's lines under another's spend.
-    """
+    """The source invoice the group's postings agree on, if any."""
     return _shared([r[0].source_invoice_id for r in rows if r[0].source_invoice_id])
 
 
@@ -614,12 +434,7 @@ def _voucher_group(
 def _voucher_detail(
     session: Session, scope: TenantScope, entries: list, mode: str = "base"
 ) -> VoucherDetailRead:
-    """Assemble a voucher payload from its postings.
-
-    `_EXCLUDED_ENTRY_TYPES` deliberately does not apply: this is a lookup of a
-    voucher the caller named, like `GET /erp-entries/{id}`, not a listing to
-    sweep. Dropping a payment here would leave the voucher's totals unexplainable.
-    """
+    """Assemble a voucher payload from its postings."""
     if not entries:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voucher not found")
 
@@ -642,12 +457,6 @@ def _voucher_detail(
             )
             detail = _invoice_read(invoice, file_row).model_dump()
             detail["lines"] = [_line_read(ln, invoice.currency) for ln in lines]
-            # Computed, not defaulted. Validating an `InvoiceRead` dump into an
-            # `InvoiceDetailRead` took the schema default — `True` — so the
-            # panel asserted that every voucher's lines added up and its "Lines
-            # do not add up" badge could never fire. `GET /invoices/{id}` had
-            # been getting this right the whole time: sharing the *rule* is not
-            # the same as calling it.
             verdict = reconcile_lines(lines, invoice)
             detail["lines_reconciled"] = verdict.ok
             detail["reconciliation_delta"] = verdict.delta
@@ -655,9 +464,6 @@ def _voucher_detail(
             if file_row is not None:
                 document = DocumentRead(file_id=file_row.id, filename=file_row.filename)
 
-    # Same helper, same rule as `/erp-entries/vouchers`: the total this panel
-    # shows and the total the table row it was opened from shows are computed
-    # once, not twice, so they cannot drift into disagreeing figures.
     amount, _debit_total, _credit_total, currency, _unconverted_count = _voucher_amount(
         entries, mode
     )
@@ -674,9 +480,6 @@ def _voucher_detail(
     )
 
 
-# Declared before both `/erp-entries/vouchers/{voucher_id}` and
-# `/erp-entries/{entry_id}`: FastAPI matches in declaration order, so a
-# parameterized route declared first would swallow "by-entry" as a voucher id.
 @router.get("/erp-entries/vouchers/by-entry/{entry_id}", response_model=VoucherDetailRead)
 def get_voucher_by_entry(
     entry_id: str,
@@ -684,11 +487,7 @@ def get_voucher_by_entry(
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> VoucherDetailRead:
-    """The voucher a posting belongs to, addressed by the posting.
-
-    A group whose `voucher_id` is null is a group of one and has no shareable
-    key of its own; this is how such a group is deep-linked.
-    """
+    """The voucher a posting belongs to, addressed by the posting."""
     rows = session.exec(
         _entry_select().where(
             ErpEntry.id == entry_id,
@@ -704,8 +503,6 @@ def get_voucher_by_entry(
     return _voucher_detail(session, scope, list(rows), mode=currency_mode)
 
 
-# Declared before `/erp-entries/{entry_id}` for the same reason as `vouchers`
-# above: a bare `{voucher_id}` path parameter would otherwise swallow it too.
 @router.get("/erp-entries/vouchers/{voucher_id}", response_model=VoucherDetailRead)
 def get_voucher_detail(
     voucher_id: str,
@@ -713,12 +510,7 @@ def get_voucher_detail(
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> VoucherDetailRead:
-    """One voucher's postings, its invoice with lines, and its document.
-
-    `amount`/`currency` follow the same `currency_mode=base|original` split as
-    `/erp-entries/vouchers` (base by default) and are computed by the same
-    helper, so a table row's total and the panel opened from it always agree.
-    """
+    """One voucher's postings, its invoice with lines, and its document."""
     rows = session.exec(
         _entry_select()
         .where(
@@ -731,8 +523,6 @@ def get_voucher_detail(
     return _voucher_detail(session, scope, list(rows), mode=currency_mode)
 
 
-# Declared before `/erp-entries/vouchers/{voucher_id}/audit` and before
-# `/erp-entries/{entry_id}`, for the same reason as `by-entry` above.
 @router.get("/erp-entries/vouchers/by-entry/{entry_id}/audit",
             response_model=list[VoucherAuditRead])
 def list_voucher_audit_by_entry(
@@ -740,16 +530,10 @@ def list_voucher_audit_by_entry(
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> list[VoucherAuditRead]:
-    # Audit doesn't read `amount`/`currency`, but this is a direct Python call,
-    # not an HTTP request — `currency_mode`'s default is a FastAPI `Query(...)`
-    # sentinel that only resolves to "base" when FastAPI itself invokes the
-    # route, so it must be passed explicitly here.
     detail = get_voucher_by_entry(entry_id, currency_mode="base", scope=scope, session=session)
     return _voucher_audit(session, detail)
 
 
-# Declared before `/erp-entries/{entry_id}` for the same reason as `vouchers`
-# above: a bare `{voucher_id}` path parameter would otherwise swallow it too.
 @router.get("/erp-entries/vouchers/{voucher_id}/audit",
             response_model=list[VoucherAuditRead])
 def list_voucher_audit(
@@ -757,25 +541,13 @@ def list_voucher_audit(
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> list[VoucherAuditRead]:
-    """Every change to this voucher's invoice and lines, newest first.
-
-    Newest-first because this is a feed — what happened lately. The per-line
-    `GET /invoice-lines/{id}/audit` stays oldest-first: a history reads forward.
-    """
-    # Same reason as `list_voucher_audit_by_entry`: a direct Python call needs
-    # an explicit `currency_mode`, since the `Query(...)` default only resolves
-    # when FastAPI itself is the caller.
+    """Every change to this voucher's invoice and lines, newest first."""
     detail = get_voucher_detail(voucher_id, currency_mode="base", scope=scope, session=session)
     return _voucher_audit(session, detail)
 
 
 def _voucher_audit(session: Session, detail: VoucherDetailRead) -> list[VoucherAuditRead]:
-    """Merge the voucher's invoice- and line-level audit rows into one feed.
-
-    Tenant scope is inherited from the caller: both routes above resolve
-    `detail` through the Task 5 resolvers, which already 404 outside the
-    caller's scope before any audit row is looked up.
-    """
+    """Merge the voucher's invoice- and line-level audit rows into one feed."""
     if detail.invoice is None:
         return []
     labels = {detail.invoice.id: "Invoice"}
@@ -786,11 +558,6 @@ def _voucher_audit(session: Session, detail: VoucherDetailRead) -> list[VoucherA
         select(AuditLog)
         .where(AuditLog.entity_id.in_(list(labels)))
         .where(AuditLog.entity_type.in_(["invoice", "invoice_line"]))
-        # Newest first, by true insertion order. Not `created_at`: on
-        # PostgreSQL that column is constant for the whole transaction, so
-        # rows written together (e.g. two lines verified in one request)
-        # always tie on it — `seq` is monotonic per row, so no tiebreak
-        # column is needed on top of it.
         .order_by(AuditLog.seq.desc())
     ).all()
     return [
@@ -808,17 +575,12 @@ def get_erp_entry(
     scope: TenantScope = Depends(tenant_scope),
     session: Session = Depends(get_session),
 ) -> ErpEntryRead:
-    # Deliberately not gated by `_EXCLUDED_ENTRY_TYPES`. That rule governs what
-    # we *list*; a lookup by id is reached from a link, and 404-ing a row that
-    # exists and is in the caller's tenant would trade a working deep link for
-    # nothing — no listing offers the id in the first place.
     row = session.exec(
         _entry_select().where(
             ErpEntry.id == entry_id,
             ErpEntry.company_id.in_(scope.company_ids),
         )
     ).first()
-    # 404 rather than 403 for an out-of-scope entry, so existence is not leaked.
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
     return _entry_read(row)

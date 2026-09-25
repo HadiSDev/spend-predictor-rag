@@ -1,7 +1,4 @@
-"""Streamlit dashboard for Steelyard.
-
-Run with:  streamlit run apps/web-api/src/web_api/dashboard/app.py
-"""
+"""Streamlit dashboard for Steelyard."""
 
 import streamlit as st
 

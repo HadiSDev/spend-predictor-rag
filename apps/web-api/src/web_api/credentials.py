@@ -1,10 +1,4 @@
-"""Encrypt/decrypt ERP integration credentials at rest.
-
-Uses Fernet (authenticated symmetric encryption) with a key from
-``config.WEB_API_CREDENTIAL_ENC_KEY``. Secrets are only decrypted server-side to
-build a connector — never returned to API clients. When the key is unset, the
-encrypt path fails closed so plaintext is never persisted.
-"""
+"""Encrypt/decrypt ERP integration credentials at rest."""
 from __future__ import annotations
 
 import json

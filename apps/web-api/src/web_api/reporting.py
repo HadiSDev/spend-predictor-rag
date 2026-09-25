@@ -1,26 +1,4 @@
-"""Read-only aggregate reporting over the domain tables.
-
-Pure SQL `GROUP BY` rollups the customer API exposes under `/api/v1/reports/*`.
-Each function takes an explicit, already-scoped `company_ids` list (the router
-resolves it from the caller's tenant scope) and returns a list of plain row
-dicts; the router maps those onto response schemas.
-
-Money is always grouped by a currency column — amounts of different currencies
-are never summed together — and sums are coalesced to 0 so a group is never null.
-Ledger sums come from `ErpEntry` (the financial source of truth); category and
-vendor spend come from the invoice/line layer, where those dimensions live.
-
-**Which** currency column depends on the mode. `base` (the default) groups by the
-stored `base_currency` and sums the converted amounts, so a customer sees one
-figure per dimension in their own currency. `original` groups by the as-posted
-`currency` and reproduces the pre-conversion behaviour exactly.
-
-Rows that could not be converted have a null `base_currency`, so in base mode
-they form their own group: currency null, totals 0, and `unconverted_count` set.
-That is deliberate — money we cannot express in the customer's currency is
-reported as its own visible line rather than folded into a total it does not
-belong in, or dropped so the total silently understates spend.
-"""
+"""Read-only aggregate reporting over the domain tables."""
 from __future__ import annotations
 
 from datetime import date
@@ -52,13 +30,7 @@ def _entry_columns(mode: str):
 
 
 def _unconverted(mode: str, currency, count: int) -> int:
-    """How many rows in this group had no base amount.
-
-    A null currency in base mode *is* the unconverted group — the base columns
-    are only ever null together — so the group's own count is the answer. In
-    original mode nothing is excluded, so it is always zero (a null posted
-    currency there is just an ERP that did not say).
-    """
+    """How many rows in this group had no base amount."""
     return count if mode == BASE and currency is None else 0
 
 
@@ -157,11 +129,7 @@ def entries_by_account(
     return result
 
 
-#: The line's materialized category path, shallowest first.
 _LEVEL_COLUMNS = ("level_1", "level_2", "level_3", "level_4")
-#: How many path columns a requested grouping level spans. Grouping by the whole
-#: prefix, not by the single column, so `Software` under `Technology` is never
-#: merged with a `Software` under some other branch of the tree.
 _LEVEL_DEPTH = {name: index + 1 for index, name in enumerate(_LEVEL_COLUMNS)}
 
 
@@ -174,16 +142,7 @@ def spend_by_category(
     to_date: date | None = None,
     currency_mode: str = BASE,
 ) -> list[dict]:
-    """Sum categorized invoice-line amounts + count per spend level and currency.
-
-    Only `ai_categorized`/`verified` lines count. ``level`` is ``level_1``,
-    ``level_2`` (default), ``level_3`` or ``level_4``; each groups by the whole
-    path down to that level, so a subcategory is always shown under the parent
-    it belongs to rather than merged with a same-named one elsewhere in the
-    tree. The date filter comes from the parent invoice; so does the posted
-    currency, while the base currency is stamped on the line by its own
-    conversion.
-    """
+    """Sum categorized invoice-line amounts + count per spend level and currency."""
     if not company_ids:
         return []
     depth = _LEVEL_DEPTH.get(level)
